@@ -20,14 +20,14 @@ const CallItem = ({ customer, time, duration, score, flagged = false }: CallItem
   };
 
   return (
-    <div className="flex items-center justify-between p-3 border-b border-white/5 hover:bg-white/5 rounded-md cursor-pointer transition-colors">
+    <div className="flex items-center justify-between p-3 border-b border-gray-100 hover:bg-gray-50 rounded-md cursor-pointer transition-colors">
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-dark-purple flex items-center justify-center">
-          <User className="h-4 w-4 text-gray-400" />
+        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
+          <User className="h-4 w-4 text-gray-500" />
         </div>
         <div>
-          <p className="text-sm font-medium text-white">{customer}</p>
-          <div className="flex items-center gap-2 text-xs text-gray-400">
+          <p className="text-sm font-medium text-gray-800">{customer}</p>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
             <Clock className="h-3 w-3" />
             <span>{time}</span>
             <span>•</span>
@@ -42,17 +42,17 @@ const CallItem = ({ customer, time, duration, score, flagged = false }: CallItem
         )}
         
         <div>
-          <p className="text-xs text-gray-400 text-right">Score</p>
+          <p className="text-xs text-gray-500 text-right">Score</p>
           <p className={`text-sm font-medium ${getScoreColor(score)}`}>{score}</p>
         </div>
         
         <AIWaveform 
           barCount={4} 
-          color={score >= 80 ? "green" : score >= 60 ? "blue" : "red"} 
+          color={score >= 80 ? "green" : score >= 60 ? "blue" : "pink"} 
           className="h-5" 
         />
         
-        <button className="text-gray-400 hover:text-white">
+        <button className="text-gray-400 hover:text-gray-700">
           <MoreHorizontal className="h-4 w-4" />
         </button>
       </div>

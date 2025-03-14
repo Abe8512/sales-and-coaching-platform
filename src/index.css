@@ -5,43 +5,43 @@
 
 @layer base {
   :root {
-    --background: 224 30% 8%;
-    --foreground: 210 30% 98%;
+    --background: 0 0% 100%;
+    --foreground: 210 30% 12%;
 
-    --card: 224 32% 12%;
-    --card-foreground: 210 30% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 210 30% 12%;
 
-    --popover: 224 32% 10%;
-    --popover-foreground: 210 30% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 30% 12%;
 
     --primary: 185 100% 50%;
     --primary-foreground: 210 30% 8%;
 
     --secondary: 263 85% 67%;
-    --secondary-foreground: 210 30% 98%;
+    --secondary-foreground: 210 30% 12%;
 
-    --muted: 224 25% 25%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 215 20% 45%;
 
-    --accent: 225 30% 16%;
-    --accent-foreground: 210 30% 98%;
+    --accent: 225 30% 96%;
+    --accent-foreground: 210 30% 12%;
 
     --destructive: 350 95% 42%;
     --destructive-foreground: 210 30% 98%;
 
-    --border: 224 30% 18%;
-    --input: 224 30% 16%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
     --ring: 185 100% 50%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 225 35% 7%;
+    --sidebar-background: 225 35% 10%;
     --sidebar-foreground: 210 30% 98%;
     --sidebar-primary: 263 85% 67%;
     --sidebar-primary-foreground: 210 30% 98%;
-    --sidebar-accent: 225 30% 12%;
+    --sidebar-accent: 225 30% 16%;
     --sidebar-accent-foreground: 210 30% 98%;
-    --sidebar-border: 225 30% 14%;
+    --sidebar-border: 225 30% 18%;
     --sidebar-ring: 185 100% 50%;
   }
 }
@@ -52,42 +52,41 @@
   }
 
   body {
-    @apply bg-dark-blue text-foreground;
-    background-image: radial-gradient(circle at 50% 50%, rgba(20, 24, 40, 0.8) 0%, rgba(15, 17, 23, 1) 100%);
+    @apply bg-white text-foreground;
   }
 }
 
 @layer components {
   .glass-card {
-    @apply bg-dark-purple/50 backdrop-blur-sm border border-white/10 rounded-xl shadow-lg;
+    @apply bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl shadow-md;
   }
   
   .glassmorphism {
-    @apply bg-white/5 backdrop-blur-md border border-white/10 shadow-xl;
+    @apply bg-white/90 backdrop-blur-md border border-gray-200 shadow-md;
   }
   
   .neon-border {
-    @apply border border-neon-blue/50 shadow-neon-blue;
+    @apply border border-neon-blue/30 shadow-sm;
   }
   
   .neon-purple-border {
-    @apply border border-neon-purple/50 shadow-neon-purple;
+    @apply border border-neon-purple/30 shadow-sm;
   }
   
   .neon-pink-border {
-    @apply border border-neon-pink/50 shadow-neon-pink;
+    @apply border border-neon-pink/30 shadow-sm;
   }
   
   .neon-green-border {
-    @apply border border-neon-green/50 shadow-neon-green;
+    @apply border border-neon-green/30 shadow-sm;
   }
   
   .neon-red-border {
-    @apply border border-neon-red/50 shadow-neon-red;
+    @apply border border-neon-red/30 shadow-sm;
   }
   
   .shimmer-bg {
-    @apply bg-gradient-to-r from-transparent via-white/10 to-transparent bg-[length:200%_100%] animate-shimmer;
+    @apply bg-gradient-to-r from-transparent via-gray-200/40 to-transparent bg-[length:200%_100%] animate-shimmer;
   }
   
   .text-gradient-blue {

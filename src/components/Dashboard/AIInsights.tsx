@@ -1,10 +1,13 @@
 
-import React from "react";
+import React, { useContext } from "react";
 import { Bot, BrainCircuit, Lightbulb, TrendingUp, ArrowRight } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
+import { ThemeContext } from "@/App";
 
 const AIInsights = () => {
+  const { isDarkMode } = useContext(ThemeContext);
+  
   // Mock data for AI insights
   const insights = [
     {
@@ -36,7 +39,7 @@ const AIInsights = () => {
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-neon-purple" />
-            <h2 className="text-xl font-bold text-white">AI Insights</h2>
+            <h2 className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>AI Insights</h2>
           </div>
           
           <button className="text-neon-purple hover:text-neon-purple/80 text-sm font-medium transition-colors flex items-center gap-1">
@@ -47,39 +50,39 @@ const AIInsights = () => {
         
         <div className="flex items-center gap-3 mb-6">
           <AIWaveform color="purple" barCount={15} />
-          <p className="text-sm text-gray-400">
+          <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
             AI analyzing <span className="text-neon-purple font-medium">173 calls</span> from last 7 days
           </p>
         </div>
         
         <div className="space-y-4">
           {insights.map((insight) => (
-            <div key={insight.id} className={`p-3 rounded-lg neon-${insight.gradient}-border bg-white/5`}>
+            <div key={insight.id} className={`p-3 rounded-lg ${isDarkMode ? `neon-${insight.gradient}-border bg-white/5` : `light-${insight.gradient}-border bg-gray-50`}`}>
               <div className="flex gap-3">
                 <div className="mt-1">{insight.icon}</div>
                 <div>
-                  <h3 className="text-white font-medium mb-1">{insight.title}</h3>
-                  <p className="text-sm text-gray-400">{insight.description}</p>
+                  <h3 className={`font-medium mb-1 ${isDarkMode ? "text-white" : "text-gray-800"}`}>{insight.title}</h3>
+                  <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>{insight.description}</p>
                 </div>
               </div>
             </div>
           ))}
         </div>
         
-        <div className="mt-6 p-4 rounded-lg bg-dark-purple/50 border border-white/10">
+        <div className={`mt-6 p-4 rounded-lg ${isDarkMode ? "bg-dark-purple/50 border border-white/10" : "bg-gray-50 border border-gray-200"}`}>
           <div className="flex items-start gap-3">
-            <div className="bg-neon-purple/20 rounded-full p-2 mt-1">
+            <div className={`${isDarkMode ? "bg-neon-purple/20" : "bg-neon-purple/10"} rounded-full p-2 mt-1`}>
               <Bot className="h-5 w-5 text-neon-purple" />
             </div>
             <div>
-              <p className="text-sm text-white mb-2">
+              <p className={`text-sm ${isDarkMode ? "text-white" : "text-gray-800"} mb-2`}>
                 <span className="font-medium">Suggestion:</span> Based on your recent calls, try acknowledging customer concerns before presenting solutions. This approach has shown a 32% higher success rate among top performers.
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <button className="bg-neon-purple hover:bg-neon-purple/90 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors">
                   Apply to Script
                 </button>
-                <button className="bg-white/10 hover:bg-white/15 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors">
+                <button className={`${isDarkMode ? "bg-white/10 hover:bg-white/15 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-800"} px-3 py-1.5 rounded text-xs font-medium transition-colors`}>
                   Show Examples
                 </button>
               </div>

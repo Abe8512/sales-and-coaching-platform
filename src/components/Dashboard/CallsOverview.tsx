@@ -1,8 +1,9 @@
 
-import React from "react";
+import React, { useContext } from "react";
 import { MoreHorizontal, Flag, Clock, Phone, User, CalendarClock } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
+import { ThemeContext } from "@/App";
 
 interface CallItemProps {
   customer: string;
@@ -10,9 +11,10 @@ interface CallItemProps {
   duration: string;
   score: number;
   flagged?: boolean;
+  isDarkMode: boolean;
 }
 
-const CallItem = ({ customer, time, duration, score, flagged = false }: CallItemProps) => {
+const CallItem = ({ customer, time, duration, score, flagged = false, isDarkMode }: CallItemProps) => {
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-neon-green";
     if (score >= 60) return "text-yellow-400";
@@ -20,13 +22,13 @@ const CallItem = ({ customer, time, duration, score, flagged = false }: CallItem
   };
 
   return (
-    <div className="flex items-center justify-between p-3 border-b border-gray-100 hover:bg-gray-50 rounded-md cursor-pointer transition-colors">
+    <div className={`flex items-center justify-between p-3 border-b ${isDarkMode ? "border-gray-100/10" : "border-gray-100"} ${isDarkMode ? "hover:bg-white/5" : "hover:bg-gray-50"} rounded-md cursor-pointer transition-colors`}>
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
-          <User className="h-4 w-4 text-gray-500" />
+        <div className={`w-8 h-8 rounded-full ${isDarkMode ? "bg-gray-800" : "bg-gray-100"} flex items-center justify-center`}>
+          <User className={`h-4 w-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`} />
         </div>
         <div>
-          <p className="text-sm font-medium text-gray-800">{customer}</p>
+          <p className={`text-sm font-medium ${isDarkMode ? "text-white" : "text-gray-800"}`}>{customer}</p>
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <Clock className="h-3 w-3" />
             <span>{time}</span>
@@ -42,7 +44,7 @@ const CallItem = ({ customer, time, duration, score, flagged = false }: CallItem
         )}
         
         <div>
-          <p className="text-xs text-gray-500 text-right">Score</p>
+          <p className={`text-xs ${isDarkMode ? "text-gray-500" : "text-gray-500"} text-right`}>Score</p>
           <p className={`text-sm font-medium ${getScoreColor(score)}`}>{score}</p>
         </div>
         
@@ -52,7 +54,7 @@ const CallItem = ({ customer, time, duration, score, flagged = false }: CallItem
           className="h-5" 
         />
         
-        <button className="text-gray-400 hover:text-gray-700">
+        <button className={`${isDarkMode ? "text-gray-400 hover:text-gray-300" : "text-gray-400 hover:text-gray-700"}`}>
           <MoreHorizontal className="h-4 w-4" />
         </button>
       </div>
@@ -61,6 +63,8 @@ const CallItem = ({ customer, time, duration, score, flagged = false }: CallItem
 };
 
 const CallsOverview = () => {
+  const { isDarkMode } = useContext(ThemeContext);
+  
   // Mock data
   const recentCalls = [
     { id: 1, customer: "Sarah Johnson", time: "10:30 AM", duration: "12m 45s", score: 92 },
@@ -73,15 +77,15 @@ const CallsOverview = () => {
   return (
     <GlowingCard className="mt-6">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-white">Recent Calls</h2>
+        <h2 className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>Recent Calls</h2>
         
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg text-sm">
+          <div className={`flex items-center gap-2 ${isDarkMode ? "bg-white/5" : "bg-gray-100"} px-3 py-1.5 rounded-lg text-sm`}>
             <CalendarClock className="h-4 w-4 text-neon-purple" />
-            <span className="text-white font-medium">Today</span>
+            <span className={isDarkMode ? "text-white" : "text-gray-800"}>Today</span>
           </div>
           
-          <button className="bg-neon-purple/20 hover:bg-neon-purple/30 text-neon-purple px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1">
+          <button className={`${isDarkMode ? "bg-neon-purple/20 hover:bg-neon-purple/30" : "bg-neon-purple/10 hover:bg-neon-purple/20"} text-neon-purple px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1`}>
             <Phone className="h-4 w-4" />
             <span>All Calls</span>
           </button>
@@ -97,6 +101,7 @@ const CallsOverview = () => {
             duration={call.duration}
             score={call.score}
             flagged={call.flagged}
+            isDarkMode={isDarkMode}
           />
         ))}
       </div>

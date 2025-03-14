@@ -1,5 +1,5 @@
 
-import React from "react";
+import React, { useContext } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
 import CallsOverview from "../components/Dashboard/CallsOverview";
@@ -7,15 +7,18 @@ import AIInsights from "../components/Dashboard/AIInsights";
 import CallTranscript from "../components/CallAnalysis/CallTranscript";
 import SentimentAnalysis from "../components/CallAnalysis/SentimentAnalysis";
 import CallRating from "../components/CallAnalysis/CallRating";
+import { ThemeContext } from "@/App";
 
 const Index = () => {
+  const { isDarkMode } = useContext(ThemeContext);
+
   return (
     <DashboardLayout>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-1">
+        <h1 className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mb-1`}>
           <span className="text-gradient-blue">AI</span> Sales Call Analyzer
         </h1>
-        <p className="text-gray-400">
+        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
           Gain real-time insights and improve your sales performance
         </p>
       </div>
@@ -31,7 +34,7 @@ const Index = () => {
         </div>
       </div>
       
-      <h2 className="text-2xl font-bold text-white mt-8 mb-6">
+      <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mt-8 mb-6`}>
         Call Analysis
       </h2>
       

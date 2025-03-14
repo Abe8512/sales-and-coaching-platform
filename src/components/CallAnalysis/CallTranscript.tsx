@@ -1,8 +1,9 @@
 
-import React from "react";
+import React, { useContext } from "react";
 import { Copy, Flag, Play, User } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
+import { ThemeContext } from "@/App";
 
 interface MessageProps {
   sender: "agent" | "customer";
@@ -10,11 +11,12 @@ interface MessageProps {
   timestamp: string;
   flagged?: boolean;
   highlight?: boolean;
+  isDarkMode: boolean;
 }
 
-const Message = ({ sender, content, timestamp, flagged = false, highlight = false }: MessageProps) => {
+const Message = ({ sender, content, timestamp, flagged = false, highlight = false, isDarkMode }: MessageProps) => {
   return (
-    <div className={`py-3 ${highlight ? "bg-white/5 -mx-4 px-4 rounded" : ""}`}>
+    <div className={`py-3 ${highlight ? (isDarkMode ? "bg-white/5" : "bg-gray-100") + " -mx-4 px-4 rounded" : ""}`}>
       <div className="flex gap-3">
         <div className={`w-8 h-8 rounded-full flex items-center justify-center mt-1 ${
           sender === "agent" ? "bg-neon-blue/20" : "bg-neon-pink/20"
@@ -31,10 +33,10 @@ const Message = ({ sender, content, timestamp, flagged = false, highlight = fals
             }`}>
               {sender === "agent" ? "Sales Agent" : "Customer"}
             </h4>
-            <span className="text-xs text-gray-400">{timestamp}</span>
+            <span className={`text-xs ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>{timestamp}</span>
           </div>
           
-          <p className="text-white text-sm">
+          <p className={`text-sm ${isDarkMode ? "text-white" : "text-gray-800"}`}>
             {content}
             {flagged && (
               <span className="inline-flex items-center ml-2 text-neon-red">
@@ -50,6 +52,7 @@ const Message = ({ sender, content, timestamp, flagged = false, highlight = fals
 };
 
 const CallTranscript = () => {
+  const { isDarkMode } = useContext(ThemeContext);
   // Mock data for the transcript
   const transcript = [
     {
@@ -102,17 +105,17 @@ const CallTranscript = () => {
     <GlowingCard className="h-full">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-xl font-bold text-white">Call Transcript</h2>
-          <p className="text-sm text-gray-400">Call with Michael Chen • 11:45 AM • 8m 20s</p>
+          <h2 className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>Call Transcript</h2>
+          <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>Call with Michael Chen • 11:45 AM • 8m 20s</p>
         </div>
         
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-1 bg-white/5 hover:bg-white/10 text-white px-3 py-1.5 rounded text-sm transition-colors">
+          <button className={`flex items-center gap-1 ${isDarkMode ? "bg-white/5 hover:bg-white/10 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-800"} px-3 py-1.5 rounded text-sm transition-colors`}>
             <Play className="h-4 w-4" />
             <span>Play Audio</span>
           </button>
           
-          <button className="flex items-center gap-1 bg-white/5 hover:bg-white/10 text-white px-3 py-1.5 rounded text-sm transition-colors">
+          <button className={`flex items-center gap-1 ${isDarkMode ? "bg-white/5 hover:bg-white/10 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-800"} px-3 py-1.5 rounded text-sm transition-colors`}>
             <Copy className="h-4 w-4" />
             <span>Copy</span>
           </button>
@@ -128,14 +131,15 @@ const CallTranscript = () => {
             timestamp={message.timestamp}
             flagged={message.flagged}
             highlight={message.highlight}
+            isDarkMode={isDarkMode}
           />
         ))}
       </div>
       
-      <div className="pt-4 border-t border-white/10 mt-4">
+      <div className={`pt-4 border-t ${isDarkMode ? "border-white/10" : "border-gray-200"} mt-4`}>
         <div className="flex items-center gap-3 text-sm text-gray-400">
           <AIWaveform color="blue" barCount={8} className="h-5" />
-          <p>AI analyzing transcript patterns...</p>
+          <p className={isDarkMode ? "text-gray-400" : "text-gray-500"}>AI analyzing transcript patterns...</p>
         </div>
       </div>
     </GlowingCard>

@@ -5,6 +5,10 @@
 
 @layer base {
   :root {
+    /* Common variables */
+    --radius: 0.5rem;
+    
+    /* Light mode (default) variables */
     --background: 0 0% 100%;
     --foreground: 210 30% 12%;
 
@@ -33,8 +37,48 @@
     --input: 214 32% 91%;
     --ring: 185 100% 50%;
 
-    --radius: 0.5rem;
+    /* Light mode sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 210 30% 12%;
+    --sidebar-primary: 263 85% 67%;
+    --sidebar-primary-foreground: 210 30% 12%;
+    --sidebar-accent: 225 30% 96%;
+    --sidebar-accent-foreground: 210 30% 12%;
+    --sidebar-border: 220 14% 96%;
+    --sidebar-ring: 185 100% 50%;
+  }
 
+  .dark {
+    /* Dark mode variables */
+    --background: 225 35% 10%;
+    --foreground: 210 30% 98%;
+
+    --card: 225 35% 10%;
+    --card-foreground: 210 30% 98%;
+
+    --popover: 225 35% 10%;
+    --popover-foreground: 210 30% 98%;
+
+    --primary: 185 100% 50%;
+    --primary-foreground: 210 30% 8%;
+
+    --secondary: 263 85% 67%;
+    --secondary-foreground: 210 30% 98%;
+
+    --muted: 225 30% 16%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 225 30% 16%;
+    --accent-foreground: 210 30% 98%;
+
+    --destructive: 350 95% 42%;
+    --destructive-foreground: 210 30% 98%;
+
+    --border: 225 30% 18%;
+    --input: 225 30% 18%;
+    --ring: 185 100% 50%;
+
+    /* Dark mode sidebar */
     --sidebar-background: 225 35% 10%;
     --sidebar-foreground: 210 30% 98%;
     --sidebar-primary: 263 85% 67%;
@@ -52,7 +96,7 @@
   }
 
   body {
-    @apply bg-white text-foreground;
+    @apply bg-background text-foreground;
   }
 }
 
@@ -63,6 +107,14 @@
   
   .glassmorphism {
     @apply bg-white/90 backdrop-blur-md border border-gray-200 shadow-md;
+  }
+  
+  .light .glassmorphism {
+    @apply bg-white border border-gray-200 shadow-md;
+  }
+  
+  .dark .glassmorphism {
+    @apply bg-white/10 backdrop-blur-md border border-white/10 shadow-md;
   }
   
   .neon-border {
@@ -97,3 +149,5 @@
     @apply bg-gradient-to-r from-neon-purple to-neon-pink text-transparent bg-clip-text;
   }
 }
+
+/* ... keep existing code */

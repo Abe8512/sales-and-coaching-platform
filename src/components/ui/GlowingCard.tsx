@@ -7,6 +7,7 @@ interface GlowingCardProps extends React.HTMLAttributes<HTMLDivElement> {
   glassEffect?: boolean;
   hoverEffect?: boolean;
   children: React.ReactNode;
+  isDarkMode?: boolean;
 }
 
 const GlowingCard = ({
@@ -15,6 +16,7 @@ const GlowingCard = ({
   hoverEffect = true,
   className,
   children,
+  isDarkMode = true,
   ...props
 }: GlowingCardProps) => {
   const gradientClasses = {
@@ -29,9 +31,12 @@ const GlowingCard = ({
     <div
       className={cn(
         "rounded-xl p-4",
-        glassEffect && "glassmorphism",
-        gradientClasses[gradient],
-        hoverEffect && "transition-all duration-300 hover:scale-[1.02] hover:shadow-lg",
+        isDarkMode 
+          ? (glassEffect && "glassmorphism")
+          : "bg-white border border-gray-200 shadow-sm",
+        isDarkMode ? gradientClasses[gradient] : "",
+        hoverEffect && "transition-all duration-300 hover:shadow-lg",
+        isDarkMode && hoverEffect && "hover:scale-[1.02]",
         className
       )}
       {...props}

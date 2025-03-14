@@ -20,11 +20,11 @@ const GlowingCard = ({
   ...props
 }: GlowingCardProps) => {
   const gradientClasses = {
-    blue: "neon-border",
-    purple: "neon-purple-border",
-    pink: "neon-pink-border",
-    green: "neon-green-border",
-    red: "neon-red-border",
+    blue: isDarkMode ? "neon-border" : "light-blue-border",
+    purple: isDarkMode ? "neon-purple-border" : "light-purple-border",
+    pink: isDarkMode ? "neon-pink-border" : "light-pink-border",
+    green: isDarkMode ? "neon-green-border" : "light-green-border",
+    red: isDarkMode ? "neon-red-border" : "light-red-border",
   };
 
   return (
@@ -34,7 +34,7 @@ const GlowingCard = ({
         isDarkMode 
           ? (glassEffect && "glassmorphism")
           : "bg-white border border-gray-200 shadow-sm",
-        isDarkMode ? gradientClasses[gradient] : "",
+        gradientClasses[gradient],
         hoverEffect && "transition-all duration-300 hover:shadow-lg",
         isDarkMode && hoverEffect && "hover:scale-[1.02]",
         className

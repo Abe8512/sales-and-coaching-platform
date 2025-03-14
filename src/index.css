@@ -117,6 +117,7 @@
     @apply bg-white/10 backdrop-blur-md border border-white/10 shadow-md;
   }
   
+  /* Dark theme borders */
   .neon-border {
     @apply border border-neon-blue/30 shadow-sm;
   }
@@ -137,6 +138,27 @@
     @apply border border-neon-red/30 shadow-sm;
   }
   
+  /* Light theme borders with more professional colors */
+  .light-blue-border {
+    @apply border border-blue-400 shadow-sm;
+  }
+  
+  .light-purple-border {
+    @apply border border-purple-400 shadow-sm;
+  }
+  
+  .light-pink-border {
+    @apply border border-pink-400 shadow-sm;
+  }
+  
+  .light-green-border {
+    @apply border border-emerald-400 shadow-sm;
+  }
+  
+  .light-red-border {
+    @apply border border-rose-400 shadow-sm;
+  }
+  
   .shimmer-bg {
     @apply bg-gradient-to-r from-transparent via-gray-200/40 to-transparent bg-[length:200%_100%] animate-shimmer;
   }
@@ -147,6 +169,15 @@
   
   .text-gradient-purple {
     @apply bg-gradient-to-r from-neon-purple to-neon-pink text-transparent bg-clip-text;
+  }
+  
+  /* Light theme text gradient */
+  .light .text-gradient-blue {
+    @apply bg-gradient-to-r from-blue-500 to-purple-500 text-transparent bg-clip-text;
+  }
+  
+  .light .text-gradient-purple {
+    @apply bg-gradient-to-r from-purple-500 to-pink-500 text-transparent bg-clip-text;
   }
 }
 

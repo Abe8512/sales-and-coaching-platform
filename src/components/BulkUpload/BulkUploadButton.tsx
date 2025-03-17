@@ -14,12 +14,7 @@ const BulkUploadButton = ({ onClick }: BulkUploadButtonProps) => {
   return (
     <Button
       onClick={onClick}
-      variant="outline"
-      className={`gap-2 ${
-        isDarkMode
-          ? "bg-white/5 text-white hover:bg-white/10"
-          : "bg-gray-100 text-gray-800 hover:bg-gray-200"
-      }`}
+      className={`gap-2 bg-neon-purple hover:bg-neon-purple/90 text-white`}
       size="sm"
     >
       <Upload className="h-4 w-4" />

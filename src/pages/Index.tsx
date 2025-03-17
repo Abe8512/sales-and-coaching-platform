@@ -10,6 +10,7 @@ import CallRating from "../components/CallAnalysis/CallRating";
 import { ThemeContext } from "@/App";
 import BulkUploadButton from "../components/BulkUpload/BulkUploadButton";
 import BulkUploadModal from "../components/BulkUpload/BulkUploadModal";
+import WhisperButton from "../components/Whisper/WhisperButton";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
@@ -27,7 +28,8 @@ const Index = () => {
           </p>
         </div>
         
-        <div>
+        <div className="flex space-x-3">
+          <WhisperButton recordingId="latest" />
           <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
           <BulkUploadModal 
             isOpen={isBulkUploadOpen} 

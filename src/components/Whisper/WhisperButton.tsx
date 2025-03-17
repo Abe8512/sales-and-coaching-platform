@@ -1,12 +1,12 @@
 
 import React, { useContext } from "react";
-import { Bot, AlertCircle } from "lucide-react";
+import { Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeContext } from "@/App";
 import { useToast } from "@/hooks/use-toast";
 
 interface WhisperButtonProps {
-  recordingId?: string;
+  recordingId: string;
 }
 
 const WhisperButton = ({ recordingId }: WhisperButtonProps) => {
@@ -15,8 +15,8 @@ const WhisperButton = ({ recordingId }: WhisperButtonProps) => {
 
   const handleTranscribe = () => {
     toast({
-      title: "Whisper Transcription",
-      description: `Transcribing with Whisper - connect to bulk_transcriber.py (Recording ID: ${recordingId || "unknown"})`,
+      title: "Transcribing with Whisper",
+      description: `Transcribing recording ${recordingId} - connect to bulk_transcriber.py`,
       variant: "default",
     });
   };
@@ -24,15 +24,10 @@ const WhisperButton = ({ recordingId }: WhisperButtonProps) => {
   return (
     <Button
       onClick={handleTranscribe}
-      variant="outline"
-      className={`gap-2 ${
-        isDarkMode
-          ? "bg-neon-purple/20 text-white hover:bg-neon-purple/30"
-          : "bg-neon-purple/10 text-gray-800 hover:bg-neon-purple/20"
-      }`}
+      className={`gap-2 bg-neon-blue hover:bg-neon-blue/90 text-white`}
       size="sm"
     >
-      <Bot className="h-4 w-4 text-neon-purple" />
+      <Mic className="h-4 w-4" />
       <span>Transcribe with Whisper</span>
     </Button>
   );

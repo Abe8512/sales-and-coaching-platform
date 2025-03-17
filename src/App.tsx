@@ -12,6 +12,9 @@ import NotFound from "./pages/NotFound";
 import PlaceholderPage from "./components/PlaceholderPage";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import { AuthProvider } from "./contexts/AuthContext";
+import Team from "./pages/Team";
+import CallComparison from "./pages/CallComparison";
+import AICoaching from "./pages/AICoaching";
 
 const queryClient = new QueryClient();
 
@@ -58,9 +61,10 @@ const App = () => {
                   <Route path="/call-activity" element={<PlaceholderPage title="Call Activity" />} />
                   <Route path="/performance" element={<PlaceholderPage title="Performance" />} />
                   <Route path="/transcripts" element={<PlaceholderPage title="Transcripts" />} />
-                  <Route path="/ai-coaching" element={<PlaceholderPage title="AI Coaching" />} />
+                  <Route path="/ai-coaching" element={<AICoaching />} />
                   <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
-                  <Route path="/team" element={<PlaceholderPage title="Team" />} />
+                  <Route path="/team" element={<Team />} />
+                  <Route path="/call-comparison" element={<CallComparison />} />
                   <Route path="/messaging" element={<PlaceholderPage title="Messaging" />} />
                   <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
                 </Route>

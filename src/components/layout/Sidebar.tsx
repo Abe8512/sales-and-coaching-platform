@@ -1,7 +1,7 @@
 
 import React from "react";
 import { Link } from "react-router-dom";
-import { Activity, BarChart3, Bot, FileText, Home, LineChart, MessageSquare, Settings, Users } from "lucide-react";
+import { Activity, BarChart3, Bot, FileText, Home, LineChart, MessageSquare, Settings, Users, GitCompare, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SidebarItemProps {
@@ -108,7 +108,7 @@ const Sidebar = ({ isDarkMode }: SidebarProps) => {
             isDarkMode={isDarkMode} 
           />
           <SidebarItem 
-            icon={Bot} 
+            icon={Brain} 
             label="AI Coaching" 
             path="/ai-coaching" 
             active={path === "/ai-coaching"} 
@@ -126,6 +126,13 @@ const Sidebar = ({ isDarkMode }: SidebarProps) => {
             label="Team" 
             path="/team" 
             active={path === "/team"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={GitCompare} 
+            label="Call Comparison" 
+            path="/call-comparison" 
+            active={path === "/call-comparison"} 
             isDarkMode={isDarkMode} 
           />
           <SidebarItem 

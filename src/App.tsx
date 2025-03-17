@@ -6,8 +6,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { createContext, useState, useEffect } from "react";
 import Index from "./pages/Index";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
 import PlaceholderPage from "./components/PlaceholderPage";
+import ProtectedRoute from "./components/auth/ProtectedRoute";
+import { AuthProvider } from "./contexts/AuthContext";
 
 const queryClient = new QueryClient();
 
@@ -38,25 +42,35 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/call-activity" element={<PlaceholderPage title="Call Activity" />} />
-              <Route path="/performance" element={<PlaceholderPage title="Performance" />} />
-              <Route path="/transcripts" element={<PlaceholderPage title="Transcripts" />} />
-              <Route path="/ai-coaching" element={<PlaceholderPage title="AI Coaching" />} />
-              <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
-              <Route path="/team" element={<PlaceholderPage title="Team" />} />
-              <Route path="/messaging" element={<PlaceholderPage title="Messaging" />} />
-              <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
+        <AuthProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                {/* Public routes */}
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                
+                {/* Protected routes */}
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/call-activity" element={<PlaceholderPage title="Call Activity" />} />
+                  <Route path="/performance" element={<PlaceholderPage title="Performance" />} />
+                  <Route path="/transcripts" element={<PlaceholderPage title="Transcripts" />} />
+                  <Route path="/ai-coaching" element={<PlaceholderPage title="AI Coaching" />} />
+                  <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
+                  <Route path="/team" element={<PlaceholderPage title="Team" />} />
+                  <Route path="/messaging" element={<PlaceholderPage title="Messaging" />} />
+                  <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+                </Route>
+                
+                {/* Catch-all route */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </AuthProvider>
       </ThemeContext.Provider>
     </QueryClientProvider>
   );

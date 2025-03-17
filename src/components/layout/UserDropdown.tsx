@@ -10,10 +10,12 @@ import {
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, LogOut, Settings, Users, HelpCircle } from 'lucide-react';
+import { User, LogOut, Settings, Users, HelpCircle, UserCog, Shield } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const UserDropdown = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin, isManager } = useAuth();
+  const navigate = useNavigate();
 
   if (!user) return null;
 
@@ -60,6 +62,13 @@ const UserDropdown = () => {
     }
   };
 
+  // Role-based icon
+  const getRoleIcon = () => {
+    if (isAdmin) return <Shield className="h-4 w-4 mr-1 text-red-500" />;
+    if (isManager) return <UserCog className="h-4 w-4 mr-1 text-blue-500" />;
+    return <User className="h-4 w-4 mr-1 text-green-500" />;
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="flex items-center rounded-full border p-1 outline-none focus:ring-2 focus:ring-neon-purple focus:ring-offset-2">
@@ -73,20 +82,23 @@ const UserDropdown = () => {
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">{user.name}</p>
             <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
-            <p className="text-xs text-muted-foreground">{getRoleText(user.role)}</p>
+            <div className="flex items-center text-xs text-muted-foreground">
+              {getRoleIcon()}
+              <span>{getRoleText(user.role)}</span>
+            </div>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="cursor-pointer">
+        <DropdownMenuItem className="cursor-pointer" onClick={() => navigate('/settings')}>
           <User className="mr-2 h-4 w-4" />
           <span>Profile</span>
         </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer">
+        <DropdownMenuItem className="cursor-pointer" onClick={() => navigate('/settings')}>
           <Settings className="mr-2 h-4 w-4" />
           <span>Settings</span>
         </DropdownMenuItem>
-        {(user.role === 'admin' || user.role === 'manager') && (
-          <DropdownMenuItem className="cursor-pointer">
+        {(isAdmin || isManager) && (
+          <DropdownMenuItem className="cursor-pointer" onClick={() => navigate('/team')}>
             <Users className="mr-2 h-4 w-4" />
             <span>Team Management</span>
           </DropdownMenuItem>

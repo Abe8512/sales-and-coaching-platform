@@ -15,6 +15,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import Team from "./pages/Team";
 import CallComparison from "./pages/CallComparison";
 import AICoaching from "./pages/AICoaching";
+import CallActivity from "./pages/CallActivity";
 
 const queryClient = new QueryClient();
 
@@ -58,7 +59,7 @@ const App = () => {
                 {/* Protected routes */}
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<Index />} />
-                  <Route path="/call-activity" element={<PlaceholderPage title="Call Activity" />} />
+                  <Route path="/call-activity" element={<CallActivity />} />
                   <Route path="/performance" element={<PlaceholderPage title="Performance" />} />
                   <Route path="/transcripts" element={<PlaceholderPage title="Transcripts" />} />
                   <Route path="/ai-coaching" element={<AICoaching />} />

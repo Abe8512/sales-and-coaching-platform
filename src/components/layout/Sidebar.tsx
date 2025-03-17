@@ -1,11 +1,13 @@
 
 import React from "react";
+import { Link } from "react-router-dom";
 import { Activity, BarChart3, Bot, FileText, Home, LineChart, MessageSquare, Settings, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SidebarItemProps {
   icon: React.ElementType;
   label: string;
+  path: string;
   active?: boolean;
   isDarkMode: boolean;
 }
@@ -13,13 +15,14 @@ interface SidebarItemProps {
 const SidebarItem = ({ 
   icon: Icon, 
   label, 
+  path,
   active = false,
   isDarkMode
 }: SidebarItemProps) => {
   return (
     <li className="mb-2">
-      <a
-        href="#"
+      <Link
+        to={path}
         className={cn(
           "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group",
           active 
@@ -46,7 +49,7 @@ const SidebarItem = ({
         {active && (
           <div className="ml-auto w-1.5 h-6 bg-neon-purple rounded-full" />
         )}
-      </a>
+      </Link>
     </li>
   );
 };
@@ -56,6 +59,9 @@ interface SidebarProps {
 }
 
 const Sidebar = ({ isDarkMode }: SidebarProps) => {
+  // Define the current path to determine which menu item is active
+  const path = window.location.pathname;
+
   return (
     <aside className={`w-64 ${
       isDarkMode 
@@ -73,19 +79,73 @@ const Sidebar = ({ isDarkMode }: SidebarProps) => {
       
       <nav className="mt-2 flex-1">
         <ul className="px-2">
-          <SidebarItem icon={Home} label="Dashboard" active isDarkMode={isDarkMode} />
-          <SidebarItem icon={Activity} label="Call Activity" isDarkMode={isDarkMode} />
-          <SidebarItem icon={LineChart} label="Performance" isDarkMode={isDarkMode} />
-          <SidebarItem icon={FileText} label="Transcripts" isDarkMode={isDarkMode} />
-          <SidebarItem icon={Bot} label="AI Coaching" isDarkMode={isDarkMode} />
-          <SidebarItem icon={BarChart3} label="Analytics" isDarkMode={isDarkMode} />
-          <SidebarItem icon={Users} label="Team" isDarkMode={isDarkMode} />
-          <SidebarItem icon={MessageSquare} label="Messaging" isDarkMode={isDarkMode} />
+          <SidebarItem 
+            icon={Home} 
+            label="Dashboard" 
+            path="/" 
+            active={path === "/"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={Activity} 
+            label="Call Activity" 
+            path="/call-activity" 
+            active={path === "/call-activity"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={LineChart} 
+            label="Performance" 
+            path="/performance" 
+            active={path === "/performance"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={FileText} 
+            label="Transcripts" 
+            path="/transcripts" 
+            active={path === "/transcripts"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={Bot} 
+            label="AI Coaching" 
+            path="/ai-coaching" 
+            active={path === "/ai-coaching"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={BarChart3} 
+            label="Analytics" 
+            path="/analytics" 
+            active={path === "/analytics"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={Users} 
+            label="Team" 
+            path="/team" 
+            active={path === "/team"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={MessageSquare} 
+            label="Messaging" 
+            path="/messaging" 
+            active={path === "/messaging"} 
+            isDarkMode={isDarkMode} 
+          />
         </ul>
       </nav>
       
       <div className={`p-6 border-t ${isDarkMode ? "border-white/5" : "border-gray-200"}`}>
-        <SidebarItem icon={Settings} label="Settings" isDarkMode={isDarkMode} />
+        <SidebarItem 
+          icon={Settings} 
+          label="Settings" 
+          path="/settings" 
+          active={path === "/settings"} 
+          isDarkMode={isDarkMode} 
+        />
       </div>
     </aside>
   );

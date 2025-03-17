@@ -4,6 +4,7 @@ import { Copy, Flag, Play, User } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
 import { ThemeContext } from "@/App";
+import WhisperButton from "../Whisper/WhisperButton";
 
 interface MessageProps {
   sender: "agent" | "customer";
@@ -110,6 +111,8 @@ const CallTranscript = () => {
         </div>
         
         <div className="flex items-center gap-3">
+          <WhisperButton recordingId="call-123" />
+          
           <button className={`flex items-center gap-1 ${isDarkMode ? "bg-white/5 hover:bg-white/10 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-800"} px-3 py-1.5 rounded text-sm transition-colors`}>
             <Play className="h-4 w-4" />
             <span>Play Audio</span>

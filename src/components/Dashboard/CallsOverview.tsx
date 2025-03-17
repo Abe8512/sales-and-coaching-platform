@@ -4,8 +4,10 @@ import { MoreHorizontal, Flag, Clock, Phone, User, CalendarClock } from "lucide-
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
 import { ThemeContext } from "@/App";
+import WhisperButton from "../Whisper/WhisperButton";
 
 interface CallItemProps {
+  id: number;
   customer: string;
   time: string;
   duration: string;
@@ -14,7 +16,7 @@ interface CallItemProps {
   isDarkMode: boolean;
 }
 
-const CallItem = ({ customer, time, duration, score, flagged = false, isDarkMode }: CallItemProps) => {
+const CallItem = ({ id, customer, time, duration, score, flagged = false, isDarkMode }: CallItemProps) => {
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-neon-green";
     if (score >= 60) return "text-yellow-400";
@@ -42,6 +44,10 @@ const CallItem = ({ customer, time, duration, score, flagged = false, isDarkMode
         {flagged && (
           <Flag className="h-4 w-4 text-neon-red" />
         )}
+        
+        <div className="hidden sm:block">
+          <WhisperButton recordingId={`call-${id}`} />
+        </div>
         
         <div>
           <p className={`text-xs ${isDarkMode ? "text-gray-500" : "text-gray-500"} text-right`}>Score</p>
@@ -96,6 +102,7 @@ const CallsOverview = () => {
         {recentCalls.map((call) => (
           <CallItem
             key={call.id}
+            id={call.id}
             customer={call.customer}
             time={call.time}
             duration={call.duration}

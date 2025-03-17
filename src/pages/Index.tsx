@@ -1,5 +1,5 @@
 
-import React, { useContext } from "react";
+import React, { useContext, useState } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
 import CallsOverview from "../components/Dashboard/CallsOverview";
@@ -8,19 +8,32 @@ import CallTranscript from "../components/CallAnalysis/CallTranscript";
 import SentimentAnalysis from "../components/CallAnalysis/SentimentAnalysis";
 import CallRating from "../components/CallAnalysis/CallRating";
 import { ThemeContext } from "@/App";
+import BulkUploadButton from "../components/BulkUpload/BulkUploadButton";
+import BulkUploadModal from "../components/BulkUpload/BulkUploadModal";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
 
   return (
     <DashboardLayout>
-      <div className="mb-8">
-        <h1 className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mb-1`}>
-          <span className="text-gradient-blue">AI</span> Sales Call Analyzer
-        </h1>
-        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-          Gain real-time insights and improve your sales performance
-        </p>
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mb-1`}>
+            <span className="text-gradient-blue">AI</span> Sales Call Analyzer
+          </h1>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            Gain real-time insights and improve your sales performance
+          </p>
+        </div>
+        
+        <div>
+          <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
+          <BulkUploadModal 
+            isOpen={isBulkUploadOpen} 
+            onClose={() => setIsBulkUploadOpen(false)} 
+          />
+        </div>
       </div>
 
       <PerformanceMetrics />

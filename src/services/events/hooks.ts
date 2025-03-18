@@ -23,20 +23,18 @@ export const useEventListener = (type: EventType, callback: (data?: any) => void
     });
     
     // Also listen using window events as a fallback
-    const handleWindowEvent = (e: Event) => {
-      // Cast to CustomEvent to access the detail property
-      const customEvent = e as CustomEvent;
-      // The detail contains our EventPayload
-      const eventPayload = customEvent.detail as EventPayload;
+    const handleWindowEvent = (e: CustomEvent<EventPayload>) => {
+      // Access the EventPayload from the CustomEvent's detail property
+      const eventPayload = e.detail;
       callback(eventPayload.data);
     };
     
-    // Use the correct type for the addEventListener call
-    window.addEventListener(`app:${type}`, handleWindowEvent as EventListener);
+    // Use the correct event type string and cast the handler to EventListenerOrEventListenerObject
+    window.addEventListener(`app:${type}`, handleWindowEvent as EventListenerOrEventListenerObject);
     
     return () => {
       unsubscribe();
-      window.removeEventListener(`app:${type}`, handleWindowEvent as EventListener);
+      window.removeEventListener(`app:${type}`, handleWindowEvent as EventListenerOrEventListenerObject);
     };
   }, [type, callback]);
 };

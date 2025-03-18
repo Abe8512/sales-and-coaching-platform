@@ -68,4 +68,3 @@ export const animationUtils = {
     return Math.ceil(value / gridSize) * gridSize;
   }
 };
-

@@ -11,6 +11,7 @@ interface CallMetricsState {
   keyPhrases: string[];
   socketConnected: boolean;
   recordingStartTime: number | null;
+  callHistory: CallHistoryItem[];
   
   // Actions
   startRecording: () => void;
@@ -18,6 +19,17 @@ interface CallMetricsState {
   updateMetrics: (data: Partial<CallMetricsState>) => void;
   updateKeyPhrases: (phrase: string) => void;
   toggleSpeaking: (speaker: 'agent' | 'customer', isSpeaking: boolean) => void;
+  savePastCall: () => void;
+  loadPastCalls: () => void;
+}
+
+interface CallHistoryItem {
+  id: string;
+  date: string;
+  duration: number;
+  talkRatio: { agent: number; customer: number };
+  sentiment: { agent: number; customer: number };
+  keyPhrases: string[];
 }
 
 // For demo purposes, we'll simulate a WebSocket connection with timer updates
@@ -57,6 +69,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     keyPhrases: [],
     socketConnected: false,
     recordingStartTime: null,
+    callHistory: [],
     
     startRecording: () => {
       const startTime = Date.now();
@@ -106,6 +119,24 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
               }
             };
           });
+          
+          // Occasionally add a key phrase
+          if (Math.random() > 0.9) {
+            const phrases = [
+              "pricing options",
+              "contract terms",
+              "delivery timeline",
+              "feature request",
+              "technical support",
+              "customer satisfaction",
+              "follow-up meeting",
+              "product quality",
+              "discount request",
+              "competitive offer"
+            ];
+            const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+            get().updateKeyPhrases(randomPhrase);
+          }
         }
       }, 2000);
     },
@@ -113,6 +144,11 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     stopRecording: () => {
       if (durationTimer) clearInterval(durationTimer);
       if (speakingSimulationTimer) clearInterval(speakingSimulationTimer);
+      
+      // Save call data before resetting
+      if (get().isRecording) {
+        get().savePastCall();
+      }
       
       set({ 
         isRecording: false,
@@ -138,6 +174,48 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           [speaker]: isSpeaking
         }
       }));
+    },
+    
+    savePastCall: () => {
+      // Create a new call history item based on current metrics
+      const { callDuration, talkRatio, sentiment, keyPhrases } = get();
+      
+      const newHistoryItem: CallHistoryItem = {
+        id: `call-${Date.now()}`,
+        date: new Date().toISOString(),
+        duration: callDuration,
+        talkRatio: { ...talkRatio },
+        sentiment: { ...sentiment },
+        keyPhrases: [...keyPhrases]
+      };
+      
+      // Add to history
+      set(state => ({
+        callHistory: [newHistoryItem, ...state.callHistory]
+      }));
+      
+      // In a real app, you'd save this to Supabase or another backend
+      console.log("Call saved to history:", newHistoryItem);
+      
+      // For demo purposes, we'll also store in localStorage to persist between refreshes
+      try {
+        const existingHistory = JSON.parse(localStorage.getItem('callHistory') || '[]');
+        const updatedHistory = [newHistoryItem, ...existingHistory];
+        localStorage.setItem('callHistory', JSON.stringify(updatedHistory.slice(0, 20))); // Keep last 20 calls
+      } catch (error) {
+        console.error("Error saving to localStorage:", error);
+      }
+    },
+    
+    loadPastCalls: () => {
+      // In a real app, you'd fetch this from Supabase or another backend
+      // For demo purposes, we'll load from localStorage
+      try {
+        const storedHistory = JSON.parse(localStorage.getItem('callHistory') || '[]');
+        set({ callHistory: storedHistory });
+      } catch (error) {
+        console.error("Error loading from localStorage:", error);
+      }
     }
   };
 });

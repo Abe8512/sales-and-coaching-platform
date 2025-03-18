@@ -12,6 +12,7 @@ import BulkUploadButton from "../components/BulkUpload/BulkUploadButton";
 import BulkUploadModal from "../components/BulkUpload/BulkUploadModal";
 import WhisperButton from "../components/Whisper/WhisperButton";
 import LiveMetricsDisplay from "../components/CallAnalysis/LiveMetricsDisplay";
+import PastCallsList from "../components/CallAnalysis/PastCallsList";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
 
@@ -74,12 +75,16 @@ const Index = () => {
         <TabsList className="mb-4">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="livemetrics">Live Metrics</TabsTrigger>
+          <TabsTrigger value="history">Call History</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard">
           <PerformanceMetrics />
         </TabsContent>
         <TabsContent value="livemetrics">
           <LiveMetricsDisplay isCallActive={showLiveMetrics} />
+        </TabsContent>
+        <TabsContent value="history">
+          <PastCallsList />
         </TabsContent>
       </Tabs>
       

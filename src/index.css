@@ -97,16 +97,59 @@
 
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Optimize scrollbar appearance */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.4);
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.6);
+  }
+}
+
+/* Performance optimized animations */
+@layer utilities {
+  /* Add optimized hardware acceleration for animations */
+  .hardware-accelerated {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+    will-change: transform;
+  }
+  
+  /* Reduced motion for accessibility */
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
 @layer components {
   .glass-card {
-    @apply bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl shadow-md;
+    @apply bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl shadow-md hardware-accelerated;
   }
   
   .glassmorphism {
-    @apply bg-white/90 backdrop-blur-md border border-gray-200 shadow-md;
+    @apply bg-white/90 backdrop-blur-md border border-gray-200 shadow-md hardware-accelerated;
   }
   
   .light .glassmorphism {
@@ -159,16 +202,18 @@
     @apply border border-rose-400 shadow-sm;
   }
   
+  /* Optimized shimmer animation */
   .shimmer-bg {
-    @apply bg-gradient-to-r from-transparent via-gray-200/40 to-transparent bg-[length:200%_100%] animate-shimmer;
+    @apply bg-gradient-to-r from-transparent via-gray-200/40 to-transparent bg-[length:200%_100%] animate-shimmer hardware-accelerated;
   }
   
+  /* Optimized text gradients */
   .text-gradient-blue {
-    @apply bg-gradient-to-r from-neon-blue to-neon-purple text-transparent bg-clip-text;
+    @apply bg-gradient-to-r from-neon-blue to-neon-purple text-transparent bg-clip-text hardware-accelerated;
   }
   
   .text-gradient-purple {
-    @apply bg-gradient-to-r from-neon-purple to-neon-pink text-transparent bg-clip-text;
+    @apply bg-gradient-to-r from-neon-purple to-neon-pink text-transparent bg-clip-text hardware-accelerated;
   }
   
   /* Light theme text gradient */
@@ -178,6 +223,24 @@
   
   .light .text-gradient-purple {
     @apply bg-gradient-to-r from-purple-500 to-pink-500 text-transparent bg-clip-text;
+  }
+  
+  /* Dashboard optimizations */
+  .dashboard-card {
+    @apply p-4 border rounded-lg shadow-sm transition-all duration-300;
+  }
+  
+  .dashboard-card:hover {
+    @apply shadow-md;
+  }
+  
+  .dashboard-grid {
+    @apply grid gap-4 transition-all;
+  }
+  
+  /* Optimized chart containers */
+  .chart-container {
+    @apply p-4 border rounded-lg shadow-sm overflow-hidden hardware-accelerated;
   }
 }
 

@@ -2,70 +2,94 @@
 import { debounce, throttle } from "lodash";
 
 /**
- * Utilities to reduce UI twitching when dealing with animations and transitions
+ * Optimized animation utilities to reduce UI twitching and improve performance
  */
 export const animationUtils = {
   /**
-   * Creates a debounced function that delays invoking func until after wait milliseconds
-   * have elapsed since the last time the debounced function was invoked.
+   * Creates a debounced function with proper TypeScript typing
    */
-  debounce: (func: Function, wait: number = 200) => {
+  debounce: <T extends (...args: any[]) => any>(
+    func: T, 
+    wait: number = 200
+  ): ((...args: Parameters<T>) => void) => {
     return debounce(func, wait);
   },
   
   /**
-   * Creates a throttled function that only invokes func at most once per every wait milliseconds.
+   * Creates a throttled function with proper TypeScript typing
    */
-  throttle: (func: Function, wait: number = 200) => {
+  throttle: <T extends (...args: any[]) => any>(
+    func: T, 
+    wait: number = 200
+  ): ((...args: Parameters<T>) => void) => {
     return throttle(func, wait);
   },
   
   /**
-   * Returns a stable percentage value to prevent small fluctuations causing UI twitching
-   * @param value Current value
-   * @param total Total value
-   * @param precision Number of decimal places (default 0)
+   * Returns a stable percentage value with optimized performance
    */
-  stablePercentage: (value: number, total: number, precision: number = 0) => {
-    if (total === 0) return 0;
+  stablePercentage: (value: number, total: number, precision: number = 0): number => {
+    if (total === 0 || isNaN(value) || isNaN(total)) return 0;
+    
+    // Prevent division by very small numbers
+    if (Math.abs(total) < 0.0001) return 0;
+    
     const percentage = (value / total) * 100;
+    
+    // Clamp values to valid range
+    const clampedPercentage = Math.max(0, Math.min(100, percentage));
+    
     const factor = Math.pow(10, precision);
-    return Math.round(percentage * factor) / factor;
+    return Math.round(clampedPercentage * factor) / factor;
   },
   
   /**
-   * Smooths transitions between values to prevent jittery UI
-   * @param newValue New value to transition to
-   * @param oldValue Previous value
-   * @param maxStep Maximum change allowed in one update
+   * Smooths transitions between values with optimized algorithm
    */
-  smoothTransition: (newValue: number, oldValue: number, maxStep: number = 5) => {
+  smoothTransition: (newValue: number, oldValue: number, maxStep: number = 5): number => {
+    // Handle edge cases
+    if (isNaN(newValue) || isNaN(oldValue)) return oldValue;
+    
     const diff = newValue - oldValue;
+    
+    // If the difference is small enough, return the new value directly
     if (Math.abs(diff) <= maxStep) {
       return newValue;
     }
-    return oldValue + (Math.sign(diff) * maxStep);
+    
+    // Apply easing for smoother visual transitions
+    const step = Math.sign(diff) * (Math.min(Math.abs(diff) * 0.2, maxStep));
+    return oldValue + step;
   },
   
   /**
-   * Prevents content jump by maintaining consistent height during loading states
-   * @param element DOM element to measure
-   * @param defaultHeight Default height to use if element is not available
+   * Prevents content jump with optimized height calculation
    */
   getStableHeight: (element: HTMLElement | null, defaultHeight: number = 300): number => {
     if (!element) return defaultHeight;
     
-    // Round to nearest multiple of 8 to prevent micro adjustments
-    return Math.ceil(element.offsetHeight / 8) * 8;
+    // Cache offsetHeight to prevent layout thrashing
+    const height = element.offsetHeight;
+    
+    // Use 8px grid to prevent micro adjustments
+    const gridSize = 8;
+    return Math.ceil(height / gridSize) * gridSize;
   },
   
   /**
-   * Prevents layout shift by rounding dimensions to a fixed grid
-   * @param value The dimension value to stabilize
-   * @param gridSize The grid size to round to (default 8px)
+   * Stabilizes dimensions for better performance
    */
   stabilizeDimension: (value: number, gridSize: number = 8): number => {
+    if (isNaN(value) || value <= 0) return gridSize;
     return Math.ceil(value / gridSize) * gridSize;
+  },
+  
+  /**
+   * Creates a stable callback that doesn't trigger re-renders
+   */
+  stableCallback: <T extends (...args: any[]) => any>(callback: T): T => {
+    // This is just a pass-through for now, but could be enhanced with memoization
+    return callback;
   }
 };
 

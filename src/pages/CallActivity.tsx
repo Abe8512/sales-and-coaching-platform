@@ -402,7 +402,7 @@ const CallActivity = () => {
                         <TableCell>{call.customerName}</TableCell>
                         <TableCell>{call.duration} min</TableCell>
                         <TableCell>
-                          {String(call.outcome || 'N/A')}
+                          {typeof call.outcome === 'string' ? call.outcome : String(call.outcome || 'N/A')}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center">

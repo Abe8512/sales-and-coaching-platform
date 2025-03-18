@@ -345,7 +345,7 @@ const CallActivity = () => {
                           {rep.insights.map((insight, idx) => (
                             <li key={idx} className="flex items-start">
                               <div className="w-1.5 h-1.5 rounded-full bg-neon-purple mt-1.5 mr-2"></div>
-                              {insight}
+                              {String(insight)}
                             </li>
                           ))}
                         </ul>

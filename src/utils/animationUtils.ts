@@ -1,3 +1,4 @@
+
 import { debounce, throttle } from "lodash";
 
 /**
@@ -65,35 +66,6 @@ export const animationUtils = {
    */
   stabilizeDimension: (value: number, gridSize: number = 8): number => {
     return Math.ceil(value / gridSize) * gridSize;
-  },
-  
-  /**
-   * Creates a stable loading state to prevent quick flashes of loading indicators
-   * @param isLoading Current loading state
-   * @param minLoadingTime Minimum time to show loading state in ms
-   * @returns Stabilized loading state
-   */
-  useStableLoadingState: (isLoading: boolean, minLoadingTime: number = 500): boolean => {
-    const [stableLoading, setStableLoading] = React.useState(isLoading);
-    const timeoutRef = React.useRef<NodeJS.Timeout | null>(null);
-    
-    React.useEffect(() => {
-      if (isLoading) {
-        setStableLoading(true);
-      } else if (stableLoading) {
-        // Keep showing loading state for minimum time
-        timeoutRef.current = setTimeout(() => {
-          setStableLoading(false);
-        }, minLoadingTime);
-      }
-      
-      return () => {
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-        }
-      };
-    }, [isLoading, stableLoading, minLoadingTime]);
-    
-    return stableLoading;
   }
 };
+

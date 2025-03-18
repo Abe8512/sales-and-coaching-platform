@@ -10,6 +10,7 @@ import {
 } from "./SharedDataService";
 import { validateMetricConsistency } from "@/utils/metricCalculations";
 import { animationUtils } from "@/utils/animationUtils";
+import { useStableLoadingState } from "@/hooks/useStableLoadingState";
 
 // Re-export TeamMetrics and RepMetrics for backward compatibility
 export type { TeamMetrics, RepMetrics };
@@ -17,6 +18,7 @@ export type { TeamMetrics, RepMetrics };
 // Custom hook for real-time team metrics
 export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boolean] => {
   const { metrics, isLoading } = useSharedTeamMetrics(filters);
+  const stableLoading = useStableLoadingState(isLoading);
   
   // Stabilize the metrics data to prevent UI jitter
   const stableMetrics = useMemo(() => {
@@ -46,13 +48,14 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
     }
   }, [metrics]);
   
-  return [stableMetrics, isLoading];
+  return [stableMetrics, stableLoading];
 };
 
 // Custom hook for real-time rep metrics
 export const useRealTimeRepMetrics = (repIds?: string[]): [RepMetrics[], boolean] => {
   const filters: DataFilters = repIds ? { repIds } : {};
   const { metrics, isLoading } = useSharedRepMetrics(filters);
+  const stableLoading = useStableLoadingState(isLoading);
   
   // Stabilize rep metrics data
   const stableMetrics = useMemo(() => {
@@ -66,5 +69,5 @@ export const useRealTimeRepMetrics = (repIds?: string[]): [RepMetrics[], boolean
     }));
   }, [metrics]);
   
-  return [stableMetrics, isLoading];
+  return [stableMetrics, stableLoading];
 };

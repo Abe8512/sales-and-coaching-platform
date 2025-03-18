@@ -13,16 +13,19 @@ const AIInsights = () => {
   const [transcriptCount, setTranscriptCount] = useState(0);
   
   useEffect(() => {
+    // Get transcriptions and update count
     const transcriptions = getStoredTranscriptions();
     setTranscriptCount(transcriptions.length);
   }, []);
   
-  // AI insights based on real data - only show actual insights if there is data
+  // Only display actual insights if there are transcriptions
+  const hasData = transcriptCount > 0;
+  
   const insights = [
     {
       id: 1,
       title: "Discovery Questions",
-      description: transcriptCount > 0 
+      description: hasData 
         ? `Your use of discovery questions has improved by 18% based on ${transcriptCount} analyzed calls.`
         : "Upload calls to see insights about your discovery questions.",
       icon: <Lightbulb className="h-5 w-5 text-neon-blue" />,
@@ -31,7 +34,7 @@ const AIInsights = () => {
     {
       id: 2,
       title: "Pitch Effectiveness",
-      description: transcriptCount > 0 
+      description: hasData 
         ? "Your closing statements are 26% more effective than last month."
         : "Upload calls to analyze your pitch effectiveness.",
       icon: <TrendingUp className="h-5 w-5 text-neon-purple" />,
@@ -40,7 +43,7 @@ const AIInsights = () => {
     {
       id: 3,
       title: "Talk/Listen Ratio",
-      description: transcriptCount > 0 
+      description: hasData 
         ? "Try to reduce your talking time by ~12% to improve conversion."
         : "Upload calls to get feedback on your talk/listen ratio.",
       icon: <BrainCircuit className="h-5 w-5 text-neon-pink" />,
@@ -69,8 +72,10 @@ const AIInsights = () => {
         <div className="flex items-center gap-3 mb-6">
           <AIWaveform color="purple" barCount={15} />
           <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-            AI analyzing <span className="text-neon-purple font-medium">{transcriptCount}</span> calls
-            {transcriptCount > 0 ? " from last 7 days" : ""}
+            {hasData 
+              ? `AI analyzing ${transcriptCount} calls from last 7 days` 
+              : "No calls analyzed yet. Upload calls to get insights."
+            }
           </p>
         </div>
         
@@ -95,7 +100,7 @@ const AIInsights = () => {
             </div>
             <div>
               <p className={`text-sm ${isDarkMode ? "text-white" : "text-gray-800"} mb-2`}>
-                <span className="font-medium">Suggestion:</span> {transcriptCount > 0 
+                <span className="font-medium">Suggestion:</span> {hasData 
                   ? "Based on your recent calls, try acknowledging customer concerns before presenting solutions. This approach has shown a 32% higher success rate among top performers."
                   : "Upload call recordings to get personalized AI-powered suggestions to improve your performance."
                 }
@@ -105,9 +110,9 @@ const AIInsights = () => {
                   className="bg-neon-purple hover:bg-neon-purple/90 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors"
                   onClick={() => navigate('/ai-coaching')}
                 >
-                  {transcriptCount > 0 ? "Apply to Script" : "Get Started"}
+                  {hasData ? "Apply to Script" : "Get Started"}
                 </button>
-                {transcriptCount > 0 && (
+                {hasData && (
                   <button className={`${isDarkMode ? "bg-white/10 hover:bg-white/15 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-800"} px-3 py-1.5 rounded text-xs font-medium transition-colors`}>
                     Show Examples
                   </button>

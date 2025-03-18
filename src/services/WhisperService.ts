@@ -166,8 +166,7 @@ const loadWhisperModel = async () => {
         "automatic-speech-recognition",
         "distil-whisper/distil-small.en", // Smaller model for browser use
         { 
-          // Remove the quantized property as it's not supported
-          device: "cpu"  // Use CPU as default device
+          device: "wasm"  // Use WASM as default device for browser compatibility
         }
       );
     } catch (error) {

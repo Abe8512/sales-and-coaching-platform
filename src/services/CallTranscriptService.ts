@@ -1,4 +1,5 @@
-import { supabase } from "@/integrations/supabase/client";
+
+import { supabase, checkSupabaseConnection } from "@/integrations/supabase/client";
 import { useState, useEffect, useCallback } from "react";
 import { DateRange } from "react-day-picker";
 import { 
@@ -29,40 +30,113 @@ export interface CallTranscriptFilter {
   teamId?: string;
 }
 
+// Generate demo data for when the database connection fails
+const generateDemoTranscripts = (count = 10): CallTranscript[] => {
+  const sentiments = ['positive', 'neutral', 'negative'];
+  const demoData: CallTranscript[] = [];
+  
+  for (let i = 0; i < count; i++) {
+    const randomSentiment = sentiments[Math.floor(Math.random() * sentiments.length)];
+    const randomDate = new Date();
+    randomDate.setDate(randomDate.getDate() - Math.floor(Math.random() * 30));
+    
+    demoData.push({
+      id: `demo-${i}-${Date.now()}`,
+      user_id: "demo-user",
+      filename: `call-${i}.wav`,
+      text: `This is a demo transcript for call ${i}. It contains sample conversation text that would typically be generated from a real call recording.`,
+      duration: Math.floor(Math.random() * 600) + 120, // 2-12 minutes
+      call_score: Math.floor(Math.random() * 50) + 50, // 50-100
+      sentiment: randomSentiment,
+      keywords: ["product", "pricing", "follow-up", "meeting"],
+      transcript_segments: null,
+      created_at: randomDate.toISOString()
+    });
+  }
+  
+  return demoData;
+};
+
 export const useCallTranscriptService = () => {
   const [transcripts, setTranscripts] = useState<CallTranscript[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState<number>(0);
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
+  const [isConnected, setIsConnected] = useState<boolean>(true);
   const dispatchEvent = useEventsStore.getState().dispatchEvent;
+  
+  // Check connection status on mount
+  useEffect(() => {
+    const checkConnection = async () => {
+      const { connected } = await checkSupabaseConnection();
+      setIsConnected(connected);
+      if (!connected) {
+        console.log("Using demo data due to connection issues");
+        setTranscripts(generateDemoTranscripts(15));
+      }
+    };
+    
+    checkConnection();
+  }, []);
   
   const fetchTranscripts = useCallback(async (filters?: CallTranscriptFilter) => {
     setLoading(true);
     setError(null);
     
     try {
+      // If we're not connected, use demo data
+      if (!isConnected) {
+        console.log("Using demo data due to connection issues");
+        const demoData = generateDemoTranscripts(15);
+        setTranscripts(demoData);
+        setTotalCount(demoData.length);
+        setLastFetchTime(Date.now());
+        setLoading(false);
+        return;
+      }
+      
       // First, check connection to Supabase
-      const { count, error: connectionError } = await supabase
-        .from('call_transcripts')
-        .select('*', { count: 'exact', head: true });
-        
-      if (connectionError) {
-        console.log("Connection error:", connectionError);
-        // Use cached data if available
-        if (transcripts.length > 0) {
+      try {
+        const { data, error } = await supabase
+          .from('call_transcripts')
+          .select('id')
+          .limit(1);
+          
+        if (error) {
+          console.log("Connection error:", error);
+          // Use demo data if we can't connect
+          if (transcripts.length === 0) {
+            const demoData = generateDemoTranscripts(15);
+            setTranscripts(demoData);
+            setTotalCount(demoData.length);
+          }
           setLoading(false);
           return;
         }
+      } catch (connErr) {
+        console.log("Connection test failed:", connErr);
+        // Use demo data if we can't connect
+        if (transcripts.length === 0) {
+          const demoData = generateDemoTranscripts(15);
+          setTranscripts(demoData);
+          setTotalCount(demoData.length);
+        }
+        setLoading(false);
+        return;
       }
       
       // Get total count first
-      const countResult = await supabase
-        .from('call_transcripts')
-        .select('*', { count: 'exact' });
-        
-      if (countResult.count !== null) {
-        setTotalCount(countResult.count);
+      try {
+        const { count, error: countError } = await supabase
+          .from('call_transcripts')
+          .select('*', { count: 'exact', head: true });
+          
+        if (!countError && count !== null) {
+          setTotalCount(count);
+        }
+      } catch (countErr) {
+        console.error('Error getting count:', countErr);
       }
       
       // Then get data with filters
@@ -113,7 +187,7 @@ export const useCallTranscriptService = () => {
       const dataTimeout = new Promise<CallTranscript[]>((resolve) => {
         setTimeout(() => {
           console.log("Data fetch timed out, using fallback");
-          resolve(transcripts.length ? [...transcripts] : []);
+          resolve(transcripts.length ? [...transcripts] : generateDemoTranscripts(15));
         }, 5000);
       });
       
@@ -135,6 +209,7 @@ export const useCallTranscriptService = () => {
       } else if (transcripts.length === 0) {
         console.log("No data received and no cached data available");
         // We can generate some placeholder data here if needed
+        setTranscripts(generateDemoTranscripts(15));
       }
       
       // Update last fetch time
@@ -147,15 +222,18 @@ export const useCallTranscriptService = () => {
       // Show toast only if we have no data to display
       if (transcripts.length === 0) {
         toast.error("Error loading data", {
-          description: "Using cached data. Check your connection."
+          description: "Using cached or demo data. Check your connection."
         });
+        setTranscripts(generateDemoTranscripts(15));
       }
     } finally {
       setLoading(false);
     }
-  }, [transcripts, dispatchEvent]);
+  }, [transcripts, dispatchEvent, isConnected]);
 
   const refreshCallsTable = async (transcriptData: CallTranscript[]) => {
+    if (!isConnected) return;
+    
     try {
       // Check if we need to sync any transcripts to the calls table
       const recentTranscripts = transcriptData.filter(t => {
@@ -166,34 +244,42 @@ export const useCallTranscriptService = () => {
       });
       
       for (const transcript of recentTranscripts) {
-        // Only check for transcripts with valid user_id and created_at
-        if (!transcript.user_id || !transcript.created_at) continue;
-        
         try {
-          // Check if this transcript has a corresponding entry in the calls table
-          const { data } = await supabase
-            .from('calls')
-            .select('id')
-            .eq('user_id', transcript.user_id)
-            .eq('created_at', transcript.created_at)
-            .maybeSingle();
-            
-          if (!data) {
-            // Create a new call entry for this transcript
-            await supabase
+          // Only check for transcripts with valid created_at
+          if (!transcript.created_at) continue;
+          
+          // Use a default user_id for calls if it's null
+          const userId = transcript.user_id || 'anonymous';
+          
+          try {
+            // Check if this transcript has a corresponding entry in the calls table
+            const { data } = await supabase
               .from('calls')
-              .insert({
-                user_id: transcript.user_id,
-                duration: transcript.duration || 0,
-                sentiment_agent: transcript.sentiment === 'positive' ? 0.8 : transcript.sentiment === 'negative' ? 0.3 : 0.5,
-                sentiment_customer: transcript.sentiment === 'positive' ? 0.7 : transcript.sentiment === 'negative' ? 0.2 : 0.5,
-                talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
-                talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
-                key_phrases: transcript.keywords || []
-              });
+              .select('id')
+              .eq('user_id', userId)
+              .eq('created_at', transcript.created_at)
+              .maybeSingle();
+              
+            if (!data) {
+              // Create a new call entry for this transcript
+              await supabase
+                .from('calls')
+                .insert({
+                  user_id: userId,
+                  duration: transcript.duration || 0,
+                  sentiment_agent: transcript.sentiment === 'positive' ? 0.8 : transcript.sentiment === 'negative' ? 0.3 : 0.5,
+                  sentiment_customer: transcript.sentiment === 'positive' ? 0.7 : transcript.sentiment === 'negative' ? 0.2 : 0.5,
+                  talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
+                  talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
+                  key_phrases: transcript.keywords || []
+                });
+            }
+          } catch (callError) {
+            console.error('Error checking/creating call record:', callError);
+            // Continue with next transcript even if one fails
           }
-        } catch (callError) {
-          console.error('Error checking/creating call record:', callError);
+        } catch (trError) {
+          console.error('Error processing transcript:', trError);
           // Continue with next transcript even if one fails
         }
       }
@@ -202,9 +288,12 @@ export const useCallTranscriptService = () => {
     }
   };
 
-  const getMetrics = (transcripts) => {
+  const getMetrics = (transcriptData: CallTranscript[] = []) => {
+    // Use provided data or current state
+    const dataToUse = transcriptData.length > 0 ? transcriptData : transcripts;
+    
     // If no transcripts, provide reasonable defaults
-    if (transcripts.length === 0) {
+    if (dataToUse.length === 0) {
       return {
         totalCalls: 0,
         avgSentiment: 0.5,
@@ -213,9 +302,9 @@ export const useCallTranscriptService = () => {
       };
     }
     
-    const totalCalls = calculateTotalCalls(transcripts);
-    const avgSentiment = calculateAvgSentiment(transcripts);
-    const outcomeStats = calculateOutcomeDistribution(transcripts);
+    const totalCalls = calculateTotalCalls(dataToUse);
+    const avgSentiment = calculateAvgSentiment(dataToUse);
+    const outcomeStats = calculateOutcomeDistribution(dataToUse);
     
     const positiveOutcomes = outcomeStats.filter(o => 
       o.outcome === 'Qualified Lead' || 
@@ -234,15 +323,18 @@ export const useCallTranscriptService = () => {
     };
   };
 
-  const getCallDistributionData = (transcripts) => {
+  const getCallDistributionData = (transcriptData: CallTranscript[] = []) => {
+    // Use provided data or current state
+    const dataToUse = transcriptData.length > 0 ? transcriptData : transcripts;
+    
     // If no transcripts, return empty array
-    if (transcripts.length === 0) {
+    if (dataToUse.length === 0) {
       return [];
     }
     
-    const userCalls = {};
+    const userCalls: Record<string, number> = {};
     
-    transcripts.forEach(transcript => {
+    dataToUse.forEach(transcript => {
       // Use filename as fallback for user name if user_id doesn't map to a name
       const userName = transcript.filename?.split('.')[0] || 'Unknown';
       
@@ -252,14 +344,16 @@ export const useCallTranscriptService = () => {
       userCalls[userName] += 1;
     });
     
-    return Object.entries(userCalls).map(([name, count]) => ({
+    return Object.entries(userCalls).map(([name, calls]) => ({
       name,
-      calls: count
+      calls: calls as number
     }));
   };
 
   // Subscribe to real-time changes from Supabase
   useEffect(() => {
+    if (!isConnected) return;
+    
     // Subscribe to real-time changes to the call_transcripts table
     const channel = supabase
       .channel('call_transcripts_changes')
@@ -316,7 +410,7 @@ export const useCallTranscriptService = () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(callsChannel);
     };
-  }, [fetchTranscripts, dispatchEvent]);
+  }, [fetchTranscripts, dispatchEvent, isConnected]);
   
   // Refresh data automatically every 60 seconds if the component is still mounted
   useEffect(() => {
@@ -342,6 +436,7 @@ export const useCallTranscriptService = () => {
     totalCount,
     fetchTranscripts,
     getMetrics,
-    getCallDistributionData
+    getCallDistributionData,
+    isConnected
   };
 };

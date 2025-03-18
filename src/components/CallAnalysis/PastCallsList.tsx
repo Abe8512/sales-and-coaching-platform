@@ -57,6 +57,9 @@ const PastCallsList = () => {
   
   // Calculate average sentiment score
   const getAverageSentiment = (sentiment: { agent: number; customer: number }) => {
+    if (!sentiment || typeof sentiment.agent !== 'number' || typeof sentiment.customer !== 'number') {
+      return 0.5; // Default middle value if sentiment data is invalid
+    }
     return (sentiment.agent + sentiment.customer) / 2;
   };
   
@@ -84,7 +87,7 @@ const PastCallsList = () => {
         </div>
       </CardHeader>
       <CardContent>
-        {callHistory.length === 0 ? (
+        {!callHistory || callHistory.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>No past calls recorded yet.</p>
             <p className="text-sm mt-2">Start recording a call to see data here.</p>

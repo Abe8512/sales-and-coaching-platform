@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCallTranscriptService } from "@/services/CallTranscriptService";
-import { useEventListener } from "@/services/events";
+import { useEventListener } from '@/services/events';
 import { toast } from "sonner";
 import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
 import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
@@ -199,15 +199,15 @@ const CallActivity = () => {
         
         <TabsContent value="analytics" className="mt-6">
           <CallOutcomeStats 
-            outcomeStats={getMetrics().outcomeStats} 
-            callDistributionData={getCallDistributionData()} 
+            outcomeStats={getMetrics(transcripts).outcomeStats} 
+            callDistributionData={getCallDistributionData(transcripts)} 
           />
         </TabsContent>
         
         <TabsContent value="outcomes" className="mt-6">
           <CallOutcomeStats 
-            outcomeStats={getMetrics().outcomeStats} 
-            callDistributionData={getCallDistributionData()} 
+            outcomeStats={getMetrics(transcripts).outcomeStats} 
+            callDistributionData={getCallDistributionData(transcripts)} 
           />
         </TabsContent>
         

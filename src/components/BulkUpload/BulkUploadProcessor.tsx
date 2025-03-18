@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Loader2, CheckCircle, AlertCircle, Clock, X, FileAudio } from 'lucide-react';
 import { useCallTranscriptService } from '@/services/CallTranscriptService';
-import { useEvents } from '@/services/EventsService';
+import { useEvents } from '@/services/events';
 
 const BulkUploadProcessor = () => {
   const { 
@@ -92,7 +92,16 @@ const BulkUploadProcessor = () => {
       description: `Processing ${files.length} file(s)`,
     });
     
-    processQueue();
+    try {
+      processQueue();
+    } catch (error) {
+      console.error("Error processing files:", error);
+      toast({
+        title: "Processing Error",
+        description: "An error occurred while processing files",
+        variant: "destructive",
+      });
+    }
   };
   
   return (

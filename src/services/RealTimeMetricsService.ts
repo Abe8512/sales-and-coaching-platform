@@ -10,6 +10,7 @@ import {
 import { validateMetricConsistency } from "@/utils/metricCalculations";
 import { animationUtils } from "@/utils/animationUtils";
 import { useStableLoadingState } from "@/hooks/useStableLoadingState";
+import { errorHandler, withErrorHandling } from "./ErrorHandlingService";
 
 // Re-export TeamMetrics and RepMetrics for backward compatibility
 export type { TeamMetrics, RepMetrics };
@@ -61,21 +62,23 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
       // Only call throttledValidation if it's not null
       if (throttledValidation) {
         throttledValidation();
-      }
-      
-      return () => {
-        // Safely call cancel if throttledValidation exists
-        if (throttledValidation) {
+        
+        return () => {
           throttledValidation.cancel();
-        }
-      };
+        };
+      }
     }
   }, [metrics]);
   
   // Log errors for monitoring but don't impact the UI
   useEffect(() => {
     if (error) {
-      console.error('Error loading team metrics:', error);
+      errorHandler.handleError({
+        message: "Couldn't load team metrics",
+        technical: error instanceof Error ? error.message : String(error),
+        severity: "warning",
+        code: "TEAM_METRICS_ERROR"
+      }, "TeamMetrics");
     }
   }, [error]);
   
@@ -90,7 +93,7 @@ export const useRealTimeRepMetrics = (repIds?: string[]): [RepMetrics[], boolean
     repIds ? { repIds } : {}, [repIds]
   );
   
-  const { metrics, isLoading } = useSharedRepMetrics(filters);
+  const { metrics, isLoading, error } = useSharedRepMetrics(filters);
   const stableLoading = useStableLoadingState(isLoading, 400);
   
   // Stabilize rep metrics data with memoization
@@ -104,6 +107,18 @@ export const useRealTimeRepMetrics = (repIds?: string[]): [RepMetrics[], boolean
       sentiment: Math.round(rep.sentiment * 100) / 100
     }));
   }, [metrics]);
+  
+  // Handle errors
+  useEffect(() => {
+    if (error) {
+      errorHandler.handleError({
+        message: "Couldn't load rep metrics",
+        technical: error instanceof Error ? error.message : String(error),
+        severity: "warning",
+        code: "REP_METRICS_ERROR"
+      }, "RepMetrics");
+    }
+  }, [error]);
   
   return [stableMetrics, stableLoading];
 };

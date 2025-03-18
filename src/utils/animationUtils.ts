@@ -29,9 +29,10 @@ export const animationUtils = {
    * @param element DOM element to measure
    * @returns Stabilized height value
    */
-  getStableHeight: (element: HTMLElement): number => {
+  getStableHeight: (element: HTMLElement | null): number => {
+    if (!element) return 0;
     // Round to nearest multiple of 8 to prevent small adjustments
-    return Math.ceil(element.offsetHeight / 8) * 8;
+    return Math.ceil((element.offsetHeight || 0) / 8) * 8;
   },
 
   /**

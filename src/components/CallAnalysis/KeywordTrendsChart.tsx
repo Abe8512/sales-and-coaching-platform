@@ -82,7 +82,7 @@ const KeywordTrendsChart = () => {
   // Save a keyword to the database - Fixed type error in this function
   const saveKeyword = async (keyword: string, category: KeywordCategory) => {
     try {
-      // Fixed: Using a single object for upsert instead of array notation
+      // Fixed: Using proper format for onConflict parameter as a string, not an array
       const { error } = await supabase
         .from('keyword_trends')
         .upsert(
@@ -92,7 +92,7 @@ const KeywordTrendsChart = () => {
             count: 1, 
             last_used: new Date().toISOString() 
           },
-          { onConflict: ['keyword', 'category'] }
+          { onConflict: 'keyword,category' }
         );
         
       if (error) {

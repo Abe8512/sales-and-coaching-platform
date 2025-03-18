@@ -1,17 +1,19 @@
-
 import { supabase } from "@/integrations/supabase/client";
 import { useBulkUploadStore, UploadStatus } from "@/store/useBulkUploadStore";
 import { useWhisperService, WhisperTranscriptionResponse } from "@/services/WhisperService";
 import { toast } from "sonner";
 import { useCallTranscriptService } from "./CallTranscriptService";
+import { useEventsStore } from "@/services/EventsService";
 
 // Create a wrapper class for handling bulk uploads
 export class BulkUploadService {
   private whisperService: ReturnType<typeof useWhisperService>;
   private assignedUserId: string | null = null;
+  private dispatchEvent: (type: string, data?: any) => void;
   
   constructor(whisperService: ReturnType<typeof useWhisperService>) {
     this.whisperService = whisperService;
+    this.dispatchEvent = useEventsStore.getState().dispatchEvent;
   }
   
   // Set the user ID to assign to the uploaded files
@@ -24,6 +26,11 @@ export class BulkUploadService {
     try {
       // Update status to processing
       updateStatus('processing', 10);
+      
+      this.dispatchEvent('bulk-upload-started', { 
+        filename: file.name, 
+        size: file.size
+      });
       
       // Transcribe the audio file
       const result = await this.whisperService.transcribeAudio(file);
@@ -49,6 +56,13 @@ export class BulkUploadService {
       
       // Force a refresh of the local storage transcripts to ensure UI updates
       this.whisperService.forceRefreshTranscriptions();
+      
+      // Dispatch event to notify components that a new transcript has been created
+      this.dispatchEvent('transcript-created', { 
+        id,
+        filename: file.name,
+        duration: await this.calculateAudioDuration(file)
+      });
       
       // Notify using toast
       toast.success("File processed successfully", {
@@ -364,6 +378,7 @@ export const useBulkUploadService = () => {
     uploadHistory,
     hasLoadedHistory
   } = useBulkUploadStore();
+  const dispatchEvent = useEventsStore.getState().dispatchEvent;
   
   // Set the user ID to assign to the uploaded files
   const setAssignedUserId = (userId: string) => {
@@ -375,6 +390,12 @@ export const useBulkUploadService = () => {
     if (isProcessing || files.length === 0) return;
     
     setProcessing(true);
+    
+    // Dispatch event that bulk upload processing has started
+    dispatchEvent('bulk-upload-started', {
+      fileCount: files.length,
+      fileIds: files.map(f => f.id)
+    });
     
     // Process files sequentially
     for (const file of files) {
@@ -394,6 +415,13 @@ export const useBulkUploadService = () => {
     // After processing all files, trigger a reload of the history
     loadUploadHistory();
     
+    // Dispatch event that bulk upload processing has completed
+    dispatchEvent('bulk-upload-completed', {
+      fileCount: files.length,
+      fileIds: files.map(f => f.id),
+      transcriptIds: files.filter(f => f.transcriptId).map(f => f.transcriptId)
+    });
+    
     // Notify the user that processing is complete
     toast.success("All files processed", {
       description: "Your data has been uploaded and metrics have been updated."
@@ -411,6 +439,6 @@ export const useBulkUploadService = () => {
     uploadHistory,
     hasLoadedHistory,
     loadUploadHistory,
-    setAssignedUserId // New function to set the assigned user ID
+    setAssignedUserId
   };
 };

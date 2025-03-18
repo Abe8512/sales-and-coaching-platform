@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCallTranscriptService } from "@/services/CallTranscriptService";
+import { useEventListener } from "@/services/EventsService";
+import { toast } from "sonner";
 
 // Import the components
 import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
@@ -44,6 +46,7 @@ const CallActivity = () => {
     productLines: [] as string[],
     callTypes: [] as string[],
   });
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   
   const [teamMetrics, teamMetricsLoading] = useRealTimeTeamMetrics();
   const [repMetrics, repMetricsLoading] = useRealTimeRepMetrics(
@@ -52,7 +55,7 @@ const CallActivity = () => {
   
   const [calls, setCalls] = useState<Call[]>([]);
   
-  // Use the new CallTranscriptService to fetch real data
+  // Use the CallTranscriptService to fetch real data
   const { 
     transcripts, 
     loading: transcriptsLoading, 
@@ -61,7 +64,8 @@ const CallActivity = () => {
     getCallDistributionData
   } = useCallTranscriptService();
   
-  useEffect(() => {
+  // Create a memoized function for fetching transcripts
+  const refreshData = useCallback(() => {
     // Set up filter for transcripts
     const transcriptFilter = {
       dateRange,
@@ -71,7 +75,37 @@ const CallActivity = () => {
     
     // Fetch transcripts from Supabase
     fetchTranscripts(transcriptFilter);
+    setRefreshTrigger(prev => prev + 1);
   }, [selectedUser, filters, dateRange, fetchTranscripts]);
+  
+  // Listen for bulk upload completed events
+  useEventListener('bulk-upload-completed', (data) => {
+    console.log('Bulk upload completed event received', data);
+    toast.success(`${data?.count || 'Multiple'} files processed`, {
+      description: "Refreshing call data..."
+    });
+    refreshData();
+  });
+  
+  // Listen for recording completed events
+  useEventListener('recording-completed', (data) => {
+    console.log('Recording completed event received', data);
+    toast.success('New recording added', {
+      description: "Refreshing call data..."
+    });
+    refreshData();
+  });
+  
+  // Listen for transcript changes
+  useEventListener('transcripts-refreshed', () => {
+    console.log('Transcripts refreshed event received');
+    refreshData();
+  });
+  
+  // Initial data fetch
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
   
   // Convert transcripts to calls format
   useEffect(() => {
@@ -112,7 +146,7 @@ const CallActivity = () => {
     } else {
       setCalls([]);
     }
-  }, [transcripts, user, getManagedUsers]);
+  }, [transcripts, user, getManagedUsers, refreshTrigger]);
 
   const handleFilterChange = (newFilters) => {
     setFilters(newFilters);

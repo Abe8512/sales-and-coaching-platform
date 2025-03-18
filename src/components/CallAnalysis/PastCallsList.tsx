@@ -1,14 +1,34 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { useCallMetricsStore } from '@/store/useCallMetricsStore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Clock, Mic, BarChart2 } from "lucide-react";
+import { Clock, Mic, BarChart2, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useEventListener } from '@/services/EventsService';
 
 const PastCallsList = () => {
   const { callHistory, loadPastCalls } = useCallMetricsStore();
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Listen for events that should trigger a refresh
+  useEventListener('transcript-created', () => {
+    console.log('New transcript created, refreshing past calls...');
+    handleRefresh();
+  });
+  
+  useEventListener('bulk-upload-completed', () => {
+    console.log('Bulk upload completed, refreshing past calls...');
+    handleRefresh();
+  });
+  
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadPastCalls();
+    setTimeout(() => setRefreshing(false), 1000);
+  };
   
   useEffect(() => {
     loadPastCalls();
@@ -45,10 +65,18 @@ const PastCallsList = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl font-semibold">Past Calls</CardTitle>
-        <CardDescription>
-          Recent call recordings and metrics
-        </CardDescription>
+        <div className="flex justify-between items-center">
+          <div>
+            <CardTitle className="text-xl font-semibold">Past Calls</CardTitle>
+            <CardDescription>
+              Recent call recordings and metrics
+            </CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={refreshing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {callHistory.length === 0 ? (

@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Loader2, CheckCircle, AlertCircle, Clock, X, FileAudio } from 'lucide-react';
 import { useCallTranscriptService } from '@/services/CallTranscriptService';
+import { useEvents } from '@/services/EventsService';
 
 const BulkUploadProcessor = () => {
   const { 
@@ -18,6 +19,7 @@ const BulkUploadProcessor = () => {
   const { toast } = useToast();
   const [totalProgress, setTotalProgress] = useState(0);
   const { fetchTranscripts } = useCallTranscriptService();
+  const { dispatchEvent } = useEvents();
   
   useEffect(() => {
     // Calculate total progress
@@ -35,12 +37,30 @@ const BulkUploadProcessor = () => {
     if (allCompleted) {
       // Refresh the transcript data
       fetchTranscripts();
+      
+      // Dispatch an event to notify other components about the completed uploads
+      dispatchEvent('bulk-upload-completed', { 
+        count: files.length,
+        fileIds: files.map(file => file.id),
+        transcriptIds: files.map(file => file.transcriptId).filter(Boolean)
+      });
+      
       toast({
         title: "Processing Complete",
         description: "All files have been processed successfully. Data has been refreshed.",
       });
     }
-  }, [files, fetchTranscripts, toast]);
+  }, [files, fetchTranscripts, toast, dispatchEvent]);
+  
+  // Dispatch event when processing starts
+  useEffect(() => {
+    if (isProcessing) {
+      dispatchEvent('bulk-upload-started', {
+        count: files.filter(f => f.status === 'queued' || f.status === 'processing').length,
+        fileIds: files.map(file => file.id)
+      });
+    }
+  }, [isProcessing, files, dispatchEvent]);
   
   const getStatusIcon = (status: string) => {
     switch (status) {

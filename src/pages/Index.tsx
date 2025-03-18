@@ -1,4 +1,3 @@
-
 import React, { useContext, useState, useEffect } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
@@ -22,6 +21,7 @@ import { DateRangeFilter } from "../components/CallAnalysis/DateRangeFilter";
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
 import { useCallTranscriptService } from "@/services/CallTranscriptService";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useEventListener } from "@/services/EventsService";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
@@ -30,14 +30,12 @@ const Index = () => {
   const [showLiveMetrics, setShowLiveMetrics] = useState(false);
   const { startRecording, stopRecording, isRecording, saveSentimentTrend } = useCallMetricsStore();
   
-  // Use the CallTranscriptService to fetch metrics
   const { 
     fetchTranscripts,
     loading: transcriptsLoading 
   } = useCallTranscriptService();
   
   useEffect(() => {
-    // Fetch initial data using current filters
     fetchTranscripts({
       dateRange: filters.dateRange
     });
@@ -49,22 +47,33 @@ const Index = () => {
     };
   }, [filters.dateRange, isRecording, stopRecording, fetchTranscripts]);
   
-  // Save data periodically when recording to update shared state
   useEffect(() => {
     if (isRecording) {
       const interval = setInterval(() => {
         saveSentimentTrend();
-      }, 15000); // Save every 15 seconds
+      }, 15000);
       
       return () => clearInterval(interval);
     }
   }, [isRecording, saveSentimentTrend]);
   
-  // Listen for transcriptions-updated event
+  useEventListener('transcript-created', (data) => {
+    console.log('New transcript created, refreshing data...', data);
+    fetchTranscripts({
+      dateRange: filters.dateRange
+    });
+  });
+  
+  useEventListener('bulk-upload-completed', (data) => {
+    console.log('Bulk upload completed, refreshing data...', data);
+    fetchTranscripts({
+      dateRange: filters.dateRange
+    });
+  });
+  
   useEffect(() => {
     const handleTranscriptionsUpdated = () => {
       console.log("Transcriptions updated, refreshing data...");
-      // Refresh our data when transcriptions are updated
       fetchTranscripts({
         dateRange: filters.dateRange
       });
@@ -77,15 +86,13 @@ const Index = () => {
     };
   }, [fetchTranscripts, filters.dateRange]);
   
-  // Handle bulk upload modal closure - refresh data when closed
   const handleBulkUploadClose = () => {
     setIsBulkUploadOpen(false);
-    // Refresh data when the modal is closed (in case uploads happened)
     fetchTranscripts({
       dateRange: filters.dateRange
     });
   };
-  
+
   const handleLiveMetricsTab = (value: string) => {
     if (value === 'livemetrics') {
       setShowLiveMetrics(true);

@@ -1,4 +1,3 @@
-
 import { supabase } from "@/integrations/supabase/client";
 import { useState, useEffect, useCallback } from "react";
 import { DateRange } from "react-day-picker";
@@ -8,6 +7,7 @@ import {
   calculateOutcomeDistribution 
 } from "@/utils/metricCalculations";
 import { toast } from "sonner";
+import { useEventsStore } from "@/services/EventsService";
 
 export interface CallTranscript {
   id: string;
@@ -35,6 +35,7 @@ export const useCallTranscriptService = () => {
   const [error, setError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState<number>(0);
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
+  const dispatchEvent = useEventsStore.getState().dispatchEvent;
   
   const fetchTranscripts = useCallback(async (filters?: CallTranscriptFilter) => {
     setLoading(true);
@@ -141,6 +142,12 @@ export const useCallTranscriptService = () => {
       if (finalData && finalData.length > 0) {
         setTranscripts(finalData);
         
+        // Dispatch an event to notify other components that transcripts were refreshed
+        dispatchEvent('transcripts-refreshed', {
+          count: finalData.length,
+          filters: filters
+        });
+        
         // Also update calls table to ensure metrics are fresh
         await refreshCallsTable(finalData);
       } else if (transcripts.length === 0) {
@@ -164,9 +171,8 @@ export const useCallTranscriptService = () => {
     } finally {
       setLoading(false);
     }
-  }, [transcripts]);
+  }, [transcripts, dispatchEvent]);
 
-  // Add a function to refresh the calls table to ensure metrics are up to date
   const refreshCallsTable = async (transcriptData: CallTranscript[]) => {
     try {
       // Check if we need to sync any transcripts to the calls table
@@ -261,6 +267,66 @@ export const useCallTranscriptService = () => {
       calls: count
     }));
   }, [transcripts]);
+  
+  // Subscribe to real-time changes from Supabase
+  useEffect(() => {
+    // Subscribe to real-time changes to the call_transcripts table
+    const channel = supabase
+      .channel('call_transcripts_changes')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public',
+        table: 'call_transcripts'
+      }, (payload) => {
+        console.log('Real-time update received:', payload);
+        
+        // Dispatch appropriate event based on the change type
+        if (payload.eventType === 'INSERT') {
+          dispatchEvent('transcript-created', payload.new);
+          // Re-fetch data to ensure all components have the latest data
+          fetchTranscripts();
+        } else if (payload.eventType === 'UPDATE') {
+          dispatchEvent('transcript-updated', payload.new);
+          // Re-fetch data to ensure all components have the latest data
+          fetchTranscripts();
+        } else if (payload.eventType === 'DELETE') {
+          dispatchEvent('transcript-deleted', payload.old);
+          // Re-fetch data to ensure all components have the latest data
+          fetchTranscripts();
+        }
+      })
+      .subscribe(status => {
+        console.log('Subscription status for call_transcripts:', status);
+      });
+      
+    // Also subscribe to changes in the calls table
+    const callsChannel = supabase
+      .channel('calls_changes')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public',
+        table: 'calls'
+      }, (payload) => {
+        console.log('Real-time update received for calls:', payload);
+        
+        // Dispatch appropriate event based on the change type
+        if (payload.eventType === 'INSERT') {
+          dispatchEvent('call-created', payload.new);
+        } else if (payload.eventType === 'UPDATE') {
+          dispatchEvent('call-updated', payload.new);
+        } else if (payload.eventType === 'DELETE') {
+          dispatchEvent('call-deleted', payload.old);
+        }
+      })
+      .subscribe(status => {
+        console.log('Subscription status for calls:', status);
+      });
+    
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(callsChannel);
+    };
+  }, [fetchTranscripts, dispatchEvent]);
   
   // Refresh data automatically every 60 seconds if the component is still mounted
   useEffect(() => {

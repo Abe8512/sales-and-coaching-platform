@@ -9,6 +9,7 @@ import AIWaveform from "../ui/AIWaveform";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
+import { Progress } from "@/components/ui/progress";
 
 const LiveCallAnalysis = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -21,11 +22,14 @@ const LiveCallAnalysis = () => {
   const [apiKey, setApiKey] = useState("");
   const [openAPIKeyDialog, setOpenAPIKeyDialog] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [processingChunk, setProcessingChunk] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { transcribeAudio } = useWhisperService();
+  const { transcribeAudio, saveTranscriptionWithAnalysis } = useWhisperService();
 
   useEffect(() => {
     // Check if API key exists in localStorage
@@ -35,6 +39,49 @@ const LiveCallAnalysis = () => {
       setOpenAIKey(storedKey);
     }
   }, []);
+
+  // Generate AI suggestions based on transcript content
+  const generateSuggestions = (text: string) => {
+    // Very basic keyword-based suggestion generation
+    const newSuggestions = [];
+    
+    if (text.toLowerCase().includes('price') || text.toLowerCase().includes('cost')) {
+      newSuggestions.push("Focus on value proposition rather than price");
+    }
+    
+    if (text.toLowerCase().includes('competitor') || text.toLowerCase().includes('alternative')) {
+      newSuggestions.push("Highlight our unique features like [feature] that competitors don't have");
+    }
+    
+    if (text.toLowerCase().includes('think') || text.toLowerCase().includes('consider')) {
+      newSuggestions.push("Ask 'What would make this decision easier for you?'");
+    }
+    
+    if (text.toLowerCase().includes('not sure') || text.toLowerCase().includes('uncertain')) {
+      newSuggestions.push("Share a relevant case study to build confidence");
+    }
+
+    if (text.toLowerCase().includes('timeline') || text.toLowerCase().includes('when')) {
+      newSuggestions.push("Suggest a concrete next step with a specific date");
+    }
+    
+    // Add default suggestions if we don't have enough context-specific ones
+    if (newSuggestions.length < 3) {
+      if (!newSuggestions.includes("Ask more open-ended questions about their specific needs")) {
+        newSuggestions.push("Ask more open-ended questions about their specific needs");
+      }
+      
+      if (newSuggestions.length < 3 && !newSuggestions.includes("Try summarizing what you've heard so far")) {
+        newSuggestions.push("Try summarizing what you've heard so far");
+      }
+      
+      if (newSuggestions.length < 3 && !newSuggestions.includes("Consider asking about their timeline for implementation")) {
+        newSuggestions.push("Consider asking about their timeline for implementation");
+      }
+    }
+    
+    return newSuggestions.slice(0, 3);
+  };
 
   const startRecording = async () => {
     if (!hasApiKey) {
@@ -50,29 +97,63 @@ const LiveCallAnalysis = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
+      setRecordingDuration(0);
 
       mediaRecorderRef.current.ondataavailable = (e) => {
         audioChunksRef.current.push(e.data);
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        const result = await transcribeAudio(audioBlob);
+        // Final processing happens in stopRecording
+      };
+
+      // Process audio in chunks for real-time analysis
+      const processAudioChunk = async () => {
+        if (!isRecording) return;
         
-        if (result) {
-          setTranscript(prev => prev + " " + result.text);
-          // Here we'd normally send the transcript to an AI for analysis
-          // Mock response for now
-          setSuggestions([
-            "Notice the customer mentioned price concerns - try emphasizing value",
-            "Good opportunity to mention our case studies for social proof",
-            "Consider asking about their timeline for implementation"
-          ]);
+        if (audioChunksRef.current.length > 0 && !processingChunk) {
+          setProcessingChunk(true);
+          
+          // Create a copy of current chunks and process them
+          const currentChunks = [...audioChunksRef.current];
+          const audioBlob = new Blob(currentChunks, { type: "audio/webm" });
+          
+          try {
+            const result = await transcribeAudio(audioBlob);
+            
+            if (result) {
+              setTranscript(prev => {
+                const newTranscript = prev + " " + result.text;
+                // Generate new suggestions based on updated transcript
+                const newSuggestions = generateSuggestions(newTranscript);
+                setSuggestions(newSuggestions);
+                return newTranscript;
+              });
+            }
+          } catch (error) {
+            console.error("Error processing audio chunk:", error);
+          } finally {
+            setProcessingChunk(false);
+          }
+        }
+        
+        // Schedule next chunk processing if still recording
+        if (isRecording) {
+          setTimeout(processAudioChunk, 15000); // Process every 15 seconds
         }
       };
 
-      mediaRecorderRef.current.start(10000); // Record in 10-second chunks
+      // Start the recorder and timer
+      mediaRecorderRef.current.start(5000); // Collect data in 5-second chunks
       setIsRecording(true);
+      
+      // Start timer to track recording duration
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+      
+      // Initial processing after a short delay
+      setTimeout(processAudioChunk, 5000);
       
       toast({
         title: "Recording Started",
@@ -88,16 +169,56 @@ const LiveCallAnalysis = () => {
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     if (mediaRecorderRef.current && isRecording) {
+      // Stop the media recorder
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      
+      // Stop the duration timer
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      
       setIsRecording(false);
       
       toast({
         title: "Recording Stopped",
         description: "Analyzing your call...",
       });
+      
+      // Process the entire recording
+      if (audioChunksRef.current.length > 0) {
+        try {
+          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          const result = await transcribeAudio(audioBlob);
+          
+          if (result) {
+            // Update the displayed transcript
+            setTranscript(result.text);
+            
+            // Generate final suggestions
+            const finalSuggestions = generateSuggestions(result.text);
+            setSuggestions(finalSuggestions);
+            
+            // Save the full transcription with analysis
+            saveTranscriptionWithAnalysis(result.text, `Live Call ${new Date().toLocaleString()}`);
+            
+            toast({
+              title: "Analysis Complete",
+              description: "Your call has been analyzed and saved",
+            });
+          }
+        } catch (error) {
+          console.error("Error processing final recording:", error);
+          toast({
+            title: "Analysis Failed",
+            description: "Could not process the recording",
+            variant: "destructive",
+          });
+        }
+      }
     }
   };
 
@@ -114,6 +235,12 @@ const LiveCallAnalysis = () => {
 
   const goToSettings = () => {
     navigate("/settings");
+  };
+
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
   };
 
   return (
@@ -174,10 +301,10 @@ const LiveCallAnalysis = () => {
             </div>
           )}
         
-          <div className="flex justify-center">
+          <div className="flex justify-center items-center flex-col gap-2">
             <Button
               onClick={isRecording ? stopRecording : startRecording}
-              disabled={!hasApiKey}
+              disabled={!hasApiKey || processingChunk}
               className={`${isRecording ? "bg-red-500 hover:bg-red-600" : "bg-neon-blue hover:bg-neon-blue/80"} text-white px-6 py-6 rounded-full h-auto`}
             >
               {isRecording ? (
@@ -186,6 +313,18 @@ const LiveCallAnalysis = () => {
                 <Mic className="h-8 w-8" />
               )}
             </Button>
+            
+            {isRecording && (
+              <div className="text-sm font-medium mt-2">
+                Recording: {formatTime(recordingDuration)}
+              </div>
+            )}
+            
+            {processingChunk && (
+              <div className="w-32 mt-2">
+                <Progress className="h-1" value={undefined} />
+              </div>
+            )}
           </div>
           
           <div className="flex items-center justify-center h-8">

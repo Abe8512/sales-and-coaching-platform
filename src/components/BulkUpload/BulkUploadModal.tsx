@@ -25,7 +25,7 @@ interface UploadFile {
 const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
   const { isDarkMode } = useContext(ThemeContext);
   const { toast } = useToast();
-  const { transcribeAudio } = useWhisperService();
+  const { transcribeAudio, saveTranscriptionWithAnalysis } = useWhisperService();
   const [dragActive, setDragActive] = useState(false);
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -147,16 +147,8 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
             } : f)
           );
           
-          // Store transcription in localStorage for demo purposes
-          // In a real app, this would be saved to a database
-          const transcriptions = JSON.parse(localStorage.getItem('transcriptions') || '[]');
-          transcriptions.push({
-            id: file.id,
-            filename: file.file.name,
-            text: result.text,
-            date: new Date().toISOString()
-          });
-          localStorage.setItem('transcriptions', JSON.stringify(transcriptions));
+          // Save transcription with analysis
+          saveTranscriptionWithAnalysis(result.text, file.file.name);
         } else {
           throw new Error("Transcription failed");
         }

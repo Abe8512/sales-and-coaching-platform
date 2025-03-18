@@ -1,46 +1,54 @@
 
-import React from "react";
-import { Bell, Search } from "lucide-react";
+import React, { useContext } from "react";
+import { ThemeContext } from "@/App";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Menu, Moon, Search, Sun } from "lucide-react";
 import UserDropdown from "./UserDropdown";
+import { useMobile } from "@/hooks/use-mobile";
+import NotificationCenter from "../NotificationCenter/NotificationCenter";
 
 interface TopBarProps {
-  children?: React.ReactNode;
-  isDarkMode: boolean;
+  setSidebarOpen: (open: boolean) => void;
 }
 
-const TopBar = ({ children, isDarkMode }: TopBarProps) => {
+const TopBar = ({ setSidebarOpen }: TopBarProps) => {
+  const { isDarkMode, toggleTheme } = useContext(ThemeContext);
+  const isMobile = useMobile();
+
   return (
-    <header className={`w-full border-b ${isDarkMode ? 'bg-dark-purple border-white/5' : 'bg-white border-gray-200'}`}>
-      <div className="flex h-16 items-center justify-between px-6">
-        <div className="relative flex-1">
-          <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
-          <Input
-            type="search"
-            placeholder="Search..."
-            className={`w-full max-w-sm pl-10 h-9 ${
-              isDarkMode 
-                ? 'bg-white/5 border-white/10 placeholder-gray-500' 
-                : 'bg-gray-100 border-gray-200 placeholder-gray-400'
-            }`}
-          />
+    <div className={`fixed top-0 left-0 w-full border-b z-10 ${isDarkMode ? "bg-black/50 backdrop-blur-xl border-white/10" : "bg-white/50 backdrop-blur-xl border-black/10"}`}>
+      <div className="px-4 h-16 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          {isMobile && (
+            <Button variant="outline" size="icon" onClick={() => setSidebarOpen(true)}>
+              <Menu className="h-5 w-5" />
+            </Button>
+          )}
+          <div className="relative max-w-md w-full hidden sm:block">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Search..." 
+              className="pl-8 bg-background w-full" 
+            />
+          </div>
         </div>
-        
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className={`h-5 w-5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-neon-purple text-[10px] text-white">
-              3
-            </span>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={toggleTheme}
+            className="text-muted-foreground"
+          >
+            {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </Button>
           
-          {children}
+          <NotificationCenter />
           
           <UserDropdown />
         </div>
       </div>
-    </header>
+    </div>
   );
 };
 

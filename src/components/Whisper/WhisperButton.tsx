@@ -4,7 +4,7 @@ import { Mic, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeContext } from "@/App";
 import { useToast } from "@/hooks/use-toast";
-import { useWhisperService, getStoredTranscriptions } from "@/services/WhisperService";
+import { getStoredTranscriptions } from "@/services/WhisperService";
 import { useNavigate } from "react-router-dom";
 
 interface WhisperButtonProps {
@@ -23,9 +23,18 @@ const WhisperButton = ({ recordingId }: WhisperButtonProps) => {
     // Get all transcriptions
     const transcriptions = getStoredTranscriptions();
     
-    // Find the specific transcription by ID or use any available transcription
-    const transcription = transcriptions.find(t => t.id === recordingId) || 
-                          (transcriptions.length > 0 ? transcriptions[0] : null);
+    // Find the specific transcription by ID or use latest if "latest" is passed
+    let transcription;
+    
+    if (recordingId === "latest") {
+      // Sort by date (newest first) and take the first one
+      transcription = transcriptions.length > 0 
+        ? [...transcriptions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+        : null;
+    } else {
+      transcription = transcriptions.find(t => t.id === recordingId) || 
+                      (transcriptions.length > 0 ? transcriptions[0] : null);
+    }
     
     setTimeout(() => {
       if (transcription) {

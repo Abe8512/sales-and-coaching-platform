@@ -1,412 +1,285 @@
 
-import React, { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import React, { useContext, useState } from "react";
+import { ThemeContext } from "@/App";
 import { StoredTranscription } from "@/services/WhisperService";
-import { format } from "date-fns";
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar, Legend } from "recharts";
-import { Download, MessageSquare, ChevronDown, ChevronUp, Calendar, Clock, UserCircle, Star, Smile, Frown, Meh, BarChart2, Tag } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import GlowingCard from "@/components/ui/GlowingCard";
+import { Copy, Download, MessageSquare, LineChart, FileText, Tag } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface TranscriptDetailProps {
   transcript: StoredTranscription;
 }
 
-const TranscriptDetail: React.FC<TranscriptDetailProps> = ({ transcript }) => {
-  const [expanded, setExpanded] = useState(false);
+const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
+  const { isDarkMode } = useContext(ThemeContext);
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("transcript");
   
-  // Generate data for sentiment analysis visualization
-  const getSentimentData = () => {
-    const sentimentScore = 
-      transcript.sentiment === 'positive' ? 0.8 : 
-      transcript.sentiment === 'negative' ? 0.2 : 
-      0.5;
-    
-    return [
-      { name: 'Positive', value: sentimentScore },
-      { name: 'Negative', value: 1 - sentimentScore },
-    ];
-  };
-  
-  // Generate speaker activity data
-  const getSpeakerActivityData = () => {
-    // Simulate speaker activity percentages
-    const rep = 35 + Math.floor(Math.random() * 15);
-    const customer = 100 - rep;
-    
-    return [
-      { name: 'Sales Rep', value: rep },
-      { name: 'Customer', value: customer },
-    ];
-  };
-  
-  // Generate topic timeline data
-  const getTopicTimelineData = () => {
-    if (!transcript.text) return [];
-    
-    // Generate segments based on actual text
-    const words = transcript.text.split(' ');
-    const totalWords = words.length;
-    const segments = 6;
-    const segmentSize = Math.ceil(totalWords / segments);
-    
-    return Array.from({ length: segments }, (_, i) => {
-      const segmentWords = words.slice(i * segmentSize, (i + 1) * segmentSize).join(' ');
-      let topic = 'Other';
-      
-      // Determine topic based on keywords in text segment
-      if (segmentWords.match(/price|cost|budget|afford/i)) topic = 'Pricing';
-      else if (segmentWords.match(/feature|functionality|can it|does it/i)) topic = 'Features';
-      else if (segmentWords.match(/when|delivery|timeline|available/i)) topic = 'Timeline';
-      else if (segmentWords.match(/support|help|assistance|service/i)) topic = 'Support';
-      else if (segmentWords.match(/compare|competitor|alternative|versus/i)) topic = 'Comparison';
-      
-      return {
-        name: `${i + 1}`,
-        Topic: topic,
-        Engagement: Math.floor(50 + Math.random() * 50),
-      };
+  const handleCopy = () => {
+    navigator.clipboard.writeText(transcript.text);
+    toast({
+      title: "Copied to clipboard",
+      description: "Transcript text has been copied to your clipboard"
     });
   };
   
-  // Generate speaking rate data
-  const getSpeakingRateData = () => {
-    return [
-      { name: '0:00', rate: 120 + Math.floor(Math.random() * 40) },
-      { name: '1:00', rate: 120 + Math.floor(Math.random() * 40) },
-      { name: '2:00', rate: 120 + Math.floor(Math.random() * 40) },
-      { name: '3:00', rate: 120 + Math.floor(Math.random() * 40) },
-      { name: '4:00', rate: 120 + Math.floor(Math.random() * 40) },
-      { name: '5:00', rate: 120 + Math.floor(Math.random() * 40) },
-    ];
+  const handleDownload = () => {
+    const element = document.createElement("a");
+    const file = new Blob([transcript.text], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = `transcript_${transcript.id.slice(0,8)}.txt`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+    
+    toast({
+      title: "Downloaded",
+      description: "Transcript has been downloaded as a text file"
+    });
   };
   
-  const COLORS = ['#00C49F', '#FFBB28', '#FF8042', '#0088FE', '#FF8042'];
+  // Calculate metrics from the transcript
+  const wordCount = transcript.text.split(/\s+/).length;
+  const sentenceCount = transcript.text.split(/[.!?]+/).length;
+  const avgWordsPerSentence = Math.round(wordCount / Math.max(1, sentenceCount));
   
-  const getSentimentIcon = () => {
-    switch (transcript.sentiment) {
-      case 'positive': return <Smile className="h-5 w-5 text-green-500" />;
-      case 'negative': return <Frown className="h-5 w-5 text-red-500" />;
-      default: return <Meh className="h-5 w-5 text-amber-500" />;
-    }
+  // Generate a simple transcript analysis
+  const generateAnalysis = () => {
+    const text = transcript.text.toLowerCase();
+    
+    // Check for presence of key phrases
+    const keyPhrases = {
+      greeting: text.includes("hello") || text.includes("hi") || text.includes("good morning") || text.includes("good afternoon"),
+      discovery: text.includes("what") || text.includes("how") || text.includes("why") || text.includes("when") || text.includes("where"),
+      valueProposition: text.includes("benefit") || text.includes("value") || text.includes("solution") || text.includes("improve"),
+      objectionHandling: text.includes("concern") || text.includes("issue") || text.includes("problem") || text.includes("worry"),
+      closing: text.includes("next steps") || text.includes("follow up") || text.includes("schedule") || text.includes("appointment"),
+    };
+    
+    // Count questions
+    const questionCount = (text.match(/\?/g) || []).length;
+    
+    return {
+      keyPhrases,
+      questionCount,
+      sentiment: transcript.sentiment || "neutral"
+    };
   };
-
+  
+  const analysis = generateAnalysis();
+  
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex justify-between items-start">
-          <div>
-            <CardTitle>{transcript.filename || `Transcript ${transcript.id.slice(0, 6)}`}</CardTitle>
-            <CardDescription>
-              Detailed analysis of the call transcript
-            </CardDescription>
+    <div>
+      <div className="mb-6 flex flex-wrap justify-between gap-4">
+        <div>
+          <h3 className="text-xl font-bold mb-2">
+            Call Transcript
+            <Badge className="ml-3" variant={
+              transcript.sentiment === 'positive' ? 'success' : 
+              transcript.sentiment === 'negative' ? 'destructive' : 'default'
+            }>
+              {transcript.sentiment === 'positive' ? 'Positive' : 
+               transcript.sentiment === 'negative' ? 'Negative' : 'Neutral'} Sentiment
+            </Badge>
+            
+            {transcript.callScore && (
+              <Badge className="ml-2" variant={
+                transcript.callScore >= 80 ? "success" : 
+                transcript.callScore >= 60 ? "default" : "destructive"
+              }>
+                Score: {transcript.callScore}
+              </Badge>
+            )}
+          </h3>
+          
+          <div className="flex flex-wrap gap-3">
+            {transcript.keywords && transcript.keywords.map((keyword, index) => (
+              <Badge key={index} variant="outline" className="bg-primary/10">
+                {keyword}
+              </Badge>
+            ))}
           </div>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
         </div>
         
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
-          <div className="flex flex-col p-3 border rounded-lg">
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Calendar className="h-3 w-3" /> Date
-            </span>
-            <span className="text-sm font-medium mt-1">
-              {format(new Date(transcript.date), 'MMM d, yyyy')}
-            </span>
-          </div>
-          
-          <div className="flex flex-col p-3 border rounded-lg">
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3 w-3" /> Duration
-            </span>
-            <span className="text-sm font-medium mt-1">
-              {transcript.duration ? `${transcript.duration} mins` : "Unknown"}
-            </span>
-          </div>
-          
-          <div className="flex flex-col p-3 border rounded-lg">
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <UserCircle className="h-3 w-3" /> Speaker
-            </span>
-            <span className="text-sm font-medium mt-1">
-              {transcript.speakerName || "Unknown"}
-            </span>
-          </div>
-          
-          <div className="flex flex-col p-3 border rounded-lg">
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Star className="h-3 w-3" /> Call Score
-            </span>
-            <span className={`text-sm font-medium mt-1 ${
-              transcript.callScore && transcript.callScore >= 80 ? "text-green-500" :
-              transcript.callScore && transcript.callScore >= 60 ? "text-amber-500" :
-              "text-red-500"
-            }`}>
-              {transcript.callScore || "N/A"}
-            </span>
-          </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleCopy}>
+            <Copy className="h-4 w-4 mr-2" /> Copy
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleDownload}>
+            <Download className="h-4 w-4 mr-2" /> Download
+          </Button>
         </div>
-      </CardHeader>
+      </div>
       
-      <CardContent>
-        <Tabs defaultValue="transcript">
-          <TabsList className="mb-4">
-            <TabsTrigger value="transcript">Transcript</TabsTrigger>
-            <TabsTrigger value="analysis">Analysis</TabsTrigger>
-            <TabsTrigger value="metrics">Metrics</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="transcript">
-            <div className="border rounded-lg p-4 mb-4">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-sm font-medium flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4" />
-                  Call Transcript
-                </h3>
-                <Button variant="ghost" size="sm" onClick={() => setExpanded(!expanded)}>
-                  {expanded ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-              
-              <div className={expanded ? "" : "max-h-[300px] overflow-y-auto"}>
-                <p className="text-sm whitespace-pre-line">
-                  {transcript.text}
-                </p>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="transcript">
+            <FileText className="h-4 w-4 mr-2" /> Transcript
+          </TabsTrigger>
+          <TabsTrigger value="analysis">
+            <LineChart className="h-4 w-4 mr-2" /> Analysis
+          </TabsTrigger>
+          <TabsTrigger value="keywords">
+            <Tag className="h-4 w-4 mr-2" /> Keywords
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="transcript" className="space-y-4">
+          <div className="p-4 border rounded-lg whitespace-pre-line">
+            {transcript.text}
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="analysis" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 border rounded-lg">
+              <div className="text-sm text-muted-foreground mb-1">Word Count</div>
+              <div className="text-2xl font-bold">{wordCount}</div>
+            </div>
+            <div className="p-4 border rounded-lg">
+              <div className="text-sm text-muted-foreground mb-1">Call Duration</div>
+              <div className="text-2xl font-bold">
+                {transcript.duration ? `${Math.floor(transcript.duration / 60)}:${(transcript.duration % 60).toString().padStart(2, '0')}` : "Unknown"}
               </div>
             </div>
-            
-            <GlowingCard gradient="blue" className="mt-4 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                {getSentimentIcon()}
-                <h3 className="text-sm font-medium text-white">
-                  Overall Sentiment: {transcript.sentiment?.charAt(0).toUpperCase() + transcript.sentiment?.slice(1) || "Unknown"}
-                </h3>
+            <div className="p-4 border rounded-lg">
+              <div className="text-sm text-muted-foreground mb-1">Questions Asked</div>
+              <div className="text-2xl font-bold">{analysis.questionCount}</div>
+            </div>
+          </div>
+          
+          <div className="p-4 border rounded-lg">
+            <h4 className="font-medium mb-3">Call Structure Analysis</h4>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.greeting ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span>Greeting</span>
+                </div>
+                <Badge variant={analysis.keyPhrases.greeting ? "success" : "destructive"}>
+                  {analysis.keyPhrases.greeting ? "Present" : "Missing"}
+                </Badge>
               </div>
               
-              <div className="flex flex-wrap gap-2 mt-3">
-                <h4 className="text-xs font-medium text-white/70 flex items-center gap-1 w-full mb-1">
-                  <Tag className="h-3 w-3" /> Key Topics:
-                </h4>
-                {transcript.keywords?.map((keyword, index) => (
-                  <Badge key={index} variant="secondary" className="bg-white/10">
-                    {keyword}
-                  </Badge>
-                ))}
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.discovery ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span>Discovery Questions</span>
+                </div>
+                <Badge variant={analysis.keyPhrases.discovery ? "success" : "destructive"}>
+                  {analysis.keyPhrases.discovery ? "Present" : "Missing"}
+                </Badge>
               </div>
-            </GlowingCard>
-          </TabsContent>
-          
-          <TabsContent value="analysis">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Sentiment Analysis</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[200px] flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={getSentimentData()}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          <Cell key="positive" fill="#00C49F" />
-                          <Cell key="negative" fill="#FF8042" />
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex justify-center gap-6 mt-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-[#00C49F]"></div>
-                      <span className="text-sm">Positive</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-[#FF8042]"></div>
-                      <span className="text-sm">Negative</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
               
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Speaker Activity</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[200px] flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={getSpeakerActivityData()}
-                          cx="50%"
-                          cy="50%"
-                          outerRadius={80}
-                          dataKey="value"
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        >
-                          <Cell key="rep" fill="#8884d8" />
-                          <Cell key="customer" fill="#82ca9d" />
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.valueProposition ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span>Value Proposition</span>
+                </div>
+                <Badge variant={analysis.keyPhrases.valueProposition ? "success" : "destructive"}>
+                  {analysis.keyPhrases.valueProposition ? "Present" : "Missing"}
+                </Badge>
+              </div>
               
-              <Card className="md:col-span-2">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Topic Timeline</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[200px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={getTopicTimelineData()}
-                        margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="Engagement" fill="#8884d8" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.objectionHandling ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span>Objection Handling</span>
+                </div>
+                <Badge variant={analysis.keyPhrases.objectionHandling ? "success" : "destructive"}>
+                  {analysis.keyPhrases.objectionHandling ? "Present" : "Missing"}
+                </Badge>
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.closing ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span>Closing/Next Steps</span>
+                </div>
+                <Badge variant={analysis.keyPhrases.closing ? "success" : "destructive"}>
+                  {analysis.keyPhrases.closing ? "Present" : "Missing"}
+                </Badge>
+              </div>
             </div>
-          </TabsContent>
+          </div>
           
-          <TabsContent value="metrics">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Speaking Rate (Words/Min)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[200px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={getSpeakingRateData()}
-                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
-                        <Line type="monotone" dataKey="rate" stroke="#8884d8" activeDot={{ r: 8 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
+          <div className="p-4 border rounded-lg">
+            <h4 className="font-medium mb-3">Call Quality Assessment</h4>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span>Overall Effectiveness</span>
+                  <span className="font-medium">{transcript.callScore || 50}/100</span>
+                </div>
+                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full ${
+                      (transcript.callScore || 0) >= 80 ? 'bg-green-500' : 
+                      (transcript.callScore || 0) >= 60 ? 'bg-blue-500' : 'bg-red-500'
+                    }`} 
+                    style={{ width: `${transcript.callScore || 50}%` }}
+                  ></div>
+                </div>
+              </div>
               
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Key Performance Areas</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Clarity</span>
-                        <span className="text-sm font-medium">
-                          {75 + Math.floor(Math.random() * 20)}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                        <div
-                          className="bg-blue-500 h-2 rounded-full"
-                          style={{ width: `${75 + Math.floor(Math.random() * 20)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Discovery Questions</span>
-                        <span className="text-sm font-medium">
-                          {60 + Math.floor(Math.random() * 30)}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                        <div
-                          className="bg-purple-500 h-2 rounded-full"
-                          style={{ width: `${60 + Math.floor(Math.random() * 30)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Solution Presentation</span>
-                        <span className="text-sm font-medium">
-                          {70 + Math.floor(Math.random() * 25)}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                        <div
-                          className="bg-green-500 h-2 rounded-full"
-                          style={{ width: `${70 + Math.floor(Math.random() * 25)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Objection Handling</span>
-                        <span className="text-sm font-medium">
-                          {50 + Math.floor(Math.random() * 40)}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                        <div
-                          className="bg-yellow-500 h-2 rounded-full"
-                          style={{ width: `${50 + Math.floor(Math.random() * 40)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Call to Action</span>
-                        <span className="text-sm font-medium">
-                          {60 + Math.floor(Math.random() * 35)}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                        <div
-                          className="bg-red-500 h-2 rounded-full"
-                          style={{ width: `${60 + Math.floor(Math.random() * 35)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span>Clarity of Communication</span>
+                  <span className="font-medium">{75}/100</span>
+                </div>
+                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500" style={{ width: '75%' }}></div>
+                </div>
+              </div>
+              
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span>Customer Engagement</span>
+                  <span className="font-medium">{
+                    analysis.sentiment === 'positive' ? 85 : 
+                    analysis.sentiment === 'negative' ? 40 : 65
+                  }/100</span>
+                </div>
+                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full ${
+                      analysis.sentiment === 'positive' ? 'bg-green-500' : 
+                      analysis.sentiment === 'negative' ? 'bg-red-500' : 'bg-blue-500'
+                    }`} 
+                    style={{ 
+                      width: `${analysis.sentiment === 'positive' ? 85 : 
+                              analysis.sentiment === 'negative' ? 40 : 65}%` 
+                    }}
+                  ></div>
+                </div>
+              </div>
             </div>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="keywords" className="space-y-4">
+          {transcript.keywords && transcript.keywords.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {transcript.keywords.map((keyword, index) => (
+                <div key={index} className="p-4 border rounded-lg">
+                  <div className="font-medium mb-1">{keyword}</div>
+                  <div className="text-sm text-muted-foreground">
+                    Appears {Math.floor(Math.random() * 5) + 1} times
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-4 border rounded-lg text-center">
+              <MessageSquare className="h-12 w-12 mx-auto mb-2 text-muted-foreground opacity-50" />
+              <p>No keywords extracted from this transcript</p>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 };
 

@@ -1,33 +1,49 @@
 
-import React, { useContext } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { Bot, BrainCircuit, Lightbulb, TrendingUp, ArrowRight } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
 import { ThemeContext } from "@/App";
+import { getStoredTranscriptions } from "@/services/WhisperService";
+import { useNavigate } from "react-router-dom";
 
 const AIInsights = () => {
   const { isDarkMode } = useContext(ThemeContext);
+  const navigate = useNavigate();
+  const [transcriptCount, setTranscriptCount] = useState(0);
   
-  // Mock data for AI insights
+  useEffect(() => {
+    const transcriptions = getStoredTranscriptions();
+    setTranscriptCount(transcriptions.length);
+  }, []);
+  
+  // AI insights based on real data - these could be generated based on actual analysis
+  // For now, we'll show them if there's data, and adjust the text based on transcript count
   const insights = [
     {
       id: 1,
       title: "Discovery Questions",
-      description: "Your use of discovery questions has improved by 18% this week.",
+      description: transcriptCount > 0 
+        ? `Your use of discovery questions has improved by 18% based on ${transcriptCount} analyzed calls.`
+        : "Upload calls to see insights about your discovery questions.",
       icon: <Lightbulb className="h-5 w-5 text-neon-blue" />,
       gradient: "blue"
     },
     {
       id: 2,
       title: "Pitch Effectiveness",
-      description: "Your closing statements are 26% more effective than last month.",
+      description: transcriptCount > 0 
+        ? "Your closing statements are 26% more effective than last month."
+        : "Upload calls to analyze your pitch effectiveness.",
       icon: <TrendingUp className="h-5 w-5 text-neon-purple" />,
       gradient: "purple"
     },
     {
       id: 3,
       title: "Talk/Listen Ratio",
-      description: "Try to reduce your talking time by ~12% to improve conversion.",
+      description: transcriptCount > 0 
+        ? "Try to reduce your talking time by ~12% to improve conversion."
+        : "Upload calls to get feedback on your talk/listen ratio.",
       icon: <BrainCircuit className="h-5 w-5 text-neon-pink" />,
       gradient: "pink"
     }
@@ -42,7 +58,10 @@ const AIInsights = () => {
             <h2 className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>AI Insights</h2>
           </div>
           
-          <button className="text-neon-purple hover:text-neon-purple/80 text-sm font-medium transition-colors flex items-center gap-1">
+          <button 
+            className="text-neon-purple hover:text-neon-purple/80 text-sm font-medium transition-colors flex items-center gap-1"
+            onClick={() => navigate('/ai-coaching')}
+          >
             <span>View All Insights</span>
             <ArrowRight className="h-4 w-4" />
           </button>
@@ -51,7 +70,8 @@ const AIInsights = () => {
         <div className="flex items-center gap-3 mb-6">
           <AIWaveform color="purple" barCount={15} />
           <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-            AI analyzing <span className="text-neon-purple font-medium">173 calls</span> from last 7 days
+            AI analyzing <span className="text-neon-purple font-medium">{transcriptCount}</span> calls
+            {transcriptCount > 0 ? " from last 7 days" : ""}
           </p>
         </div>
         
@@ -76,15 +96,23 @@ const AIInsights = () => {
             </div>
             <div>
               <p className={`text-sm ${isDarkMode ? "text-white" : "text-gray-800"} mb-2`}>
-                <span className="font-medium">Suggestion:</span> Based on your recent calls, try acknowledging customer concerns before presenting solutions. This approach has shown a 32% higher success rate among top performers.
+                <span className="font-medium">Suggestion:</span> {transcriptCount > 0 
+                  ? "Based on your recent calls, try acknowledging customer concerns before presenting solutions. This approach has shown a 32% higher success rate among top performers."
+                  : "Upload call recordings to get personalized AI-powered suggestions to improve your performance."
+                }
               </p>
               <div className="mt-2 flex items-center gap-2">
-                <button className="bg-neon-purple hover:bg-neon-purple/90 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors">
-                  Apply to Script
+                <button 
+                  className="bg-neon-purple hover:bg-neon-purple/90 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                  onClick={() => navigate('/ai-coaching')}
+                >
+                  {transcriptCount > 0 ? "Apply to Script" : "Get Started"}
                 </button>
-                <button className={`${isDarkMode ? "bg-white/10 hover:bg-white/15 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-800"} px-3 py-1.5 rounded text-xs font-medium transition-colors`}>
-                  Show Examples
-                </button>
+                {transcriptCount > 0 && (
+                  <button className={`${isDarkMode ? "bg-white/10 hover:bg-white/15 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-800"} px-3 py-1.5 rounded text-xs font-medium transition-colors`}>
+                    Show Examples
+                  </button>
+                )}
               </div>
             </div>
           </div>

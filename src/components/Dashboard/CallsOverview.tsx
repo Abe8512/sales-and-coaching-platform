@@ -7,6 +7,7 @@ import { ThemeContext } from "@/App";
 import WhisperButton from "../Whisper/WhisperButton";
 import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
 import { format, parseISO } from "date-fns";
+import { useNavigate } from "react-router-dom";
 
 interface CallItemProps {
   id: string;
@@ -16,9 +17,10 @@ interface CallItemProps {
   score: number;
   flagged?: boolean;
   isDarkMode: boolean;
+  onClick: () => void;
 }
 
-const CallItem = ({ id, customer, time, duration, score, flagged = false, isDarkMode }: CallItemProps) => {
+const CallItem = ({ id, customer, time, duration, score, flagged = false, isDarkMode, onClick }: CallItemProps) => {
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-neon-green";
     if (score >= 60) return "text-yellow-400";
@@ -26,7 +28,10 @@ const CallItem = ({ id, customer, time, duration, score, flagged = false, isDark
   };
 
   return (
-    <div className={`flex items-center justify-between p-3 border-b ${isDarkMode ? "border-gray-100/10" : "border-gray-100"} ${isDarkMode ? "hover:bg-white/5" : "hover:bg-gray-50"} rounded-md cursor-pointer transition-colors`}>
+    <div 
+      className={`flex items-center justify-between p-3 border-b ${isDarkMode ? "border-gray-100/10" : "border-gray-100"} ${isDarkMode ? "hover:bg-white/5" : "hover:bg-gray-50"} rounded-md cursor-pointer transition-colors`}
+      onClick={onClick}
+    >
       <div className="flex items-center gap-3">
         <div className={`w-8 h-8 rounded-full ${isDarkMode ? "bg-gray-800" : "bg-gray-100"} flex items-center justify-center`}>
           <User className={`h-4 w-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`} />
@@ -73,6 +78,7 @@ const CallItem = ({ id, customer, time, duration, score, flagged = false, isDark
 const CallsOverview = () => {
   const { isDarkMode } = useContext(ThemeContext);
   const [recentCalls, setRecentCalls] = useState<StoredTranscription[]>([]);
+  const navigate = useNavigate();
   
   // Load real transcription data
   useEffect(() => {
@@ -118,6 +124,10 @@ const CallsOverview = () => {
       return "Unknown time";
     }
   };
+  
+  const handleCallClick = (id: string) => {
+    navigate(`/transcripts?id=${id}`);
+  };
 
   return (
     <GlowingCard className="mt-6">
@@ -130,7 +140,10 @@ const CallsOverview = () => {
             <span className={isDarkMode ? "text-white" : "text-gray-800"}>Today</span>
           </div>
           
-          <button className={`${isDarkMode ? "bg-neon-purple/20 hover:bg-neon-purple/30" : "bg-neon-purple/10 hover:bg-neon-purple/20"} text-neon-purple px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1`}>
+          <button 
+            className={`${isDarkMode ? "bg-neon-purple/20 hover:bg-neon-purple/30" : "bg-neon-purple/10 hover:bg-neon-purple/20"} text-neon-purple px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1`}
+            onClick={() => navigate('/transcripts')}
+          >
             <Phone className="h-4 w-4" />
             <span>All Calls</span>
           </button>
@@ -149,6 +162,7 @@ const CallsOverview = () => {
               score={call.callScore || 50}
               flagged={call.sentiment === 'negative'}
               isDarkMode={isDarkMode}
+              onClick={() => handleCallClick(call.id)}
             />
           ))
         ) : (

@@ -1,10 +1,12 @@
 
-import React, { useContext } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { Copy, Flag, Play, User } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
 import { ThemeContext } from "@/App";
 import WhisperButton from "../Whisper/WhisperButton";
+import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
+import { useToast } from "@/hooks/use-toast";
 
 interface MessageProps {
   sender: "agent" | "customer";
@@ -54,95 +56,147 @@ const Message = ({ sender, content, timestamp, flagged = false, highlight = fals
 
 const CallTranscript = () => {
   const { isDarkMode } = useContext(ThemeContext);
-  // Mock data for the transcript
-  const transcript = [
-    {
-      id: 1,
-      sender: "agent" as const,
-      content: "Hello, this is Alex from SalesTech. How are you doing today?",
-      timestamp: "00:00:05",
-    },
-    {
-      id: 2,
-      sender: "customer" as const,
-      content: "I'm fine, but I'm quite busy at the moment.",
-      timestamp: "00:00:12",
-    },
-    {
-      id: 3,
-      sender: "agent" as const,
-      content: "I understand. I won't take much of your time. I'm calling to introduce our new CRM solution that can help streamline your sales process.",
-      timestamp: "00:00:18",
-    },
-    {
-      id: 4,
-      sender: "customer" as const,
-      content: "We actually already have a CRM system that we're using and—",
-      timestamp: "00:00:35",
-    },
-    {
-      id: 5,
-      sender: "agent" as const,
-      content: "Our solution is different because it integrates AI to predict customer behavior and optimize your sales funnel. Would that be valuable to you?",
-      timestamp: "00:00:42",
-      flagged: true,
-      highlight: true,
-    },
-    {
-      id: 6,
-      sender: "customer" as const,
-      content: "As I was trying to say, we've just signed a 2-year contract with our current provider, so we're not looking to switch at the moment.",
-      timestamp: "00:01:05",
-    },
-    {
-      id: 7,
-      sender: "agent" as const,
-      content: "I understand. Would it be helpful if I sent you some information for when your contract is closer to renewal?",
-      timestamp: "00:01:20",
-    },
-  ];
+  const { toast } = useToast();
+  const [transcript, setTranscript] = useState<StoredTranscription | null>(null);
+  const [parsedMessages, setParsedMessages] = useState<any[]>([]);
+  
+  useEffect(() => {
+    // Get the latest transcript from storage
+    const transcriptions = getStoredTranscriptions();
+    if (transcriptions.length > 0) {
+      // Sort by date and get the latest
+      const latest = [...transcriptions].sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      )[0];
+      
+      setTranscript(latest);
+      
+      // Try to parse the transcript text into a conversation
+      // This is a simple parsing logic, can be improved for better conversation structure
+      try {
+        const text = latest.text;
+        
+        // Split by newlines or obvious speaker indicators
+        const segments = text.split(/\n|(?:Agent:|Customer:|Speaker \d+:)/g).filter(Boolean).map(s => s.trim());
+        
+        const messages = segments.map((content, index) => {
+          // Alternate between agent and customer for simplicity
+          // In a real app, you'd have proper speaker diarization
+          const sender = index % 2 === 0 ? "agent" : "customer";
+          
+          // Generate a timestamp based on position in transcript
+          const minute = Math.floor(index * 45 / segments.length);
+          const second = Math.floor((index * 45 / segments.length - minute) * 60);
+          const timestamp = `00:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')}`;
+          
+          // Flag some messages that might contain interruptions (simple heuristic)
+          const flagged = content.toLowerCase().includes("interrupt") || 
+                         (content.length < 20 && content.endsWith("--")) ||
+                         index > 0 && segments[index-1].length < 15;
+          
+          // Highlight messages with negative sentiment cues
+          const highlight = content.toLowerCase().includes("no") || 
+                          content.toLowerCase().includes("problem") ||
+                          content.toLowerCase().includes("not interested") ||
+                          content.toLowerCase().includes("expensive");
+          
+          return {
+            id: index + 1,
+            sender,
+            content,
+            timestamp,
+            flagged,
+            highlight
+          };
+        });
+        
+        setParsedMessages(messages);
+      } catch (error) {
+        console.error("Error parsing transcript:", error);
+        // Fallback to a single message with the full text
+        setParsedMessages([{
+          id: 1,
+          sender: "agent",
+          content: latest.text,
+          timestamp: "00:00:00"
+        }]);
+      }
+    }
+  }, []);
+  
+  const handleCopy = () => {
+    if (transcript) {
+      navigator.clipboard.writeText(transcript.text);
+      toast({
+        title: "Copied to clipboard",
+        description: "Transcript text has been copied to your clipboard"
+      });
+    }
+  };
 
   return (
     <GlowingCard className="h-full">
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>Call Transcript</h2>
-          <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>Call with Michael Chen • 11:45 AM • 8m 20s</p>
+          <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+            {transcript ? (
+              <>Call with {transcript.speakerName || "Customer"} • {transcript.duration ? `${Math.floor(transcript.duration / 60)}:${(transcript.duration % 60).toString().padStart(2, '0')}` : "Unknown duration"}</>
+            ) : (
+              "No transcript available"
+            )}
+          </p>
         </div>
         
         <div className="flex items-center gap-3">
-          <WhisperButton recordingId="call-123" />
+          {transcript && <WhisperButton recordingId={transcript.id} />}
           
-          <button className={`flex items-center gap-1 ${isDarkMode ? "bg-white/5 hover:bg-white/10 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-800"} px-3 py-1.5 rounded text-sm transition-colors`}>
+          <button 
+            className={`flex items-center gap-1 ${isDarkMode ? "bg-white/5 hover:bg-white/10 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-800"} px-3 py-1.5 rounded text-sm transition-colors`}
+            disabled={!transcript}
+          >
             <Play className="h-4 w-4" />
             <span>Play Audio</span>
           </button>
           
-          <button className={`flex items-center gap-1 ${isDarkMode ? "bg-white/5 hover:bg-white/10 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-800"} px-3 py-1.5 rounded text-sm transition-colors`}>
+          <button 
+            className={`flex items-center gap-1 ${isDarkMode ? "bg-white/5 hover:bg-white/10 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-800"} px-3 py-1.5 rounded text-sm transition-colors`}
+            onClick={handleCopy}
+            disabled={!transcript}
+          >
             <Copy className="h-4 w-4" />
             <span>Copy</span>
           </button>
         </div>
       </div>
       
-      <div className="space-y-0 mb-3 max-h-[600px] overflow-y-auto pr-2 divide-y divide-white/5">
-        {transcript.map((message) => (
-          <Message
-            key={message.id}
-            sender={message.sender}
-            content={message.content}
-            timestamp={message.timestamp}
-            flagged={message.flagged}
-            highlight={message.highlight}
-            isDarkMode={isDarkMode}
-          />
-        ))}
-      </div>
+      {transcript ? (
+        <div className="space-y-0 mb-3 max-h-[600px] overflow-y-auto pr-2 divide-y divide-white/5">
+          {parsedMessages.map((message) => (
+            <Message
+              key={message.id}
+              sender={message.sender}
+              content={message.content}
+              timestamp={message.timestamp}
+              flagged={message.flagged}
+              highlight={message.highlight}
+              isDarkMode={isDarkMode}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12 text-muted-foreground">
+          <p>No transcript data available</p>
+          <p className="text-sm mt-2">Upload audio files or record a call to see transcripts</p>
+        </div>
+      )}
       
       <div className={`pt-4 border-t ${isDarkMode ? "border-white/10" : "border-gray-200"} mt-4`}>
         <div className="flex items-center gap-3 text-sm text-gray-400">
           <AIWaveform color="blue" barCount={8} className="h-5" />
-          <p className={isDarkMode ? "text-gray-400" : "text-gray-500"}>AI analyzing transcript patterns...</p>
+          <p className={isDarkMode ? "text-gray-400" : "text-gray-500"}>
+            {transcript ? "AI analyzing transcript patterns..." : "No transcript to analyze"}
+          </p>
         </div>
       </div>
     </GlowingCard>

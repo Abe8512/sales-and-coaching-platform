@@ -1,3 +1,4 @@
+
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -17,6 +18,7 @@ import AICoaching from "./pages/AICoaching";
 import CallActivity from "./pages/CallActivity";
 import Performance from "./pages/Performance";
 import Settings from "./pages/Settings";
+import Transcripts from "./pages/Transcripts";
 
 const queryClient = new QueryClient();
 
@@ -62,7 +64,7 @@ const App = () => {
                   <Route path="/" element={<Index />} />
                   <Route path="/call-activity" element={<CallActivity />} />
                   <Route path="/performance" element={<Performance />} />
-                  <Route path="/transcripts" element={<PlaceholderPage title="Transcripts" />} />
+                  <Route path="/transcripts" element={<Transcripts />} />
                   <Route path="/ai-coaching" element={<AICoaching />} />
                   <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
                   <Route path="/team" element={<Team />} />

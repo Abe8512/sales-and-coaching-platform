@@ -1,9 +1,8 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, MicOff, MessageSquare, Settings, Zap, ToggleLeft, ToggleRight, UserCircle, Radio, Slider } from "lucide-react";
+import { Mic, MicOff, MessageSquare, Settings, Zap, ToggleLeft, ToggleRight, UserCircle, Radio } from "lucide-react";
 import { useWhisperService } from "@/services/WhisperService";
 import AIWaveform from "../ui/AIWaveform";
 import { Input } from "@/components/ui/input";
@@ -13,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 
 const LiveCallAnalysis = () => {
   const [isRecording, setIsRecording] = useState(false);

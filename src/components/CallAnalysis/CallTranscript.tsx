@@ -1,6 +1,5 @@
-
 import React, { useContext, useEffect, useState } from "react";
-import { Copy, Flag, Play, User, MicWaveform } from "lucide-react";
+import { Copy, Flag, Play, User, Mic } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
 import { ThemeContext } from "@/App";
@@ -62,30 +61,22 @@ const CallTranscript = () => {
   const [parsedMessages, setParsedMessages] = useState<any[]>([]);
   
   useEffect(() => {
-    // Get the latest transcript from storage
     const transcriptions = getStoredTranscriptions();
     if (transcriptions.length > 0) {
-      // Sort by date and get the latest
       const latest = [...transcriptions].sort((a, b) => 
         new Date(b.date).getTime() - new Date(a.date).getTime()
       )[0];
       
       setTranscript(latest);
       
-      // Check if the transcript has segments from speaker diarization
       if (latest.transcript_segments && latest.transcript_segments.length > 0) {
-        // Use the segments directly
         const messages = latest.transcript_segments.map((segment) => {
-          // Format timestamp
           const minutes = Math.floor(segment.start / 60);
           const seconds = Math.floor(segment.start % 60);
           const timestamp = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
           
-          // Determine if this is an interruption by checking time gap with previous segment
-          // This is a simple heuristic and could be improved
-          const isInterruption = false; // Implement this logic if needed
+          const isInterruption = false;
           
-          // Look for negative sentiment cues
           const text = segment.text.toLowerCase();
           const highlight = text.includes("no") || 
                            text.includes("problem") ||
@@ -104,30 +95,22 @@ const CallTranscript = () => {
         
         setParsedMessages(messages);
       } else {
-        // Try to parse the transcript text into a conversation if no segments
-        // This is a simple parsing logic, can be improved for better conversation structure
         try {
           const text = latest.text;
           
-          // Split by newlines or obvious speaker indicators
           const segments = text.split(/\n|(?:Agent:|Customer:|Speaker \d+:)/g).filter(Boolean).map(s => s.trim());
           
           const messages = segments.map((content, index) => {
-            // Alternate between agent and customer for simplicity
-            // In a real app, you'd have proper speaker diarization
             const sender = index % 2 === 0 ? "agent" : "customer";
             
-            // Generate a timestamp based on position in transcript
             const minute = Math.floor(index * 45 / segments.length);
             const second = Math.floor((index * 45 / segments.length - minute) * 60);
             const timestamp = `00:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')}`;
             
-            // Flag some messages that might contain interruptions (simple heuristic)
             const flagged = content.toLowerCase().includes("interrupt") || 
                            (content.length < 20 && content.endsWith("--")) ||
                            index > 0 && segments[index-1].length < 15;
             
-            // Highlight messages with negative sentiment cues
             const highlight = content.toLowerCase().includes("no") || 
                             content.toLowerCase().includes("problem") ||
                             content.toLowerCase().includes("not interested") ||
@@ -146,7 +129,6 @@ const CallTranscript = () => {
           setParsedMessages(messages);
         } catch (error) {
           console.error("Error parsing transcript:", error);
-          // Fallback to a single message with the full text
           setParsedMessages([{
             id: 1,
             sender: "agent",
@@ -170,10 +152,9 @@ const CallTranscript = () => {
   
   const handleSpeechInput = (text: string) => {
     if (text && transcript) {
-      // Add the new speech as a message
       const newMessage = {
         id: parsedMessages.length + 1,
-        sender: "agent", // Assume it's the agent speaking
+        sender: "agent",
         content: text,
         timestamp: "Live",
         flagged: false,

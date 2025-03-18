@@ -21,6 +21,7 @@ import { SentimentTrendsChart } from "../components/CallAnalysis/SentimentTrends
 import { DateRangeFilter } from "../components/CallAnalysis/DateRangeFilter";
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
 import { useCallTranscriptService } from "@/services/CallTranscriptService";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
@@ -127,12 +128,20 @@ const Index = () => {
         </TabsContent>
       </Tabs>
       
-      <div className="grid grid-cols-3 gap-6 mt-6">
-        <div className="col-span-2">
-          <CallsOverview />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+        <div className="col-span-1 md:col-span-2">
+          {transcriptsLoading ? (
+            <Skeleton className="w-full h-[400px] rounded-lg" />
+          ) : (
+            <CallsOverview />
+          )}
         </div>
         <div>
-          <AIInsights />
+          {transcriptsLoading ? (
+            <Skeleton className="w-full h-[400px] rounded-lg" />
+          ) : (
+            <AIInsights />
+          )}
         </div>
       </div>
       
@@ -140,14 +149,28 @@ const Index = () => {
         Call Analysis
       </h2>
       
-      <div className="grid grid-cols-5 gap-6">
-        <div className="col-span-3">
-          <CallTranscript />
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+        <div className="col-span-1 md:col-span-3">
+          {transcriptsLoading ? (
+            <Skeleton className="w-full h-[400px] rounded-lg" />
+          ) : (
+            <CallTranscript />
+          )}
         </div>
-        <div className="col-span-2 grid grid-rows-3 gap-6">
-          <SentimentAnalysis />
-          <KeywordInsights />
-          <CallRating />
+        <div className="col-span-1 md:col-span-2 grid grid-rows-3 gap-6">
+          {transcriptsLoading ? (
+            <>
+              <Skeleton className="w-full h-[120px] rounded-lg" />
+              <Skeleton className="w-full h-[120px] rounded-lg" />
+              <Skeleton className="w-full h-[120px] rounded-lg" />
+            </>
+          ) : (
+            <>
+              <SentimentAnalysis />
+              <KeywordInsights />
+              <CallRating />
+            </>
+          )}
         </div>
       </div>
     </DashboardLayout>

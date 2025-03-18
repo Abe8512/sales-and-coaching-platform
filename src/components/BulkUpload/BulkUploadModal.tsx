@@ -1,28 +1,50 @@
 
-import React, { useContext, useState } from "react";
-import { X, Upload, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import React, { useContext, useState, useRef } from "react";
+import { X, Upload, CheckCircle, Clock, AlertCircle, FileAudio } from "lucide-react";
 import { ThemeContext } from "@/App";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useWhisperService } from "@/services/WhisperService";
+import { Progress } from "@/components/ui/progress";
 
 interface BulkUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+interface UploadFile {
+  id: string;
+  file: File;
+  status: "queued" | "processing" | "complete" | "error";
+  progress: number;
+  result?: string;
+  error?: string;
+}
+
 const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
   const { isDarkMode } = useContext(ThemeContext);
   const { toast } = useToast();
+  const { transcribeAudio } = useWhisperService();
   const [dragActive, setDragActive] = useState(false);
+  const [files, setFiles] = useState<UploadFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Mock data for files
-  const mockFiles = [
-    { id: 1, name: "sales_call_001.wav", status: "Complete", statusIcon: <CheckCircle className="h-4 w-4 text-neon-green" /> },
-    { id: 2, name: "sales_call_002.wav", status: "Processing", statusIcon: <Clock className="h-4 w-4 text-neon-blue" /> },
-    { id: 3, name: "customer_meeting_003.wav", status: "Queued", statusIcon: <Clock className="h-4 w-4 text-gray-400" /> },
-    { id: 4, name: "product_demo_004.wav", status: "Error", statusIcon: <AlertCircle className="h-4 w-4 text-neon-red" /> }
-  ];
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "complete":
+        return <CheckCircle className="h-4 w-4 text-neon-green" />;
+      case "processing":
+        return <Clock className="h-4 w-4 text-neon-blue" />;
+      case "queued":
+        return <Clock className="h-4 w-4 text-gray-400" />;
+      case "error":
+        return <AlertCircle className="h-4 w-4 text-neon-red" />;
+      default:
+        return <Clock className="h-4 w-4 text-gray-400" />;
+    }
+  };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -39,22 +61,132 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
     e.stopPropagation();
     setDragActive(false);
     
-    // Count files
-    const fileCount = e.dataTransfer.files.length;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
+  };
+  
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files);
+    }
+  };
+
+  const handleFiles = (fileList: FileList) => {
+    const audioFiles = Array.from(fileList).filter(file => 
+      file.type.includes('audio') || file.name.toLowerCase().endsWith('.wav')
+    );
+    
+    if (audioFiles.length === 0) {
+      toast({
+        title: "Invalid Files",
+        description: "Please upload audio files only (WAV, MP3, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const newFiles = audioFiles.map(file => ({
+      id: crypto.randomUUID(),
+      file,
+      status: "queued" as const,
+      progress: 0
+    }));
+    
+    setFiles(prev => [...prev, ...newFiles]);
     
     toast({
-      title: "Files Detected",
-      description: `${fileCount} file(s) ready for processing - connect to bulk_upload_processor.py`,
-      variant: "default",
+      title: "Files Added",
+      description: `${audioFiles.length} audio file(s) added to queue`,
     });
   };
   
-  const handleUploadClick = () => {
+  const processFiles = async () => {
+    if (files.length === 0 || isUploading) return;
+    
+    setIsUploading(true);
+    
+    // Process files sequentially
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
+      // Skip already processed files
+      if (file.status === "complete" || file.status === "error") continue;
+      
+      try {
+        // Update status to processing
+        setFiles(prev => 
+          prev.map(f => f.id === file.id ? { ...f, status: "processing", progress: 10 } : f)
+        );
+        
+        // Simulating progress updates
+        const progressInterval = setInterval(() => {
+          setFiles(prev => {
+            const currentFile = prev.find(f => f.id === file.id);
+            if (currentFile && currentFile.status === "processing" && currentFile.progress < 90) {
+              return prev.map(f => 
+                f.id === file.id ? { ...f, progress: Math.min(f.progress + 10, 90) } : f
+              );
+            }
+            return prev;
+          });
+        }, 500);
+        
+        // Transcribe the audio file
+        const result = await transcribeAudio(file.file);
+        
+        clearInterval(progressInterval);
+        
+        if (result) {
+          setFiles(prev => 
+            prev.map(f => f.id === file.id ? { 
+              ...f, 
+              status: "complete", 
+              progress: 100,
+              result: result.text
+            } : f)
+          );
+          
+          // Store transcription in localStorage for demo purposes
+          // In a real app, this would be saved to a database
+          const transcriptions = JSON.parse(localStorage.getItem('transcriptions') || '[]');
+          transcriptions.push({
+            id: file.id,
+            filename: file.file.name,
+            text: result.text,
+            date: new Date().toISOString()
+          });
+          localStorage.setItem('transcriptions', JSON.stringify(transcriptions));
+        } else {
+          throw new Error("Transcription failed");
+        }
+      } catch (error) {
+        console.error(`Error processing file ${file.file.name}:`, error);
+        setFiles(prev => 
+          prev.map(f => f.id === file.id ? { 
+            ...f, 
+            status: "error", 
+            progress: 100,
+            error: error instanceof Error ? error.message : "Transcription failed"
+          } : f)
+        );
+      }
+    }
+    
+    setIsUploading(false);
+    
     toast({
-      title: "Uploading Files",
-      description: "Uploading files - connect to bulk_upload_processor.py",
-      variant: "default",
+      title: "Processing Complete",
+      description: "All files have been processed",
     });
+  };
+  
+  const removeFile = (id: string) => {
+    setFiles(prev => prev.filter(file => file.id !== id));
+  };
+  
+  const clearCompleted = () => {
+    setFiles(prev => prev.filter(file => file.status !== "complete"));
   };
 
   return (
@@ -81,9 +213,17 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
           onDragLeave={handleDrag}
           onDragOver={handleDrag}
           onDrop={handleDrop}
-          onClick={() => document.getElementById('fileInput')?.click()}
+          onClick={() => fileInputRef.current?.click()}
         >
-          <input id="fileInput" type="file" multiple className="hidden" />
+          <input 
+            ref={fileInputRef}
+            id="fileInput" 
+            type="file" 
+            multiple 
+            accept="audio/*,.wav" 
+            className="hidden" 
+            onChange={handleFileInputChange}
+          />
           <Upload className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`} />
           <h3 className={`font-medium mb-1 ${isDarkMode ? "text-white" : "text-gray-800"}`}>
             Drop files here or click to browse
@@ -94,30 +234,59 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
         </div>
         
         <div className="mt-6">
-          <h4 className={`text-sm font-medium mb-3 ${isDarkMode ? "text-white" : "text-gray-800"}`}>Upload Queue</h4>
-          <div className={`rounded-lg border ${isDarkMode ? "border-white/10" : "border-gray-200"} overflow-hidden`}>
-            <table className="w-full">
-              <thead className={isDarkMode ? "bg-white/5" : "bg-gray-50"}>
-                <tr className={`text-xs font-medium ${isDarkMode ? "text-gray-400" : "text-gray-500"} uppercase tracking-wider`}>
-                  <th className="px-4 py-3 text-left">File Name</th>
-                  <th className="px-4 py-3 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {mockFiles.map((file) => (
-                  <tr key={file.id} className={isDarkMode ? "text-white" : "text-gray-800"}>
-                    <td className="px-4 py-3 text-sm">{file.name}</td>
-                    <td className="px-4 py-3 text-sm text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {file.statusIcon}
-                        <span>{file.status}</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex justify-between items-center mb-3">
+            <h4 className={`text-sm font-medium ${isDarkMode ? "text-white" : "text-gray-800"}`}>Upload Queue</h4>
+            {files.some(file => file.status === "complete") && (
+              <Button variant="ghost" size="sm" onClick={clearCompleted} className="text-xs">
+                Clear Completed
+              </Button>
+            )}
           </div>
+          
+          {files.length > 0 ? (
+            <div className={`rounded-lg border ${isDarkMode ? "border-white/10" : "border-gray-200"} overflow-hidden`}>
+              <div className="max-h-[240px] overflow-y-auto">
+                {files.map((file) => (
+                  <div 
+                    key={file.id} 
+                    className={`p-3 flex items-center justify-between ${
+                      isDarkMode ? "border-white/10" : "border-gray-200"
+                    } border-b last:border-b-0`}
+                  >
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <FileAudio className="h-5 w-5 text-neon-purple flex-shrink-0" />
+                      <div className="overflow-hidden">
+                        <p className={`text-sm truncate ${isDarkMode ? "text-white" : "text-gray-800"}`}>
+                          {file.file.name}
+                        </p>
+                        <div className="w-full mt-1">
+                          <Progress value={file.progress} className="h-1" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className={`text-xs flex items-center gap-1 ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}>
+                        {getStatusIcon(file.status)}
+                        <span>{file.status.charAt(0).toUpperCase() + file.status.slice(1)}</span>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-6 w-6"
+                        onClick={() => removeFile(file.id)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className={`text-center py-8 border border-dashed rounded-lg ${isDarkMode ? "text-gray-500 border-gray-700" : "text-gray-400 border-gray-300"}`}>
+              <p className="text-sm">No files in queue</p>
+            </div>
+          )}
         </div>
         
         <div className="mt-6 flex justify-end gap-3">
@@ -126,8 +295,12 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
               Cancel
             </Button>
           </DialogClose>
-          <Button onClick={handleUploadClick} className="bg-neon-purple hover:bg-neon-purple/90 text-white">
-            Upload Files
+          <Button 
+            onClick={processFiles}
+            disabled={files.length === 0 || isUploading || files.every(f => f.status === "complete")}
+            className="bg-neon-purple hover:bg-neon-purple/90 text-white"
+          >
+            {isUploading ? "Processing..." : "Process Files"}
           </Button>
         </div>
       </DialogContent>

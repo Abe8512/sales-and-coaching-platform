@@ -8,6 +8,7 @@ import { useWhisperService, setOpenAIKey } from "@/services/WhisperService";
 import AIWaveform from "../ui/AIWaveform";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useNavigate } from "react-router-dom";
 
 const LiveCallAnalysis = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -19,12 +20,32 @@ const LiveCallAnalysis = () => {
   ]);
   const [apiKey, setApiKey] = useState("");
   const [openAPIKeyDialog, setOpenAPIKeyDialog] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const navigate = useNavigate();
   const { toast } = useToast();
   const { transcribeAudio } = useWhisperService();
 
+  useEffect(() => {
+    // Check if API key exists in localStorage
+    const storedKey = localStorage.getItem("openai_api_key");
+    if (storedKey) {
+      setHasApiKey(true);
+      setOpenAIKey(storedKey);
+    }
+  }, []);
+
   const startRecording = async () => {
+    if (!hasApiKey) {
+      toast({
+        title: "API Key Required",
+        description: "Please set your OpenAI API key in settings first",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
@@ -82,11 +103,17 @@ const LiveCallAnalysis = () => {
 
   const saveApiKey = () => {
     setOpenAIKey(apiKey);
+    localStorage.setItem("openai_api_key", apiKey);
+    setHasApiKey(true);
     setOpenAPIKeyDialog(false);
     toast({
       title: "API Key Saved",
       description: "Your OpenAI API key has been saved",
     });
+  };
+
+  const goToSettings = () => {
+    navigate("/settings");
   };
 
   return (
@@ -104,7 +131,7 @@ const LiveCallAnalysis = () => {
           </div>
           <Dialog open={openAPIKeyDialog} onOpenChange={setOpenAPIKeyDialog}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" onClick={() => hasApiKey ? goToSettings() : setOpenAPIKeyDialog(true)}>
                 <Settings className="h-4 w-4" />
               </Button>
             </DialogTrigger>
@@ -125,7 +152,10 @@ const LiveCallAnalysis = () => {
                     Your API key is stored locally and never sent to our servers
                   </p>
                 </div>
-                <Button onClick={saveApiKey} className="w-full">Save API Key</Button>
+                <div className="flex gap-2">
+                  <Button onClick={saveApiKey} className="flex-1">Save API Key</Button>
+                  <Button onClick={goToSettings} variant="outline" className="flex-1">Go to Settings</Button>
+                </div>
               </div>
             </DialogContent>
           </Dialog>
@@ -133,9 +163,21 @@ const LiveCallAnalysis = () => {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
+          {!hasApiKey && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 mb-4">
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                To use Live Call Analysis, please set your OpenAI API key in settings first.
+              </p>
+              <Button variant="outline" size="sm" className="mt-2" onClick={goToSettings}>
+                Go to Settings
+              </Button>
+            </div>
+          )}
+        
           <div className="flex justify-center">
             <Button
               onClick={isRecording ? stopRecording : startRecording}
+              disabled={!hasApiKey}
               className={`${isRecording ? "bg-red-500 hover:bg-red-600" : "bg-neon-blue hover:bg-neon-blue/80"} text-white px-6 py-6 rounded-full h-auto`}
             >
               {isRecording ? (

@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -17,6 +16,7 @@ import CallComparison from "./pages/CallComparison";
 import AICoaching from "./pages/AICoaching";
 import CallActivity from "./pages/CallActivity";
 import Performance from "./pages/Performance";
+import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
 
@@ -68,7 +68,7 @@ const App = () => {
                   <Route path="/team" element={<Team />} />
                   <Route path="/call-comparison" element={<CallComparison />} />
                   <Route path="/messaging" element={<PlaceholderPage title="Messaging" />} />
-                  <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+                  <Route path="/settings" element={<Settings />} />
                 </Route>
                 
                 {/* Catch-all route */}

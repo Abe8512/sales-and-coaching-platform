@@ -14,8 +14,8 @@ export interface WhisperTranscriptionResponse {
   language?: string;
 }
 
-// This would be replaced with proper API key management in production
-let OPENAI_API_KEY = "";
+// Get API key from localStorage if available
+let OPENAI_API_KEY = localStorage.getItem("openai_api_key") || "";
 
 export const setOpenAIKey = (key: string) => {
   OPENAI_API_KEY = key;

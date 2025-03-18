@@ -79,9 +79,10 @@ const KeywordTrendsChart = () => {
     return () => clearInterval(interval);
   }, []);
   
-  // Save a keyword to the database
+  // Save a keyword to the database - Fixed type error in this function
   const saveKeyword = async (keyword: string, category: KeywordCategory) => {
     try {
+      // Fixed: Using a single object for upsert instead of array notation
       const { error } = await supabase
         .from('keyword_trends')
         .upsert(

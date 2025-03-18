@@ -1,3 +1,4 @@
+
 import React, { useEffect } from "react";
 import { LineChart, Line, ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { TrendingUp, TrendingDown } from "lucide-react";
@@ -56,22 +57,28 @@ const PerformanceMetrics = () => {
   const { keywords, isLoading: isKeywordsLoading } = useSharedKeywordData(filters);
   const { sentiments, isLoading: isSentimentsLoading } = useSharedSentimentData(filters);
   
-  function generatePerformanceData() {
+  // Generate sample data for charts
+  const generatePerformanceData = () => {
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     return days.map(day => ({ name: day, score: Math.round(Math.random() * metrics.performanceScore) }));
-  }
+  };
   
-  function generateCallVolumeData() {
+  const generateCallVolumeData = () => {
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const totalPerDay = metrics.totalCalls / 7;
     return days.map(day => ({ name: day, calls: Math.round(totalPerDay * (0.7 + Math.random() * 0.6)) }));
-  }
+  };
   
-  function generateConversionData() {
+  const generateConversionData = () => {
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     return days.map(day => ({ name: day, rate: Math.round(metrics.conversionRate * (0.8 + Math.random() * 0.4)) }));
-  }
+  };
 
+  // Create data for charts
+  const performanceData = generatePerformanceData();
+  const callVolumeData = generateCallVolumeData();
+  const conversionData = generateConversionData();
+  
   const navigateToCallActivity = () => {
     navigate("/call-activity");
   };

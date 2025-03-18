@@ -20,6 +20,19 @@ import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
 import RecentCallsTable from "@/components/CallActivity/RecentCallsTable";
 import CallOutcomeStats from "@/components/CallActivity/CallOutcomeStats";
 
+// Define call interface for strong typing
+interface Call {
+  id: string;
+  userId: string;
+  userName: string;
+  date: string;
+  duration: number;
+  customerName: string;
+  outcome: string;
+  sentiment: number;
+  nextSteps: string;
+}
+
 const CallActivity = () => {
   const { user, isAdmin, isManager, getManagedUsers } = useAuth();
   const { isRecording } = useCallMetricsStore();
@@ -38,7 +51,7 @@ const CallActivity = () => {
     filters.teamMembers.length > 0 ? filters.teamMembers : undefined
   );
   
-  const [calls, setCalls] = useState<any[]>([]);
+  const [calls, setCalls] = useState<Call[]>([]);
   
   useEffect(() => {
     if (!hasLoadedHistory) {
@@ -49,7 +62,7 @@ const CallActivity = () => {
   }, [hasLoadedHistory, selectedUser, filters, dateRange, repMetrics]);
   
   const updateCallsData = () => {
-    const MOCK_CALLS = [
+    const MOCK_CALLS: Call[] = [
       {
         id: "call1",
         userId: "3",
@@ -96,7 +109,7 @@ const CallActivity = () => {
       },
     ];
     
-    const transcriptCalls = uploadHistory.map(transcript => ({
+    const transcriptCalls: Call[] = uploadHistory.map(transcript => ({
       id: transcript.id,
       userId: user?.id || "1",
       userName: user?.name || "Current User",
@@ -140,7 +153,7 @@ const CallActivity = () => {
   const managedUsers = getManagedUsers();
   
   const getCallDistributionData = () => {
-    const userCalls = {};
+    const userCalls: Record<string, number> = {};
     
     calls.forEach(call => {
       if (!userCalls[call.userName]) {
@@ -151,12 +164,12 @@ const CallActivity = () => {
     
     return Object.entries(userCalls).map(([name, count]) => ({
       name,
-      calls: count
+      calls: count as number
     }));
   };
   
   const getOutcomeStats = () => {
-    const outcomes = {};
+    const outcomes: Record<string, number> = {};
     
     calls.forEach(call => {
       if (!outcomes[call.outcome]) {
@@ -167,7 +180,7 @@ const CallActivity = () => {
     
     return Object.entries(outcomes).map(([outcome, count]) => ({
       outcome,
-      count,
+      count: count as number,
       percentage: Math.round((count as number / calls.length) * 100)
     }));
   };

@@ -13,6 +13,7 @@ interface CallMetricsState {
   recordingStartTime: number | null;
   callHistory: CallHistoryItem[];
   coachingAlerts: CoachingAlert[];
+  keywordsByCategory: KeywordCategories;
   
   // Actions
   startRecording: () => void;
@@ -24,6 +25,7 @@ interface CallMetricsState {
   loadPastCalls: () => void;
   checkCoachingAlerts: () => void;
   dismissAlert: (id: string) => void;
+  classifyKeywords: () => void;
 }
 
 interface CallHistoryItem {
@@ -41,6 +43,12 @@ interface CoachingAlert {
   message: string;
   timestamp: number;
   dismissed: boolean;
+}
+
+interface KeywordCategories {
+  positive: string[];
+  neutral: string[];
+  negative: string[];
 }
 
 // For demo purposes, we'll simulate a WebSocket connection with timer updates
@@ -84,6 +92,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     recordingStartTime: null,
     callHistory: [],
     coachingAlerts: [],
+    keywordsByCategory: { positive: [], neutral: [], negative: [] },
     
     startRecording: () => {
       const startTime = Date.now();
@@ -92,7 +101,8 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         callDuration: 0,
         recordingStartTime: startTime,
         keyPhrases: [],
-        coachingAlerts: []
+        coachingAlerts: [],
+        keywordsByCategory: { positive: [], neutral: [], negative: [] }
       });
       
       // Duration update timer
@@ -151,6 +161,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
             ];
             const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
             get().updateKeyPhrases(randomPhrase);
+            get().classifyKeywords(); // Classify the new keywords
           }
         }
       }, 2000);
@@ -196,6 +207,47 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           [speaker]: isSpeaking
         }
       }));
+    },
+    
+    classifyKeywords: () => {
+      const { keyPhrases } = get();
+      
+      // Define the keyword classification rules
+      const positiveKeywords = [
+        "satisfied", "great", "excellent", "happy", "interested", 
+        "quality", "value", "recommend", "helpful", "support",
+        "appreciate", "like", "love", "satisfaction", "impressive"
+      ];
+      
+      const negativeKeywords = [
+        "expensive", "problem", "issue", "disappointed", "delay", 
+        "difficult", "complicated", "cancel", "refund", "complaint",
+        "unhappy", "frustrated", "disconnect", "slow", "confusing"
+      ];
+      
+      // Classify the key phrases
+      const categorizedKeywords: KeywordCategories = {
+        positive: [],
+        neutral: [], 
+        negative: []
+      };
+      
+      keyPhrases.forEach(phrase => {
+        // Check if the phrase contains any positive keywords
+        if (positiveKeywords.some(keyword => phrase.toLowerCase().includes(keyword))) {
+          categorizedKeywords.positive.push(phrase);
+        }
+        // Check if the phrase contains any negative keywords
+        else if (negativeKeywords.some(keyword => phrase.toLowerCase().includes(keyword))) {
+          categorizedKeywords.negative.push(phrase);
+        }
+        // If it doesn't match either, it's neutral
+        else {
+          categorizedKeywords.neutral.push(phrase);
+        }
+      });
+      
+      set({ keywordsByCategory: categorizedKeywords });
     },
     
     checkCoachingAlerts: () => {

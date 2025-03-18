@@ -9,6 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { UserPlus, Phone, Clock, Activity, Users, User } from "lucide-react";
 import CoachingAlerts from "@/components/CallAnalysis/CoachingAlerts";
+import KeywordInsights from "@/components/CallAnalysis/KeywordInsights";
+import { useCallMetricsStore } from "@/store/useCallMetricsStore";
 
 // Mock call data
 const MOCK_CALLS = [
@@ -62,6 +64,7 @@ const CallActivity = () => {
   const { user, isAdmin, isManager, getManagedUsers } = useAuth();
   const navigate = useNavigate();
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  const { isRecording } = useCallMetricsStore();
   
   // Get users based on role
   const managedUsers = getManagedUsers();
@@ -230,6 +233,7 @@ const CallActivity = () => {
           <TabsTrigger value="calls">Calls List</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="outcomes">Outcomes</TabsTrigger>
+          <TabsTrigger value="keywords">Keywords</TabsTrigger>
         </TabsList>
         
         <TabsContent value="calls" className="mt-6">
@@ -352,6 +356,23 @@ const CallActivity = () => {
                   </Card>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="keywords" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Keyword Insights</CardTitle>
+              <CardDescription>Keywords categorized by sentiment</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <KeywordInsights />
+              {!isRecording && (
+                <p className="text-center text-muted-foreground mt-4">
+                  Start a recording to see real-time keyword insights
+                </p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import LiveMetricsDisplay from "../CallAnalysis/LiveMetricsDisplay";
 import CoachingAlerts from "../CallAnalysis/CoachingAlerts";
+import KeywordInsights from "../CallAnalysis/KeywordInsights";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
 
 const LiveCallAnalysis = () => {
@@ -448,6 +449,10 @@ const LiveCallAnalysis = () => {
               </ul>
             </div>
           </div>
+
+          {isRecording && (
+            <KeywordInsights />
+          )}
 
           <CoachingAlerts />
         </div>

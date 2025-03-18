@@ -12,6 +12,7 @@ interface CallMetricsState {
   socketConnected: boolean;
   recordingStartTime: number | null;
   callHistory: CallHistoryItem[];
+  coachingAlerts: CoachingAlert[];
   
   // Actions
   startRecording: () => void;
@@ -21,6 +22,8 @@ interface CallMetricsState {
   toggleSpeaking: (speaker: 'agent' | 'customer', isSpeaking: boolean) => void;
   savePastCall: () => void;
   loadPastCalls: () => void;
+  checkCoachingAlerts: () => void;
+  dismissAlert: (id: string) => void;
 }
 
 interface CallHistoryItem {
@@ -32,10 +35,19 @@ interface CallHistoryItem {
   keyPhrases: string[];
 }
 
+interface CoachingAlert {
+  id: string;
+  type: 'warning' | 'info' | 'critical';
+  message: string;
+  timestamp: number;
+  dismissed: boolean;
+}
+
 // For demo purposes, we'll simulate a WebSocket connection with timer updates
 export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
   let durationTimer: NodeJS.Timeout | null = null;
   let speakingSimulationTimer: NodeJS.Timeout | null = null;
+  let alertCheckTimer: NodeJS.Timeout | null = null;
   
   // Mock socket connection for demonstration
   // In a real implementation, you would connect to your WebSocket server
@@ -53,6 +65,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       // Clean up socket when the app unmounts
       if (durationTimer) clearInterval(durationTimer);
       if (speakingSimulationTimer) clearInterval(speakingSimulationTimer);
+      if (alertCheckTimer) clearInterval(alertCheckTimer);
       // socket.disconnect();
     };
   };
@@ -70,6 +83,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     socketConnected: false,
     recordingStartTime: null,
     callHistory: [],
+    coachingAlerts: [],
     
     startRecording: () => {
       const startTime = Date.now();
@@ -77,7 +91,8 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         isRecording: true, 
         callDuration: 0,
         recordingStartTime: startTime,
-        keyPhrases: []
+        keyPhrases: [],
+        coachingAlerts: []
       });
       
       // Duration update timer
@@ -139,11 +154,17 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           }
         }
       }, 2000);
+      
+      // Start checking for coaching alerts
+      alertCheckTimer = setInterval(() => {
+        get().checkCoachingAlerts();
+      }, 5000);
     },
     
     stopRecording: () => {
       if (durationTimer) clearInterval(durationTimer);
       if (speakingSimulationTimer) clearInterval(speakingSimulationTimer);
+      if (alertCheckTimer) clearInterval(alertCheckTimer);
       
       // Save call data before resetting
       if (get().isRecording) {
@@ -153,7 +174,8 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       set({ 
         isRecording: false,
         isTalkingMap: { agent: false, customer: false },
-        recordingStartTime: null
+        recordingStartTime: null,
+        coachingAlerts: []
       });
     },
     
@@ -173,6 +195,63 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           ...state.isTalkingMap,
           [speaker]: isSpeaking
         }
+      }));
+    },
+    
+    checkCoachingAlerts: () => {
+      const { talkRatio, sentiment, keyPhrases, coachingAlerts } = get();
+      const timestamp = Date.now();
+      const newAlerts: CoachingAlert[] = [];
+      
+      // Check for talk ratio imbalance
+      if (talkRatio.agent > 70 && Math.random() > 0.5) {
+        newAlerts.push({
+          id: `talk-ratio-${timestamp}`,
+          type: 'warning',
+          message: '🗣️ The agent is talking too much. Let the customer speak more.',
+          timestamp,
+          dismissed: false
+        });
+      }
+      
+      // Check for negative customer sentiment
+      if (sentiment.customer < 0.4 && Math.random() > 0.6) {
+        newAlerts.push({
+          id: `negative-sentiment-${timestamp}`,
+          type: 'critical',
+          message: '⚠️ Customer is showing negative sentiment. Address their concerns.',
+          timestamp,
+          dismissed: false
+        });
+      }
+      
+      // Check for potential objections in key phrases
+      const objectionKeywords = ['pricing', 'expensive', 'cost', 'price', 'discount', 'competitive'];
+      if (keyPhrases.some(phrase => 
+          objectionKeywords.some(keyword => phrase.toLowerCase().includes(keyword))
+        ) && Math.random() > 0.7) {
+        newAlerts.push({
+          id: `objection-${timestamp}`,
+          type: 'info',
+          message: '💰 Customer has mentioned pricing. Focus on value proposition.',
+          timestamp,
+          dismissed: false
+        });
+      }
+      
+      // Only add alerts if we have new ones
+      if (newAlerts.length > 0) {
+        set({
+          coachingAlerts: [...coachingAlerts, ...newAlerts]
+        });
+      }
+    },
+    
+    dismissAlert: (id) => {
+      set(state => ({
+        coachingAlerts: state.coachingAlerts.map(alert => 
+          alert.id === id ? { ...alert, dismissed: true } : alert
+        )
       }));
     },
     

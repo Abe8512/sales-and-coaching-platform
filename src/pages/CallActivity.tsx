@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
@@ -9,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { UserPlus, Phone, Clock, Activity, Users, User } from "lucide-react";
+import CoachingAlerts from "@/components/CallAnalysis/CoachingAlerts";
 
 // Mock call data
 const MOCK_CALLS = [
@@ -356,6 +356,8 @@ const CallActivity = () => {
           </Card>
         </TabsContent>
       </Tabs>
+      
+      <CoachingAlerts />
     </DashboardLayout>
   );
 };

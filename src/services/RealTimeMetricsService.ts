@@ -58,12 +58,15 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
         validateMetricConsistency('Conversion Rate', [metrics.conversionRate]);
       }, 2000);
       
-      throttledValidation();
+      // Only call throttledValidation if it's not null
+      if (throttledValidation) {
+        throttledValidation();
+      }
       
       return () => {
-        // Check if throttle function has a cancel method before calling it
-        if (typeof throttledValidation === 'object' && 'cancel' in throttledValidation) {
-          (throttledValidation as { cancel: () => void }).cancel();
+        // Safely call cancel if throttledValidation exists and has cancel method
+        if (throttledValidation) {
+          throttledValidation.cancel();
         }
       };
     }

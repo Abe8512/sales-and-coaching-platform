@@ -75,7 +75,7 @@ const ExpandableChart = ({
           variant="ghost" 
           size="icon" 
           className="h-7 w-7 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/80"
-          onClick={throttledRefresh}
+          onClick={() => throttledRefresh && throttledRefresh()}
           disabled={isLoading}
         >
           {isLoading ? (

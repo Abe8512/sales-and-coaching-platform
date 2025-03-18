@@ -79,22 +79,9 @@ const PastCallsList = () => {
     return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
   };
   
-  // Extract user name from ID for display
-  const getUserNameFromId = (userId: string) => {
-    if (!userId) return "Unknown";
-    
-    // If it's a demo or anonymous user, format it nicely
-    if (userId.startsWith('demo-user')) {
-      return `Demo User ${userId.split('-').pop()?.substring(0, 4) || ''}`;
-    }
-    
-    if (userId.startsWith('anonymous-')) {
-      return `User ${userId.split('-').pop()?.substring(0, 4) || ''}`;
-    }
-    
-    // For real users, we might have better data in the future
-    // For now, just return a formatted version of the ID
-    return `User ${userId.substring(0, 6)}`;
+  // Check if the call ID indicates an anonymous call
+  const isAnonymousCall = (id: string) => {
+    return id && (id.startsWith('anonymous-') || id.startsWith('demo-') || id.startsWith('call-'));
   };
   
   return (
@@ -128,7 +115,7 @@ const PastCallsList = () => {
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <h4 className="font-medium">
-                          {call.id && typeof call.id === 'string' && call.id.startsWith('anonymous-') 
+                          {isAnonymousCall(call.id) 
                             ? 'Anonymous Call' 
                             : `Call ${typeof call.id === 'string' ? call.id.substring(0, 8) : call.id}`}
                         </h4>
@@ -167,11 +154,16 @@ const PastCallsList = () => {
                           Key Phrases
                         </h5>
                         <div className="flex flex-wrap gap-1">
-                          {call.keyPhrases.map((phrase, i) => (
+                          {call.keyPhrases.slice(0, 5).map((phrase, i) => ( // Limiting to 5 phrases to avoid cluttering
                             <Badge key={i} variant="outline" className="text-xs">
                               {phrase}
                             </Badge>
                           ))}
+                          {call.keyPhrases.length > 5 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{call.keyPhrases.length - 5} more
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     )}

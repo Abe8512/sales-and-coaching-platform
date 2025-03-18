@@ -20,6 +20,7 @@ const BulkUploadProcessor = () => {
   const [totalProgress, setTotalProgress] = useState(0);
   const { fetchTranscripts } = useCallTranscriptService();
   const { dispatchEvent } = useEvents();
+  const [isStarting, setIsStarting] = useState(false);
   
   useEffect(() => {
     // Calculate total progress
@@ -34,7 +35,8 @@ const BulkUploadProcessor = () => {
   // Refresh data when all files are completed
   useEffect(() => {
     const allCompleted = files.length > 0 && files.every(file => file.status === "complete");
-    if (allCompleted) {
+    if (allCompleted && isProcessing) {
+      console.log('All files completed, refreshing data');
       // Refresh the transcript data
       fetchTranscripts();
       
@@ -50,7 +52,7 @@ const BulkUploadProcessor = () => {
         description: "All files have been processed successfully. Data has been refreshed.",
       });
     }
-  }, [files, fetchTranscripts, toast, dispatchEvent]);
+  }, [files, isProcessing, fetchTranscripts, toast, dispatchEvent]);
   
   // Dispatch event when processing starts
   useEffect(() => {
@@ -77,7 +79,7 @@ const BulkUploadProcessor = () => {
     }
   };
   
-  const startProcessing = () => {
+  const startProcessing = async () => {
     if (files.length === 0) {
       toast({
         title: "No files to process",
@@ -87,13 +89,15 @@ const BulkUploadProcessor = () => {
       return;
     }
     
+    setIsStarting(true);
+    
     toast({
       title: "Processing Started",
       description: `Processing ${files.length} file(s)`,
     });
     
     try {
-      processQueue();
+      await processQueue();
     } catch (error) {
       console.error("Error processing files:", error);
       toast({
@@ -101,6 +105,8 @@ const BulkUploadProcessor = () => {
         description: "An error occurred while processing files",
         variant: "destructive",
       });
+    } finally {
+      setIsStarting(false);
     }
   };
   
@@ -161,9 +167,9 @@ const BulkUploadProcessor = () => {
             </div>
             <Button 
               onClick={startProcessing}
-              disabled={isProcessing || files.every(f => f.status === "complete")}
+              disabled={isProcessing || isStarting || files.every(f => f.status === "complete")}
             >
-              {isProcessing ? (
+              {isProcessing || isStarting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Processing...

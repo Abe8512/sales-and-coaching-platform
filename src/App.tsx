@@ -16,6 +16,7 @@ import Team from "./pages/Team";
 import CallComparison from "./pages/CallComparison";
 import AICoaching from "./pages/AICoaching";
 import CallActivity from "./pages/CallActivity";
+import Performance from "./pages/Performance";
 
 const queryClient = new QueryClient();
 
@@ -60,7 +61,7 @@ const App = () => {
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<Index />} />
                   <Route path="/call-activity" element={<CallActivity />} />
-                  <Route path="/performance" element={<PlaceholderPage title="Performance" />} />
+                  <Route path="/performance" element={<Performance />} />
                   <Route path="/transcripts" element={<PlaceholderPage title="Transcripts" />} />
                   <Route path="/ai-coaching" element={<AICoaching />} />
                   <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />

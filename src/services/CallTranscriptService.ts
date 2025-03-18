@@ -135,7 +135,7 @@ export const useCallTranscripts = (filters?: CallTranscriptFilter) => {
       } else {
         setTranscripts((prevTranscripts) => [data, ...prevTranscripts]);
         setTotalCount((prevCount) => prevCount + 1);
-        dispatchEvent('transcript-created', data);
+        dispatchEvent('transcript-created' as any, data);
         return data as CallTranscript;
       }
     } catch (err) {
@@ -169,7 +169,7 @@ export const useCallTranscripts = (filters?: CallTranscriptFilter) => {
         setTranscripts((prevTranscripts) =>
           prevTranscripts.map((transcript) => (transcript.id === id ? data : transcript))
         );
-        dispatchEvent('transcript-updated', data);
+        dispatchEvent('transcript-updated' as any, data);
         return data as CallTranscript;
       }
     } catch (err) {
@@ -202,7 +202,7 @@ export const useCallTranscripts = (filters?: CallTranscriptFilter) => {
           prevTranscripts.filter((transcript) => transcript.id !== id)
         );
         setTotalCount((prevCount) => prevCount - 1);
-        dispatchEvent('transcript-deleted', { id });
+        dispatchEvent('transcript-deleted' as any, { id });
         return true;
       }
     } catch (err) {

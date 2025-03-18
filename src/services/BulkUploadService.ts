@@ -6,7 +6,7 @@ import { useEventsStore } from "@/services/events";
 import { BulkUploadProcessorService } from "./BulkUploadProcessorService";
 import { debounce } from "lodash";
 import { errorHandler } from "./ErrorHandlingService";
-import { useCallTranscriptService } from "./CallTranscriptService";
+import { useCallTranscripts } from "./CallTranscriptService";
 
 export interface BulkUploadFilter {
   force?: boolean;
@@ -15,7 +15,7 @@ export interface BulkUploadFilter {
 export const useBulkUploadService = () => {
   const whisperService = useWhisperService();
   const bulkUploadProcessor = new BulkUploadProcessorService(whisperService);
-  const { fetchTranscripts } = useCallTranscriptService();
+  const { fetchTranscripts } = useCallTranscripts();
   const { 
     files, 
     addFiles, 
@@ -60,7 +60,7 @@ export const useBulkUploadService = () => {
     try {
       setProcessing(true);
       
-      dispatchEvent('bulk-upload-started', {
+      dispatchEvent('bulk-upload-started' as any, {
         fileCount: files.filter(f => f.status === 'queued' || f.status === 'processing').length,
         fileIds: files.map(file => file.id)
       });
@@ -110,7 +110,7 @@ export const useBulkUploadService = () => {
       
       window.dispatchEvent(new CustomEvent('transcriptions-updated'));
       
-      dispatchEvent('bulk-upload-completed', {
+      dispatchEvent('bulk-upload-completed' as any, {
         fileCount: files.length,
         fileIds: files.map(f => f.id),
         transcriptIds: files.filter(f => f.transcriptId).map(f => f.transcriptId)

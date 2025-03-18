@@ -39,7 +39,7 @@ export class DatabaseService {
       // Create timestamp for consistent usage
       const timestamp = new Date().toISOString();
       
-      // Create a unique ID for the transcript
+      // Create a unique ID for the transcript using proper UUID format
       const transcriptId = uuidv4();
       console.log(`Generated transcript ID: ${transcriptId}`);
       
@@ -146,10 +146,11 @@ export class DatabaseService {
             })
             .eq('id', data[0].id);
         } else {
-          // Insert new keyword
+          // Insert new keyword with proper UUID
           await supabase
             .from('keyword_trends')
             .insert({
+              id: uuidv4(), // Ensure UUID format for new entries
               keyword,
               category,
               count: 1,
@@ -173,6 +174,7 @@ export class DatabaseService {
       await supabase
         .from('sentiment_trends')
         .insert({
+          id: uuidv4(), // Ensure UUID format
           sentiment_label: sentiment,
           confidence: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.7 : 0.6,
           user_id: userId,

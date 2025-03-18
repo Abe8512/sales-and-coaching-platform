@@ -64,7 +64,7 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
       }
       
       return () => {
-        // Safely call cancel if throttledValidation exists and has cancel method
+        // Safely call cancel if throttledValidation exists
         if (throttledValidation) {
           throttledValidation.cancel();
         }

@@ -23,7 +23,7 @@ export const animationUtils = {
   easeOutCubic: (t: number): number => {
     return 1 - Math.pow(1 - t, 3);
   },
-
+  
   /**
    * Get stable height measurement to prevent layout shifts
    * @param element DOM element to measure

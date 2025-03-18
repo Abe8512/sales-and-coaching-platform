@@ -1,4 +1,3 @@
-
 import { supabase, checkSupabaseConnection, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { useState, useEffect, useCallback } from "react";
 import { DateRange } from "react-day-picker";
@@ -37,13 +36,14 @@ const generateDemoTranscripts = (count = 10): CallTranscript[] => {
   const demoData: CallTranscript[] = [];
   
   for (let i = 0; i < count; i++) {
+    const id = uuidv4();
     const anonymousId = generateAnonymousUserId();
     const randomSentiment = sentiments[Math.floor(Math.random() * sentiments.length)];
     const randomDate = new Date();
     randomDate.setDate(randomDate.getDate() - Math.floor(Math.random() * 30));
     
     demoData.push({
-      id: `demo-${i}-${Date.now()}`,
+      id,
       user_id: anonymousId,
       filename: `call-${i}.wav`,
       text: `This is a demo transcript for call ${i}. It contains sample conversation text that would typically be generated from a real call recording.`,
@@ -56,7 +56,7 @@ const generateDemoTranscripts = (count = 10): CallTranscript[] => {
     });
   }
   
-  console.log('Generated demo transcripts with proper anonymous IDs:', demoData);
+  console.log('Generated demo transcripts with proper UUIDs:', demoData);
   return demoData;
 };
 
@@ -80,6 +80,13 @@ export const useCallTranscriptService = () => {
         console.log("Using demo data due to connection issues");
         const demoData = generateDemoTranscripts(15);
         setTranscripts(demoData);
+        toast.warning("Using demo data", {
+          description: "Could not connect to the database. Using sample data instead."
+        });
+      } else {
+        toast.success("Connected to database", {
+          description: "Successfully connected to the Supabase database"
+        });
       }
     };
     
@@ -113,6 +120,27 @@ export const useCallTranscriptService = () => {
         const countQuery = supabase
           .from('call_transcripts')
           .select('id', { count: 'exact' });
+        
+        // Apply filters to count query
+        if (filters?.userId && filters.userId.trim() !== '') {
+          countQuery.eq('user_id', filters.userId);
+        }
+        
+        if (filters?.userIds && filters.userIds.length > 0) {
+          countQuery.in('user_id', filters.userIds);
+        }
+        
+        if (filters?.dateRange?.from) {
+          const fromDate = new Date(filters.dateRange.from);
+          fromDate.setHours(0, 0, 0, 0);
+          countQuery.gte('created_at', fromDate.toISOString());
+        }
+        
+        if (filters?.dateRange?.to) {
+          const toDate = new Date(filters.dateRange.to);
+          toDate.setHours(23, 59, 59, 999);
+          countQuery.lte('created_at', toDate.toISOString());
+        }
         
         const { count, error: countError } = await countQuery;
           
@@ -357,66 +385,98 @@ export const useCallTranscriptService = () => {
     }));
   };
 
-  // Subscribe to real-time changes from Supabase
+  // Subscribe to real-time changes from Supabase with improved error handling
   useEffect(() => {
     if (!isConnected) return;
     
-    // Subscribe to real-time changes to the call_transcripts table
-    const channel = supabase
-      .channel('call_transcripts_changes')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public',
-        table: 'call_transcripts'
-      }, (payload) => {
-        console.log('Real-time update received:', payload);
-        
-        // Dispatch appropriate event based on the change type
-        if (payload.eventType === 'INSERT') {
-          dispatchEvent('transcript-created', payload.new);
-          // Re-fetch data to ensure all components have the latest data
-          fetchTranscripts();
-        } else if (payload.eventType === 'UPDATE') {
-          dispatchEvent('transcript-updated', payload.new);
-          // Re-fetch data to ensure all components have the latest data
-          fetchTranscripts();
-        } else if (payload.eventType === 'DELETE') {
-          dispatchEvent('transcript-deleted', payload.old);
-          // Re-fetch data to ensure all components have the latest data
-          fetchTranscripts();
-        }
-      })
-      .subscribe(status => {
-        console.log('Subscription status for call_transcripts:', status);
-      });
-      
-    // Also subscribe to changes in the calls table
-    const callsChannel = supabase
-      .channel('calls_changes')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public',
-        table: 'calls'
-      }, (payload) => {
-        console.log('Real-time update received for calls:', payload);
-        
-        // Dispatch appropriate event based on the change type
-        if (payload.eventType === 'INSERT') {
-          dispatchEvent('call-created', payload.new);
-        } else if (payload.eventType === 'UPDATE') {
-          dispatchEvent('call-updated', payload.new);
-        } else if (payload.eventType === 'DELETE') {
-          dispatchEvent('call-deleted', payload.old);
-        }
-      })
-      .subscribe(status => {
-        console.log('Subscription status for calls:', status);
-      });
+    let retryTimeout: number | null = null;
     
-    return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(callsChannel);
+    const setupSubscriptions = () => {
+      try {
+        // Subscribe to real-time changes to the call_transcripts table
+        console.log('Setting up Supabase real-time subscriptions...');
+        
+        const channel = supabase
+          .channel('call_transcripts_changes')
+          .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public',
+            table: 'call_transcripts'
+          }, (payload) => {
+            console.log('Real-time update received:', payload);
+            
+            // Dispatch appropriate event based on the change type
+            if (payload.eventType === 'INSERT') {
+              dispatchEvent('transcript-created', payload.new);
+              // Re-fetch data to ensure all components have the latest data
+              fetchTranscripts();
+            } else if (payload.eventType === 'UPDATE') {
+              dispatchEvent('transcript-updated', payload.new);
+              // Re-fetch data to ensure all components have the latest data
+              fetchTranscripts();
+            } else if (payload.eventType === 'DELETE') {
+              dispatchEvent('transcript-deleted', payload.old);
+              // Re-fetch data to ensure all components have the latest data
+              fetchTranscripts();
+            }
+          })
+          .subscribe(status => {
+            console.log('Subscription status for call_transcripts:', status);
+            if (status === 'SUBSCRIBED') {
+              console.log('Successfully subscribed to call_transcripts table');
+            } else if (status === 'CHANNEL_ERROR') {
+              console.error('Error subscribing to call_transcripts table');
+              // Attempt to reconnect after delay
+              if (retryTimeout) clearTimeout(retryTimeout);
+              retryTimeout = window.setTimeout(setupSubscriptions, 5000);
+            }
+          });
+          
+        // Also subscribe to changes in the calls table
+        const callsChannel = supabase
+          .channel('calls_changes')
+          .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public',
+            table: 'calls'
+          }, (payload) => {
+            console.log('Real-time update received for calls:', payload);
+            
+            // Dispatch appropriate event based on the change type
+            if (payload.eventType === 'INSERT') {
+              dispatchEvent('call-created', payload.new);
+            } else if (payload.eventType === 'UPDATE') {
+              dispatchEvent('call-updated', payload.new);
+            } else if (payload.eventType === 'DELETE') {
+              dispatchEvent('call-deleted', payload.old);
+            }
+          })
+          .subscribe(status => {
+            console.log('Subscription status for calls:', status);
+            if (status === 'SUBSCRIBED') {
+              console.log('Successfully subscribed to calls table');
+            }
+          });
+        
+        return () => {
+          console.log('Cleaning up Supabase subscriptions...');
+          if (retryTimeout) clearTimeout(retryTimeout);
+          supabase.removeChannel(channel);
+          supabase.removeChannel(callsChannel);
+        };
+      } catch (err) {
+        console.error('Error setting up Supabase subscriptions:', err);
+        // Attempt to reconnect after delay
+        if (retryTimeout) clearTimeout(retryTimeout);
+        retryTimeout = window.setTimeout(setupSubscriptions, 5000);
+        return () => {
+          if (retryTimeout) clearTimeout(retryTimeout);
+        };
+      }
     };
+    
+    const cleanup = setupSubscriptions();
+    return cleanup;
   }, [fetchTranscripts, dispatchEvent, isConnected]);
   
   // Refresh data automatically every 60 seconds if the component is still mounted

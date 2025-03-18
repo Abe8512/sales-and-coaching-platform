@@ -91,8 +91,8 @@ export const useEventsStore = create<EventsStore>((set, get) => ({
       }
     });
     
-    // Also dispatch the event to the window so components can listen using the useEffect API
-    const customEvent = new CustomEvent(`app:${type}`, { detail: data });
+    // Also dispatch the event to the window as a CustomEvent
+    const customEvent = new CustomEvent(`app:${type}`, { detail: event });
     window.dispatchEvent(customEvent);
     
     console.log(`Event dispatched: ${type}`, data);
@@ -123,15 +123,20 @@ export const useEventListener = (type: EventType, callback: (data?: any) => void
     });
     
     // Also listen using window events as a fallback
-    const handleWindowEvent = (event: CustomEvent) => {
-      callback(event.detail);
+    const handleWindowEvent = (e: Event) => {
+      // Cast to CustomEvent to access the detail property
+      const customEvent = e as CustomEvent;
+      // The detail contains our EventPayload
+      const eventPayload = customEvent.detail as EventPayload;
+      callback(eventPayload.data);
     };
     
-    window.addEventListener(`app:${type}`, handleWindowEvent as unknown as EventListener);
+    // Use the correct type for the addEventListener call
+    window.addEventListener(`app:${type}`, handleWindowEvent);
     
     return () => {
       unsubscribe();
-      window.removeEventListener(`app:${type}`, handleWindowEvent as unknown as EventListener);
+      window.removeEventListener(`app:${type}`, handleWindowEvent);
     };
   }, [type, callback]);
 };

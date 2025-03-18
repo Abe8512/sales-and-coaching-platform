@@ -1,3 +1,4 @@
+
 import { supabase, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { useBulkUploadStore, UploadStatus } from "@/store/useBulkUploadStore";
 import { useWhisperService, WhisperTranscriptionResponse } from "@/services/WhisperService";
@@ -395,7 +396,9 @@ export const useBulkUploadService = () => {
     setProcessing,
     loadUploadHistory,
     uploadHistory,
-    hasLoadedHistory
+    hasLoadedHistory,
+    acquireProcessingLock,
+    releaseProcessingLock
   } = useBulkUploadStore();
   const dispatchEvent = useEventsStore.getState().dispatchEvent;
   
@@ -412,8 +415,8 @@ export const useBulkUploadService = () => {
     
     // Dispatch event that bulk upload processing has started
     dispatchEvent('bulk-upload-started', {
-      fileCount: files.length,
-      fileIds: files.map(f => f.id)
+      fileCount: files.filter(f => f.status === 'queued' || f.status === 'processing').length,
+      fileIds: files.map(file => file.id)
     });
     
     // Process files sequentially
@@ -458,6 +461,8 @@ export const useBulkUploadService = () => {
     uploadHistory,
     hasLoadedHistory,
     loadUploadHistory,
-    setAssignedUserId
+    setAssignedUserId,
+    acquireProcessingLock,
+    releaseProcessingLock
   };
 };

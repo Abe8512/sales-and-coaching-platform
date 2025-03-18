@@ -11,6 +11,7 @@ interface SentimentTrend {
   sentiment_label: 'positive' | 'neutral' | 'negative';
   confidence: number;
   recorded_at: string;
+  recorded_at_formatted?: string;
 }
 
 const SentimentTrendsChart = () => {
@@ -33,10 +34,11 @@ const SentimentTrendsChart = () => {
           return;
         }
         
-        // Format data for chart
-        const formattedData = data.map(item => ({
+        // Format data for chart and ensure correct types
+        const formattedData: SentimentTrend[] = data.map(item => ({
           ...item,
-          recorded_at_formatted: format(new Date(item.recorded_at), 'MM/dd HH:mm')
+          sentiment_label: (item.sentiment_label as 'positive' | 'neutral' | 'negative'),
+          recorded_at_formatted: format(new Date(item.recorded_at || new Date()), 'MM/dd HH:mm')
         }));
         
         setSentimentTrends(formattedData);
@@ -55,12 +57,12 @@ const SentimentTrendsChart = () => {
   }, []);
   
   // Save the current sentiment to the database when a call ends
-  const saveSentimentTrend = async (label: string, confidence: number) => {
+  const saveSentimentTrend = async (label: 'positive' | 'neutral' | 'negative', confidence: number) => {
     try {
       const { error } = await supabase
         .from('sentiment_trends')
         .insert([{
-          sentiment_label: label.toLowerCase(),
+          sentiment_label: label,
           confidence
         }]);
         

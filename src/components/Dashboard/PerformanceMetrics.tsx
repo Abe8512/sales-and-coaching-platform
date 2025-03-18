@@ -1,7 +1,7 @@
-
 import React, { useCallback, useEffect, useState } from "react";
 import { LineChart, Line, ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { ArrowUpRight, TrendingUp, TrendingDown } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import GlowingCard from "../ui/GlowingCard";
 import AnimatedNumber from "../ui/AnimatedNumber";
 import ExpandableChart from "../ui/ExpandableChart";
@@ -10,7 +10,6 @@ import { Button } from "../ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "../ui/chart";
 import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
 
-// Generate empty data for initial state
 const generateEmptyData = () => {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   return days.map(day => ({ name: day, score: 0 }));
@@ -33,11 +32,12 @@ interface MetricCardProps {
   gradient?: "blue" | "purple" | "pink" | "green";
   suffix?: string;
   children?: React.ReactNode;
+  onClick?: () => void;
 }
 
-const MetricCard = ({ title, value, change, gradient = "blue", suffix = "", children }: MetricCardProps) => {
+const MetricCard = ({ title, value, change, gradient = "blue", suffix = "", children, onClick }: MetricCardProps) => {
   return (
-    <GlowingCard gradient={gradient} className="h-full">
+    <GlowingCard gradient={gradient} className="h-full" onClick={onClick}>
       <div className="flex flex-col h-full">
         <div className="flex justify-between items-start mb-4">
           <h3 className="text-sm font-medium text-gray-400">{title}</h3>
@@ -64,7 +64,8 @@ const MetricCard = ({ title, value, change, gradient = "blue", suffix = "", chil
 };
 
 const PerformanceMetrics = () => {
-  // Track actual metrics from transcriptions
+  const navigate = useNavigate();
+  
   const [performanceScore, setPerformanceScore] = useState(0);
   const [totalCalls, setTotalCalls] = useState(0);
   const [conversionRate, setConversionRate] = useState(0);
@@ -72,7 +73,6 @@ const PerformanceMetrics = () => {
   const [callsChange, setCallsChange] = useState(0);
   const [conversionChange, setConversionChange] = useState(0);
 
-  // Use our custom hooks for data visualization
   const {
     data: performanceData,
     isLoading: isPerformanceLoading,
@@ -100,12 +100,10 @@ const PerformanceMetrics = () => {
     setData: setConversionData
   } = useChartData(generateEmptyConversionData());
 
-  // Load actual data from stored transcriptions
   useEffect(() => {
     const transcriptions = getStoredTranscriptions();
     
     if (transcriptions.length === 0) {
-      // Reset to zeros if no transcriptions
       setPerformanceScore(0);
       setTotalCalls(0);
       setConversionRate(0);
@@ -118,48 +116,38 @@ const PerformanceMetrics = () => {
       return;
     }
     
-    // Calculate performance score (average of call scores)
     const avgScore = transcriptions.reduce((sum, t) => sum + (t.callScore || 0), 0) / transcriptions.length;
     setPerformanceScore(Math.round(avgScore));
     
-    // Set total calls
     setTotalCalls(transcriptions.length);
     
-    // Calculate a conversion rate based on positive sentiment transcriptions
     const positiveTranscriptions = transcriptions.filter(t => t.sentiment === 'positive');
     const calculatedRate = (positiveTranscriptions.length / transcriptions.length) * 100;
     setConversionRate(parseFloat(calculatedRate.toFixed(1)));
     
-    // Simulate changes (in a real app, you'd compare to previous periods)
     setPerformanceChange(transcriptions.length > 2 ? 7 : 0);
     setCallsChange(transcriptions.length > 3 ? -3 : 0);
     setConversionChange(transcriptions.length > 5 ? 12 : 0);
     
-    // Generate data for charts based on actual transcriptions
     generateChartData(transcriptions);
   }, [setPerformanceData, setCallVolumeData, setConversionData]);
   
-  // Generate meaningful chart data from transcriptions
   const generateChartData = (transcriptions: StoredTranscription[]) => {
-    // Sort transcriptions by date
     const sortedTranscriptions = [...transcriptions].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
     
-    // Group by day of week
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const dayScores: Record<string, number[]> = {};
     const dayCounts: Record<string, number> = {};
     const dayConversions: Record<string, number[]> = {};
     
-    // Initialize empty arrays for each day
     dayNames.forEach(day => {
       dayScores[day] = [];
       dayCounts[day] = 0;
       dayConversions[day] = [];
     });
     
-    // Populate data
     sortedTranscriptions.forEach(t => {
       const date = new Date(t.date);
       const dayName = dayNames[date.getDay()];
@@ -170,12 +158,10 @@ const PerformanceMetrics = () => {
       
       dayCounts[dayName]++;
       
-      // Consider a call "converted" if sentiment is positive
       const isConverted = t.sentiment === 'positive' ? 1 : 0;
       dayConversions[dayName].push(isConverted);
     });
     
-    // Calculate averages for performance scores
     const newPerformanceData = dayNames.map(day => ({
       name: day,
       score: dayScores[day].length > 0 
@@ -183,13 +169,11 @@ const PerformanceMetrics = () => {
         : 0
     }));
     
-    // Create call volume data
     const newCallVolumeData = dayNames.map(day => ({
       name: day,
       calls: dayCounts[day]
     }));
     
-    // Calculate conversion rates
     const newConversionData = dayNames.map(day => ({
       name: day,
       rate: dayConversions[day].length > 0
@@ -197,13 +181,15 @@ const PerformanceMetrics = () => {
         : 0
     }));
     
-    // Update chart data
     setPerformanceData(newPerformanceData);
     setCallVolumeData(newCallVolumeData);
     setConversionData(newConversionData);
   };
 
-  // Expanded chart content for Performance Score
+  const navigateToCallActivity = () => {
+    navigate("/call-activity");
+  };
+
   const expandedPerformanceChart = (
     <div className="space-y-4">
       <div className="flex justify-between">
@@ -290,7 +276,6 @@ const PerformanceMetrics = () => {
     </div>
   );
 
-  // Expanded chart content for Call Volume
   const expandedCallVolumeChart = (
     <div className="space-y-4">
       <div className="flex justify-between">
@@ -373,7 +358,6 @@ const PerformanceMetrics = () => {
     </div>
   );
 
-  // Expanded chart content for Conversion Rate
   const expandedConversionChart = (
     <div className="space-y-4">
       <div className="flex justify-between">
@@ -473,6 +457,7 @@ const PerformanceMetrics = () => {
         value={performanceScore} 
         change={performanceChange}
         gradient="blue"
+        onClick={navigateToCallActivity}
       >
         <ExpandableChart 
           title="Weekly Performance" 
@@ -500,6 +485,7 @@ const PerformanceMetrics = () => {
         value={totalCalls} 
         change={callsChange}
         gradient="purple"
+        onClick={navigateToCallActivity}
       >
         <ExpandableChart 
           title="Call Volume" 
@@ -526,6 +512,7 @@ const PerformanceMetrics = () => {
         change={conversionChange}
         gradient="green"
         suffix="%"
+        onClick={navigateToCallActivity}
       >
         <ExpandableChart 
           title="Conversion Trends" 

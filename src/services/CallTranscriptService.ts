@@ -12,6 +12,7 @@ import { useEventsStore } from "@/services/events";
 import { v4 as uuidv4 } from 'uuid';
 import { withErrorHandling } from './ErrorHandlingService';
 import { connectionMonitor } from './ConnectionMonitorService';
+import { PostgrestError, PostgrestSingleResponse } from '@supabase/supabase-js';
 
 export interface CallTranscript {
   id: string;
@@ -162,9 +163,10 @@ export const useCallTranscriptService = () => {
               countQuery.lte('created_at', toDate.toISOString());
             }
             
-            return countQuery;
+            // Execute the query and return the full response
+            return await countQuery;
           },
-          { count: null, error: null },
+          { data: [], count: null, error: null, status: 200, statusText: 'OK' } as PostgrestSingleResponse<{ id: string }[]>,
           'TranscriptCount'
         );
           
@@ -210,7 +212,7 @@ export const useCallTranscriptService = () => {
           
           return query.order('created_at', { ascending: false });
         },
-        { data: null, error: 'Failed to fetch data' },
+        { data: null, error: null as PostgrestError | null, status: 200, statusText: 'OK' },
         'TranscriptFetch',
         {
           message: 'Error fetching transcript data',
@@ -437,7 +439,7 @@ export const useCallTranscriptService = () => {
                   dispatchEvent('transcript-updated', payload.new);
                   // Re-fetch data to ensure all components have the latest data
                   fetchTranscripts();
-                } else if (payload.eventType === 'DELETE') {
+                } else if (payload.eventType === 'DELETE' && payload.old) {
                   dispatchEvent('transcript-deleted', payload.old);
                   // Re-fetch data to ensure all components have the latest data
                   fetchTranscripts();
@@ -470,14 +472,14 @@ export const useCallTranscriptService = () => {
             console.log('Real-time update received for calls:', payload);
             
             // Validate the received payload has proper format and valid UUID
-            if (payload && (payload.new || payload.old)) {
+            if (payload && ((payload.new && payload.new.id) || (payload.old && payload.old.id))) {
               try {
                 // Dispatch appropriate event based on the change type
-                if (payload.eventType === 'INSERT' && payload.new) {
+                if (payload.eventType === 'INSERT' && payload.new && payload.new.id) {
                   dispatchEvent('call-created', payload.new);
-                } else if (payload.eventType === 'UPDATE' && payload.new) {
+                } else if (payload.eventType === 'UPDATE' && payload.new && payload.new.id) {
                   dispatchEvent('call-updated', payload.new);
-                } else if (payload.eventType === 'DELETE' && payload.old) {
+                } else if (payload.eventType === 'DELETE' && payload.old && payload.old.id) {
                   dispatchEvent('call-deleted', payload.old);
                 }
               } catch (parseError) {

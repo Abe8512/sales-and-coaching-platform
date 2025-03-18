@@ -9,6 +9,7 @@ import {
 } from "@/utils/metricCalculations";
 import { toast } from "sonner";
 import { useEventsStore } from "@/services/events";
+import { v4 as uuidv4 } from 'uuid';
 
 export interface CallTranscript {
   id: string;
@@ -42,7 +43,7 @@ const generateDemoTranscripts = (count = 10): CallTranscript[] => {
     
     demoData.push({
       id: `demo-${i}-${Date.now()}`,
-      user_id: "demo-user",
+      user_id: `demo-user-${uuidv4().substring(0, 8)}`,
       filename: `call-${i}.wav`,
       text: `This is a demo transcript for call ${i}. It contains sample conversation text that would typically be generated from a real call recording.`,
       duration: Math.floor(Math.random() * 600) + 120, // 2-12 minutes
@@ -247,12 +248,11 @@ export const useCallTranscriptService = () => {
           // Skip if missing critical data
           if (!transcript.created_at) continue;
           
-          // Use a default user_id for calls if it's null
-          const userId = transcript.user_id || 'anonymous';
+          // Make sure we have a valid user_id
+          const userId = transcript.user_id || `anonymous-${uuidv4().substring(0, 8)}`;
           
           try {
-            // Use a unique ID instead of relying on user_id + created_at combination
-            // which can cause 400 errors if null values are involved
+            // Check if a call record for this transcript already exists
             const { data } = await supabase
               .from('calls')
               .select('id')
@@ -260,11 +260,11 @@ export const useCallTranscriptService = () => {
               .maybeSingle();
               
             if (!data) {
-              // Create a new call entry for this transcript with the same ID
+              // Create a new call entry with the same ID as the transcript for consistency
               await supabase
                 .from('calls')
                 .insert({
-                  id: transcript.id, // Use the same ID as the transcript
+                  id: transcript.id,
                   user_id: userId,
                   duration: transcript.duration || 0,
                   sentiment_agent: transcript.sentiment === 'positive' ? 0.8 : transcript.sentiment === 'negative' ? 0.3 : 0.5,

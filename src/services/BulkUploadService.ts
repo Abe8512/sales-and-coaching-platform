@@ -3,7 +3,8 @@ import { useBulkUploadStore, UploadStatus } from "@/store/useBulkUploadStore";
 import { useWhisperService, WhisperTranscriptionResponse } from "@/services/WhisperService";
 import { toast } from "sonner";
 import { useCallTranscriptService } from "./CallTranscriptService";
-import { useEventsStore } from "@/services/EventsService";
+import { useEventsStore } from "@/services/events";
+import { v4 as uuidv4 } from 'uuid';
 
 // Create a wrapper class for handling bulk uploads
 export class BulkUploadService {
@@ -94,12 +95,13 @@ export class BulkUploadService {
       const duration = await this.calculateAudioDuration(file);
       
       // Get user ID either from assignment or current logged-in user
+      // If neither is available, use 'anonymous-{randomId}' to ensure uniqueness
       let userId = this.assignedUserId;
       
       // If no assigned userId, try to get current user from auth
       if (!userId) {
         const { data: { user } } = await supabase.auth.getUser();
-        userId = user?.id || null;
+        userId = user?.id || `anonymous-${uuidv4().substring(0, 8)}`;
       }
       
       console.log(`Saving transcript with user_id: ${userId}`);
@@ -107,10 +109,14 @@ export class BulkUploadService {
       // Create timestamp for consistent usage
       const timestamp = new Date().toISOString();
       
+      // Create a unique ID for the transcript
+      const transcriptId = uuidv4();
+      
       // Insert into database
       const { data, error } = await supabase
         .from('call_transcripts')
         .insert({
+          id: transcriptId,
           user_id: userId,
           filename: file.name,
           text: result.text,
@@ -125,8 +131,10 @@ export class BulkUploadService {
         .single();
       
       // Also update the calls table with similar data for real-time metrics
-      if (data?.id) {
+      if (!error) {
+        const callId = uuidv4(); // Generate a unique ID for the call
         await this.updateCallsTable({
+          id: callId,
           user_id: userId,
           duration: duration || 0,
           sentiment_agent: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.3 : 0.5,
@@ -138,7 +146,7 @@ export class BulkUploadService {
         });
       }
       
-      return { id: data?.id || '', error };
+      return { id: data?.id || transcriptId, error };
     } catch (error) {
       console.error('Error saving transcript:', error);
       return { id: '', error };
@@ -147,7 +155,8 @@ export class BulkUploadService {
   
   // Update calls table for real-time metrics
   private async updateCallsTable(callData: {
-    user_id: string | null;
+    id: string;
+    user_id: string;
     duration: number;
     sentiment_agent: number;
     sentiment_customer: number;

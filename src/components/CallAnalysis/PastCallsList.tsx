@@ -79,6 +79,24 @@ const PastCallsList = () => {
     return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
   };
   
+  // Extract user name from ID for display
+  const getUserNameFromId = (userId: string) => {
+    if (!userId) return "Unknown";
+    
+    // If it's a demo or anonymous user, format it nicely
+    if (userId.startsWith('demo-user')) {
+      return `Demo User ${userId.split('-').pop()?.substring(0, 4) || ''}`;
+    }
+    
+    if (userId.startsWith('anonymous-')) {
+      return `User ${userId.split('-').pop()?.substring(0, 4) || ''}`;
+    }
+    
+    // For real users, we might have better data in the future
+    // For now, just return a formatted version of the ID
+    return `User ${userId.substring(0, 6)}`;
+  };
+  
   return (
     <Card>
       <CardHeader>
@@ -109,7 +127,11 @@ const PastCallsList = () => {
                   <CardContent className="p-4">
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <h4 className="font-medium">Call {typeof call.id === 'string' ? call.id.substring(0, 8) : call.id}</h4>
+                        <h4 className="font-medium">
+                          {typeof call.userId === 'string' && call.userId.startsWith('anonymous-') 
+                            ? 'Anonymous Call' 
+                            : `Call ${typeof call.id === 'string' ? call.id.substring(0, 8) : call.id}`}
+                        </h4>
                         <p className="text-sm text-muted-foreground">{formatDate(call.date)}</p>
                       </div>
                       {call.sentiment && (

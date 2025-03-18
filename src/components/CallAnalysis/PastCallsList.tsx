@@ -128,7 +128,7 @@ const PastCallsList = () => {
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <h4 className="font-medium">
-                          {typeof call.userId === 'string' && call.userId.startsWith('anonymous-') 
+                          {call.id && typeof call.id === 'string' && call.id.startsWith('anonymous-') 
                             ? 'Anonymous Call' 
                             : `Call ${typeof call.id === 'string' ? call.id.substring(0, 8) : call.id}`}
                         </h4>

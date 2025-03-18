@@ -1,8 +1,8 @@
-
 import { create } from 'zustand';
 import { supabase } from "@/integrations/supabase/client";
 import { validateDataConsistency } from '@/services/SharedDataService';
 import { useEventsStore } from '@/services/events';
+import { v4 as uuidv4 } from 'uuid';
 
 interface CallMetricsState {
   isRecording: boolean;

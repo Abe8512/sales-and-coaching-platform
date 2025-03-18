@@ -26,7 +26,9 @@ const BulkUploadProcessor = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
   const { isConnected } = useConnectionStatus();
+  const [progressInterval, setProgressInterval] = useState<NodeJS.Timeout | null>(null);
 
+  // Calculate and update progress periodically
   useEffect(() => {
     const calculateProgress = () => {
       if (files.length > 0) {
@@ -37,12 +39,25 @@ const BulkUploadProcessor = () => {
       }
     };
 
+    // Initial calculation
     calculateProgress();
-    const interval = setInterval(calculateProgress, 500);
     
-    return () => clearInterval(interval);
-  }, [files]);
+    // Create interval only if not already created
+    if (!progressInterval) {
+      const interval = setInterval(calculateProgress, 500);
+      setProgressInterval(interval);
+    }
+    
+    // Clean up interval on unmount
+    return () => {
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        setProgressInterval(null);
+      }
+    };
+  }, [files, progressInterval]);
   
+  // Handle completion of all files
   useEffect(() => {
     const allCompleted = files.length > 0 && files.every(file => 
       file.status === "complete" || file.status === "error"
@@ -51,25 +66,32 @@ const BulkUploadProcessor = () => {
     if (allCompleted && isProcessing) {
       console.log('All files completed, refreshing data');
       
-      fetchTranscripts();
+      // Refresh transcript data
+      fetchTranscripts().catch(error => {
+        console.error('Error fetching transcripts after completion:', error);
+      });
       
+      // Dispatch completion event
       dispatchEvent('bulk-upload-completed', { 
         count: files.length,
         fileIds: files.map(file => file.id),
         transcriptIds: files.map(file => file.transcriptId).filter(Boolean)
       });
       
+      // Notify user of completion
       toast({
         title: "Processing Complete",
         description: "All files have been processed successfully. Data has been refreshed.",
       });
       
+      // Release processing lock with slight delay to allow state updates
       setTimeout(() => {
         releaseProcessingLock();
       }, 1000);
     }
   }, [files, isProcessing, fetchTranscripts, toast, dispatchEvent, releaseProcessingLock]);
   
+  // Dispatch event when processing starts
   useEffect(() => {
     if (isProcessing) {
       dispatchEvent('bulk-upload-started', {
@@ -79,6 +101,7 @@ const BulkUploadProcessor = () => {
     }
   }, [isProcessing, files, dispatchEvent]);
   
+  // Return appropriate icon based on file status
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "complete":
@@ -94,6 +117,7 @@ const BulkUploadProcessor = () => {
     }
   };
   
+  // Start processing the queue
   const startProcessing = useCallback(async () => {
     if (files.length === 0) {
       toast({
@@ -117,6 +141,7 @@ const BulkUploadProcessor = () => {
     setIsStarting(true);
     setProcessingError(null);
     
+    // Try to acquire processing lock
     if (!acquireProcessingLock()) {
       toast({
         title: "Processing already in progress",

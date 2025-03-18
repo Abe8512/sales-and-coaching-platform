@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useEventsStore } from "@/services/events";
 import { BulkUploadProcessorService } from "./BulkUploadProcessorService";
 import { debounce } from "lodash";
+import { errorHandler } from "./ErrorHandlingService";
 
 // Hook for using bulk upload functionality
 export const useBulkUploadService = () => {
@@ -33,18 +34,27 @@ export const useBulkUploadService = () => {
   
   // Debounced version of loadUploadHistory to prevent UI jitter
   const debouncedLoadHistory = debounce(() => {
-    loadUploadHistory();
+    loadUploadHistory().catch(error => {
+      console.error('Failed to load upload history:', error);
+      errorHandler.handleError(error, 'BulkUploadService.loadUploadHistory');
+    });
   }, 300);
   
   // Process all files in the queue
   const processQueue = async () => {
-    if (isProcessing || files.length === 0) return;
+    if (isProcessing || files.length === 0) {
+      console.log('Skipping processQueue: already processing or no files');
+      return;
+    }
     
     // Try to acquire processing lock, if it fails, another process is already handling uploads
     if (!acquireProcessingLock()) {
+      console.log('Failed to acquire processing lock, another process is already running');
       toast.info("Upload processing is already in progress");
       return;
     }
+    
+    console.log(`Starting to process ${files.length} files`);
     
     try {
       setProcessing(true);
@@ -55,24 +65,53 @@ export const useBulkUploadService = () => {
         fileIds: files.map(file => file.id)
       });
       
-      // Process files sequentially with a small delay between each
-      for (const file of files) {
-        // Skip already processed files
-        if (file.status === 'complete' || file.status === 'error') continue;
+      // Process files one by one to avoid memory issues
+      const queuedFiles = files.filter(file => 
+        file.status === 'queued' || 
+        (file.status === 'error' && file.progress === 0)
+      );
+      
+      console.log(`Found ${queuedFiles.length} files to process`);
+      
+      // Use for loop instead of forEach to allow proper async/await
+      for (let i = 0; i < queuedFiles.length; i++) {
+        const file = queuedFiles[i];
+        console.log(`Processing file ${i+1}/${queuedFiles.length}: ${file.file.name}`);
         
-        await bulkUploadProcessor.processFile(
-          file.file,
-          (status, progress, result, error, transcriptId) => {
-            updateFileStatus(file.id, status, progress, result, error, transcriptId);
+        try {
+          // Process file with progress updates
+          await bulkUploadProcessor.processFile(
+            file.file,
+            (status, progress, result, error, transcriptId) => {
+              updateFileStatus(file.id, status, progress, result, error, transcriptId);
+            }
+          );
+          
+          // Notify for each successful file
+          if (i < queuedFiles.length - 1) {
+            toast.success(`Processed file ${i+1}/${queuedFiles.length}`, {
+              description: file.file.name,
+              duration: 3000,
+            });
           }
-        );
-        
-        // Add a small delay between processing files to reduce CPU spikes
-        await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Add a small delay between processing files to reduce CPU spikes
+          if (i < queuedFiles.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        } catch (error) {
+          console.error(`Error processing file ${file.file.name}:`, error);
+          updateFileStatus(file.id, 'error', 0, undefined, 
+            error instanceof Error ? error.message : 'Unknown error during processing');
+          
+          // Continue processing other files even if one fails
+          errorHandler.handleError(error, 'BulkUploadService.processFile');
+        }
       }
       
-      // After processing all files, trigger a reload of the history using debounced function
-      debouncedLoadHistory();
+      // After processing all files, trigger a reload of the history
+      console.log('All files processed, refreshing history');
+      await debouncedLoadHistory();
       
       // Dispatch event that bulk upload processing has completed
       dispatchEvent('bulk-upload-completed', {
@@ -85,7 +124,15 @@ export const useBulkUploadService = () => {
       toast.success("All files processed", {
         description: "Your data has been uploaded and metrics have been updated."
       });
+    } catch (error) {
+      console.error('Bulk processing error:', error);
+      errorHandler.handleError(error, 'BulkUploadService.processQueue');
+      
+      toast.error("Processing failed", {
+        description: "There was an error processing some files. Please try again.",
+      });
     } finally {
+      console.log('Finishing bulk upload process, releasing lock');
       setProcessing(false);
       releaseProcessingLock();
     }

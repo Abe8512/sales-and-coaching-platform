@@ -41,7 +41,9 @@ export const useTranscriptRealtimeSubscriptions = (
             dispatchEvent('transcript-created', newTranscript);
             
             // Refresh data to include the new transcript
-            fetchTranscripts();
+            fetchTranscripts().catch(err => {
+              console.error('Error fetching transcripts after INSERT event:', err);
+            });
           } else {
             console.warn('Received invalid payload format for call_transcripts INSERT:', payload);
           }
@@ -70,7 +72,9 @@ export const useTranscriptRealtimeSubscriptions = (
             dispatchEvent('transcript-updated', updatedTranscript);
             
             // Refresh data if needed
-            fetchTranscripts();
+            fetchTranscripts().catch(err => {
+              console.error('Error fetching transcripts after UPDATE event:', err);
+            });
           }
         }
       )
@@ -97,7 +101,9 @@ export const useTranscriptRealtimeSubscriptions = (
             dispatchEvent('transcript-deleted', { id: deletedTranscriptId });
             
             // Refresh data to remove the deleted transcript
-            fetchTranscripts();
+            fetchTranscripts().catch(err => {
+              console.error('Error fetching transcripts after DELETE event:', err);
+            });
           }
         }
       )

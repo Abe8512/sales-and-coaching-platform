@@ -1,5 +1,5 @@
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { BarChart, Bar, ResponsiveContainer, XAxis, Cell, CartesianGrid, YAxis, Tooltip, Legend } from "recharts";
 import { Check, X } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
@@ -8,18 +8,73 @@ import ExpandableChart from "../ui/ExpandableChart";
 import { useChartData } from "@/hooks/useChartData";
 import { Button } from "../ui/button";
 import { ChartContainer, ChartTooltipContent } from "../ui/chart";
+import { StoredTranscription } from "@/services/WhisperService";
 
-const CallRating = () => {
-  // Mock data for call metrics
-  const callScore = 76;
+interface CallRatingProps {
+  transcript?: StoredTranscription | null;
+}
+
+const CallRating = ({ transcript }: CallRatingProps) => {
+  // Default call score or use the transcript's score
+  const [callScore, setCallScore] = useState<number>(76);
   
-  const initialCallMetrics = [
-    { name: "Introduction", score: 90, max: 100 },
-    { name: "Discovery", score: 60, max: 100 },
-    { name: "Presentation", score: 85, max: 100 },
-    { name: "Objection Handling", score: 55, max: 100 },
-    { name: "Closing", score: 70, max: 100 },
-  ];
+  // Update score when transcript changes
+  useEffect(() => {
+    if (transcript && transcript.callScore) {
+      setCallScore(transcript.callScore);
+    }
+  }, [transcript]);
+
+  // Generate metrics based on the transcript
+  const generateMetricsFromTranscript = (transcript?: StoredTranscription | null) => {
+    if (!transcript) {
+      // Default metrics if no transcript is provided
+      return [
+        { name: "Introduction", score: 90, max: 100 },
+        { name: "Discovery", score: 60, max: 100 },
+        { name: "Presentation", score: 85, max: 100 },
+        { name: "Objection Handling", score: 55, max: 100 },
+        { name: "Closing", score: 70, max: 100 },
+      ];
+    }
+    
+    // Text-based features analysis (simplified)
+    const text = transcript.text.toLowerCase();
+    
+    // Check for introduction phrases
+    const hasGreeting = /hello|hi |hey|good (morning|afternoon|evening)/.test(text);
+    const hasIntroduction = /my name is|this is|calling (from|about)|speaking/.test(text);
+    const introScore = (hasGreeting ? 45 : 20) + (hasIntroduction ? 45 : 20);
+    
+    // Check for discovery questions
+    const questionCount = (text.match(/\?/g) || []).length;
+    const discoveryScore = Math.min(100, Math.max(30, questionCount * 15));
+    
+    // Check for presentation quality
+    const hasFeatures = /feature|benefit|advantage|offer|solution|help|improve|better/.test(text);
+    const hasClarification = /mean|clarify|explain|understand|example/.test(text);
+    const presentationScore = (hasFeatures ? 40 : 20) + (hasClarification ? 40 : 20);
+    
+    // Check for objection handling
+    const hasObjectionAcknowledgment = /understand|see your point|good question|that's fair|makes sense/.test(text);
+    const hasRebuttal = /however|but|actually|in fact|on the other hand|consider/.test(text);
+    const objectionScore = (hasObjectionAcknowledgment ? 40 : 15) + (hasRebuttal ? 40 : 20);
+    
+    // Check for closing
+    const hasClosingQuestion = /interested|next steps|schedule|follow up|move forward|decision|purchase|buy|sign up/.test(text);
+    const hasSummary = /summarize|to recap|in conclusion|to sum up/.test(text);
+    const closingScore = (hasClosingQuestion ? 50 : 25) + (hasSummary ? 30 : 15);
+    
+    return [
+      { name: "Introduction", score: introScore, max: 100 },
+      { name: "Discovery", score: discoveryScore, max: 100 },
+      { name: "Presentation", score: presentationScore, max: 100 },
+      { name: "Objection Handling", score: objectionScore, max: 100 },
+      { name: "Closing", score: closingScore, max: 100 },
+    ];
+  };
+  
+  const initialCallMetrics = generateMetricsFromTranscript(transcript);
   
   const {
     data: callMetrics,
@@ -29,14 +84,29 @@ const CallRating = () => {
     simulateDataUpdate
   } = useChartData(initialCallMetrics);
   
-  const keyBehaviors = [
-    { behavior: "Used discovery questions", status: true },
-    { behavior: "Maintained positive tone", status: true },
-    { behavior: "Listened actively", status: false },
-    { behavior: "Addressed objections", status: false },
-    { behavior: "Used social proof", status: true },
-    { behavior: "Confirmed next steps", status: true },
-  ];
+  // Update metrics when transcript changes
+  useEffect(() => {
+    if (transcript) {
+      const newMetrics = generateMetricsFromTranscript(transcript);
+      refresh();
+    }
+  }, [transcript]);
+  
+  // Generate key behaviors based on metrics and transcript
+  const generateKeyBehaviors = (metrics: any[], transcript?: StoredTranscription | null) => {
+    const text = transcript ? transcript.text.toLowerCase() : "";
+    
+    return [
+      { behavior: "Used discovery questions", status: metrics[1].score > 60 || /\?/.test(text) },
+      { behavior: "Maintained positive tone", status: transcript ? transcript.sentiment !== 'negative' : true },
+      { behavior: "Listened actively", status: metrics[1].score > 70 || /i understand|i see|got it/.test(text) },
+      { behavior: "Addressed objections", status: metrics[3].score > 60 },
+      { behavior: "Used social proof", status: /other customers|clients|people|users have|many/.test(text) },
+      { behavior: "Confirmed next steps", status: metrics[4].score > 70 || /next steps|follow up|schedule/.test(text) },
+    ];
+  };
+  
+  const keyBehaviors = generateKeyBehaviors(callMetrics, transcript);
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "#06D6A0";
@@ -52,7 +122,7 @@ const CallRating = () => {
           <h3 className="text-lg font-bold">Detailed Call Rating</h3>
           <p className="text-sm text-muted-foreground">Comprehensive analysis of call performance metrics</p>
         </div>
-        <Button onClick={simulateDataUpdate}>Simulate Update</Button>
+        <Button onClick={simulateDataUpdate}>Refresh Analysis</Button>
       </div>
       
       <div className="h-[400px]">
@@ -119,27 +189,42 @@ const CallRating = () => {
           <h4 className="font-medium mb-3">Improvement Areas</h4>
           <div className="p-5 border rounded-lg h-full">
             <ul className="space-y-4">
-              <li className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full bg-neon-red mt-2"></div>
-                <div>
-                  <h5 className="font-medium text-neon-red mb-1">Active Listening</h5>
-                  <p className="text-sm text-muted-foreground">Work on active listening skills and avoid interrupting customers. Let them complete their thoughts before responding.</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full bg-neon-red mt-2"></div>
-                <div>
-                  <h5 className="font-medium text-neon-red mb-1">Objection Handling</h5>
-                  <p className="text-sm text-muted-foreground">Improve objection handling by acknowledging customer concerns and addressing them directly with specific solutions.</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full bg-amber-500 mt-2"></div>
-                <div>
-                  <h5 className="font-medium text-amber-500 mb-1">Closing Techniques</h5>
-                  <p className="text-sm text-muted-foreground">Work on stronger closing techniques to improve conversion rates. Be more direct with calls to action.</p>
-                </div>
-              </li>
+              {!keyBehaviors[2].status && (
+                <li className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-neon-red mt-2"></div>
+                  <div>
+                    <h5 className="font-medium text-neon-red mb-1">Active Listening</h5>
+                    <p className="text-sm text-muted-foreground">Work on active listening skills and avoid interrupting customers. Let them complete their thoughts before responding.</p>
+                  </div>
+                </li>
+              )}
+              {!keyBehaviors[3].status && (
+                <li className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-neon-red mt-2"></div>
+                  <div>
+                    <h5 className="font-medium text-neon-red mb-1">Objection Handling</h5>
+                    <p className="text-sm text-muted-foreground">Improve objection handling by acknowledging customer concerns and addressing them directly with specific solutions.</p>
+                  </div>
+                </li>
+              )}
+              {!keyBehaviors[5].status && (
+                <li className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-amber-500 mt-2"></div>
+                  <div>
+                    <h5 className="font-medium text-amber-500 mb-1">Closing Techniques</h5>
+                    <p className="text-sm text-muted-foreground">Work on stronger closing techniques to improve conversion rates. Be more direct with calls to action.</p>
+                  </div>
+                </li>
+              )}
+              {keyBehaviors.every(b => b.status) && (
+                <li className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-green-500 mt-2"></div>
+                  <div>
+                    <h5 className="font-medium text-green-500 mb-1">Great Work!</h5>
+                    <p className="text-sm text-muted-foreground">This call demonstrates excellent sales techniques. Keep up the good work and maintain consistency in your approach.</p>
+                  </div>
+                </li>
+              )}
             </ul>
           </div>
         </div>
@@ -163,7 +248,7 @@ const CallRating = () => {
         title="Performance by Category" 
         expandedContent={expandedCallRatingChart}
         isLoading={isLoading}
-        onRefresh={simulateDataUpdate}
+        onRefresh={refresh}
         lastUpdated={lastUpdated}
         className="mb-4"
       >
@@ -210,14 +295,30 @@ const CallRating = () => {
       <div className="mt-6 p-3 rounded-lg bg-white/5">
         <h3 className="text-sm font-medium text-white mb-2">Improvement Areas</h3>
         <ul className="space-y-1">
-          <li className="text-sm text-gray-400 flex items-start gap-2">
-            <div className="w-1 h-1 rounded-full bg-neon-red mt-2"></div>
-            <span>Work on active listening skills and avoid interrupting customers</span>
-          </li>
-          <li className="text-sm text-gray-400 flex items-start gap-2">
-            <div className="w-1 h-1 rounded-full bg-neon-red mt-2"></div>
-            <span>Improve objection handling by acknowledging customer concerns</span>
-          </li>
+          {!keyBehaviors[2].status && (
+            <li className="text-sm text-gray-400 flex items-start gap-2">
+              <div className="w-1 h-1 rounded-full bg-neon-red mt-2"></div>
+              <span>Work on active listening skills and avoid interrupting customers</span>
+            </li>
+          )}
+          {!keyBehaviors[3].status && (
+            <li className="text-sm text-gray-400 flex items-start gap-2">
+              <div className="w-1 h-1 rounded-full bg-neon-red mt-2"></div>
+              <span>Improve objection handling by acknowledging customer concerns</span>
+            </li>
+          )}
+          {!keyBehaviors[5].status && (
+            <li className="text-sm text-gray-400 flex items-start gap-2">
+              <div className="w-1 h-1 rounded-full bg-amber-500 mt-2"></div>
+              <span>Work on stronger closing techniques to improve conversion rates</span>
+            </li>
+          )}
+          {keyBehaviors.every(b => b.status) && (
+            <li className="text-sm text-gray-400 flex items-start gap-2">
+              <div className="w-1 h-1 rounded-full bg-green-500 mt-2"></div>
+              <span>Great work! Keep up the consistent performance</span>
+            </li>
+          )}
         </ul>
       </div>
     </GlowingCard>

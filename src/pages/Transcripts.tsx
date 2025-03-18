@@ -1,10 +1,8 @@
-
 import React, { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Filter, Download, FileAudio, Search, Clock, Star, RefreshCw } from "lucide-react";
 import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
 import { format } from "date-fns";
@@ -13,9 +11,13 @@ import BulkUploadButton from "@/components/BulkUpload/BulkUploadButton";
 import BulkUploadModal from "@/components/BulkUpload/BulkUploadModal";
 import TranscriptDetail from "@/components/Transcripts/TranscriptDetail";
 import { useToast } from "@/hooks/use-toast";
+import { useSearchParams } from "react-router-dom";
 
 const Transcripts = () => {
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const transcriptId = searchParams.get("id");
+  
   const [transcriptions, setTranscriptions] = useState<StoredTranscription[]>([]);
   const [filteredTranscriptions, setFilteredTranscriptions] = useState<StoredTranscription[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -30,9 +32,10 @@ const Transcripts = () => {
     setHasApiKey(Boolean(apiKey && apiKey.trim() !== ''));
   }, []);
   
+  // Load transcriptions and handle URL parameter for specific transcript
   useEffect(() => {
     loadTranscriptions();
-  }, []);
+  }, [transcriptId]);
   
   const loadTranscriptions = () => {
     setIsLoading(true);
@@ -40,14 +43,24 @@ const Transcripts = () => {
     setTranscriptions(stored);
     setFilteredTranscriptions(stored);
     
-    // Select the first transcript if available and none selected
-    if (stored.length > 0 && !selectedTranscript) {
+    // If we have a transcript ID from URL params, select that one
+    if (transcriptId && stored.length > 0) {
+      const found = stored.find(t => t.id === transcriptId);
+      if (found) {
+        setSelectedTranscript(found);
+      } else if (stored.length > 0) {
+        // Otherwise select the first one if available
+        setSelectedTranscript(stored[0]);
+      }
+    } else if (stored.length > 0 && !selectedTranscript) {
+      // Default to first transcript if none selected
       setSelectedTranscript(stored[0]);
     }
     
     setIsLoading(false);
   };
   
+  // Filter transcriptions based on search term
   useEffect(() => {
     if (searchTerm.trim() === "") {
       setFilteredTranscriptions(transcriptions);
@@ -82,10 +95,6 @@ const Transcripts = () => {
     if (score >= 60) return "text-amber-500";
     return "text-red-500";
   };
-  
-  const handleTranscriptEnd = () => {
-    loadTranscriptions();
-  };
 
   return (
     <DashboardLayout>
@@ -94,7 +103,9 @@ const Transcripts = () => {
           <div>
             <h1 className="text-3xl font-bold">Call Transcripts</h1>
             <p className="text-muted-foreground">
-              Manage and analyze your call transcriptions
+              {transcriptions.length > 0 
+                ? `Manage and analyze your ${transcriptions.length} call transcriptions`
+                : "Upload audio files to generate transcriptions"}
             </p>
           </div>
           

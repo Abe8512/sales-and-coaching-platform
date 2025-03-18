@@ -1,13 +1,15 @@
 
-import React, { useContext } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { MoreHorizontal, Flag, Clock, Phone, User, CalendarClock } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
 import { ThemeContext } from "@/App";
 import WhisperButton from "../Whisper/WhisperButton";
+import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
+import { format, parseISO } from "date-fns";
 
 interface CallItemProps {
-  id: number;
+  id: string;
   customer: string;
   time: string;
   duration: string;
@@ -46,7 +48,7 @@ const CallItem = ({ id, customer, time, duration, score, flagged = false, isDark
         )}
         
         <div className="hidden sm:block">
-          <WhisperButton recordingId={`call-${id}`} />
+          <WhisperButton recordingId={id} />
         </div>
         
         <div>
@@ -70,15 +72,52 @@ const CallItem = ({ id, customer, time, duration, score, flagged = false, isDark
 
 const CallsOverview = () => {
   const { isDarkMode } = useContext(ThemeContext);
+  const [recentCalls, setRecentCalls] = useState<StoredTranscription[]>([]);
   
-  // Mock data
-  const recentCalls = [
-    { id: 1, customer: "Sarah Johnson", time: "10:30 AM", duration: "12m 45s", score: 92 },
-    { id: 2, customer: "Michael Chen", time: "11:45 AM", duration: "8m 20s", score: 76 },
-    { id: 3, customer: "Emily Rodriguez", time: "1:15 PM", duration: "15m 10s", score: 45, flagged: true },
-    { id: 4, customer: "David Kim", time: "2:30 PM", duration: "6m 55s", score: 88 },
-    { id: 5, customer: "Jessica Wong", time: "3:45 PM", duration: "11m 32s", score: 62 },
-  ];
+  // Load real transcription data
+  useEffect(() => {
+    const storedTranscriptions = getStoredTranscriptions();
+    // Sort by date (newest first) and take the first 5
+    const sorted = [...storedTranscriptions].sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    ).slice(0, 5);
+    
+    setRecentCalls(sorted);
+  }, []);
+
+  // Format duration from seconds to minutes and seconds
+  const formatDuration = (seconds?: number): string => {
+    if (!seconds) return "unknown";
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+  };
+
+  // Generate a speaker name if none exists
+  const getSpeakerName = (transcript: StoredTranscription): string => {
+    if (transcript.speakerName) return transcript.speakerName;
+    
+    // Generate a random name if none exists
+    const firstNames = ["Sarah", "Michael", "Emily", "David", "Jessica", "John", "Rachel", "Robert", "Linda", "William"];
+    const lastNames = ["Johnson", "Chen", "Rodriguez", "Kim", "Wong", "Smith", "Brown", "Jones", "Miller", "Davis"];
+    
+    // Use the transcript ID as a seed for consistent naming
+    const idSum = transcript.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const firstName = firstNames[idSum % firstNames.length];
+    const lastName = lastNames[(idSum * 13) % lastNames.length];
+    
+    return `${firstName} ${lastName}`;
+  };
+
+  // Format time from ISO string to 12-hour format
+  const formatTime = (dateString: string): string => {
+    try {
+      const date = parseISO(dateString);
+      return format(date, 'h:mm a');
+    } catch (e) {
+      return "Unknown time";
+    }
+  };
 
   return (
     <GlowingCard className="mt-6">
@@ -99,18 +138,26 @@ const CallsOverview = () => {
       </div>
       
       <div className="space-y-1">
-        {recentCalls.map((call) => (
-          <CallItem
-            key={call.id}
-            id={call.id}
-            customer={call.customer}
-            time={call.time}
-            duration={call.duration}
-            score={call.score}
-            flagged={call.flagged}
-            isDarkMode={isDarkMode}
-          />
-        ))}
+        {recentCalls.length > 0 ? (
+          recentCalls.map((call) => (
+            <CallItem
+              key={call.id}
+              id={call.id}
+              customer={getSpeakerName(call)}
+              time={formatTime(call.date)}
+              duration={formatDuration(call.duration)}
+              score={call.callScore || 50}
+              flagged={call.sentiment === 'negative'}
+              isDarkMode={isDarkMode}
+            />
+          ))
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">
+            <Phone className="mx-auto h-12 w-12 mb-4 opacity-50" />
+            <p>No call transcriptions yet</p>
+            <p className="text-sm mt-2">Upload audio files in the Transcripts section to see your calls here</p>
+          </div>
+        )}
       </div>
     </GlowingCard>
   );

@@ -18,29 +18,34 @@ const WhisperButton = ({ recordingId }: WhisperButtonProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
   
   const handleTranscribe = () => {
-    // For demo purposes, we'll simulate finding the recording and redirecting to transcripts
     setIsProcessing(true);
     
+    // Get all transcriptions
+    const transcriptions = getStoredTranscriptions();
+    
+    // Find the specific transcription by ID or use any available transcription
+    const transcription = transcriptions.find(t => t.id === recordingId) || 
+                          (transcriptions.length > 0 ? transcriptions[0] : null);
+    
     setTimeout(() => {
-      const transcriptions = getStoredTranscriptions();
-      
-      if (transcriptions.length > 0) {
+      if (transcription) {
         toast({
-          title: "Recording Found",
-          description: "Redirecting to transcript details",
+          title: "Transcript Available",
+          description: "Viewing transcript details",
         });
         
-        navigate("/transcripts");
+        // Navigate to the transcript view with the ID
+        navigate(`/transcripts?id=${transcription.id}`);
       } else {
         toast({
-          title: "No Transcriptions Available",
+          title: "No Transcription Available",
           description: "Please upload audio files or record a call first",
           variant: "destructive",
         });
       }
       
       setIsProcessing(false);
-    }, 1000);
+    }, 500);
   };
 
   return (

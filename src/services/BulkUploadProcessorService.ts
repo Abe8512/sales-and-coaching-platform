@@ -12,7 +12,8 @@ export class BulkUploadProcessorService {
   private assignedUserId: string | null = null;
   private dispatchEvent: (type: string, data?: any) => void;
   private processingFile = false;
-  private maxFileSize = 50 * 1024 * 1024; // 50MB limit
+  private maxFileSize = 25 * 1024 * 1024; // 25MB limit to prevent memory issues
+  private supportedFormats = ['audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/m4a', 'audio/mp4', 'audio/ogg', 'audio/webm'];
   
   constructor(whisperService: any) {
     this.whisperService = whisperService;
@@ -27,7 +28,7 @@ export class BulkUploadProcessorService {
     this.assignedUserId = userId;
   }
   
-  // Process a single file
+  // Process a single file with improved error handling and validation
   public async processFile(
     file: File, 
     updateStatus: (status: UploadStatus, progress: number, result?: string, error?: string, transcriptId?: string) => void
@@ -36,6 +37,13 @@ export class BulkUploadProcessorService {
     if (this.processingFile) {
       console.log('Another file is already being processed');
       updateStatus('error', 0, undefined, "Another file is currently being processed");
+      return null;
+    }
+    
+    // Validate file type
+    if (!this.isSupportedFormat(file.type)) {
+      console.log(`Unsupported file format: ${file.type}`);
+      updateStatus('error', 0, undefined, `Unsupported file format: ${file.type}. Please upload audio files only.`);
       return null;
     }
     
@@ -90,6 +98,11 @@ export class BulkUploadProcessorService {
       // Always release the processing lock when done
       this.processingFile = false;
     }
+  }
+  
+  // Check if file format is supported
+  private isSupportedFormat(mimeType: string): boolean {
+    return this.supportedFormats.includes(mimeType);
   }
   
   // Process transcript data and save to database

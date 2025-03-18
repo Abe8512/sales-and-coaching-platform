@@ -6,11 +6,13 @@ import { useEventsStore } from "@/services/events";
 import { BulkUploadProcessorService } from "./BulkUploadProcessorService";
 import { debounce } from "lodash";
 import { errorHandler } from "./ErrorHandlingService";
+import { useCallTranscriptService } from "./CallTranscriptService";
 
-// Hook for using bulk upload functionality
+// Hook for using bulk upload functionality with optimized processing
 export const useBulkUploadService = () => {
   const whisperService = useWhisperService();
   const bulkUploadProcessor = new BulkUploadProcessorService(whisperService);
+  const { fetchTranscripts } = useCallTranscriptService();
   const { 
     files, 
     addFiles, 
@@ -40,7 +42,7 @@ export const useBulkUploadService = () => {
     });
   }, 300);
   
-  // Process all files in the queue
+  // Process all files in the queue with optimized handling
   const processQueue = async () => {
     if (isProcessing || files.length === 0) {
       console.log('Skipping processQueue: already processing or no files');
@@ -110,8 +112,14 @@ export const useBulkUploadService = () => {
       }
       
       // After processing all files, trigger a reload of the history
-      console.log('All files processed, refreshing history');
+      console.log('All files processed, refreshing history and transcript data');
       await debouncedLoadHistory();
+      
+      // Force refresh transcripts to ensure all new data is loaded
+      await fetchTranscripts({ force: true });
+      
+      // Trigger a window event to refresh dashboards
+      window.dispatchEvent(new CustomEvent('transcriptions-updated'));
       
       // Dispatch event that bulk upload processing has completed
       dispatchEvent('bulk-upload-completed', {

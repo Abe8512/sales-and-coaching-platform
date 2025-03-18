@@ -4,7 +4,16 @@ import { useBulkUploadService } from '@/services/BulkUploadService';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { Loader2, CheckCircle, AlertCircle, Clock, X, FileAudio, WifiOff } from 'lucide-react';
+import { 
+  Loader2, 
+  CheckCircle, 
+  AlertCircle, 
+  Clock, 
+  X, 
+  FileAudio, 
+  WifiOff, 
+  RefreshCw 
+} from 'lucide-react';
 import { useCallTranscriptService } from '@/services/CallTranscriptService';
 import { useEvents } from '@/services/events';
 import { useConnectionStatus } from '@/services/ConnectionMonitorService';
@@ -27,6 +36,7 @@ const BulkUploadProcessor = () => {
   const [processingError, setProcessingError] = useState<string | null>(null);
   const { isConnected } = useConnectionStatus();
   const [progressInterval, setProgressInterval] = useState<NodeJS.Timeout | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Calculate and update progress periodically
   useEffect(() => {
@@ -174,16 +184,48 @@ const BulkUploadProcessor = () => {
       setIsStarting(false);
     }
   }, [files, toast, processQueue, acquireProcessingLock, releaseProcessingLock, isConnected]);
+
+  // Manually refresh the transcripts for when auto-refresh fails
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchTranscripts({ force: true });
+      toast({
+        title: "Data Refreshed",
+        description: "Transcript data has been manually refreshed",
+      });
+    } catch (error) {
+      console.error("Error refreshing data:", error);
+      toast({
+        title: "Refresh Failed",
+        description: "Failed to refresh data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
   
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-medium">Processing Queue</h3>
-        {files.some(file => file.status === "complete") && (
-          <Button variant="outline" size="sm" onClick={clearCompleted}>
-            Clear Completed
+        <div className="flex gap-2">
+          {files.some(file => file.status === "complete") && (
+            <Button variant="outline" size="sm" onClick={clearCompleted}>
+              Clear Completed
+            </Button>
+          )}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleManualRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh Data
           </Button>
-        )}
+        </div>
       </div>
       
       {/* Connection warning banner */}
@@ -212,6 +254,9 @@ const BulkUploadProcessor = () => {
                       <div className="w-full mt-1">
                         <Progress value={file.progress} className="h-1" />
                       </div>
+                      {file.error && (
+                        <p className="text-xs text-red-500 mt-1 truncate">{file.error}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

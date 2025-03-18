@@ -1,4 +1,3 @@
-
 import { supabase, checkSupabaseConnection, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { useState, useEffect, useCallback } from "react";
 import { DateRange } from "react-day-picker";
@@ -212,7 +211,7 @@ export const useCallTranscriptService = () => {
           
           return query.order('created_at', { ascending: false });
         },
-        { data: null, error: null as PostgrestError | null, status: 200, statusText: 'OK' },
+        { data: null, error: null as PostgrestError | null, count: null, status: 200, statusText: 'OK' } as PostgrestSingleResponse<CallTranscript[]>,
         'TranscriptFetch',
         {
           message: 'Error fetching transcript data',
@@ -422,7 +421,7 @@ export const useCallTranscriptService = () => {
             console.log('Real-time update received:', payload);
             
             // Validate the received payload has proper format and valid UUID
-            if (payload && payload.new && typeof payload.new.id === 'string') {
+            if (payload && payload.new && typeof payload.new === 'object' && 'id' in payload.new && typeof payload.new.id === 'string') {
               try {
                 // Simple validation that the ID looks like a UUID
                 if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.new.id)) {
@@ -439,7 +438,7 @@ export const useCallTranscriptService = () => {
                   dispatchEvent('transcript-updated', payload.new);
                   // Re-fetch data to ensure all components have the latest data
                   fetchTranscripts();
-                } else if (payload.eventType === 'DELETE' && payload.old) {
+                } else if (payload.eventType === 'DELETE' && payload.old && typeof payload.old === 'object' && 'id' in payload.old) {
                   dispatchEvent('transcript-deleted', payload.old);
                   // Re-fetch data to ensure all components have the latest data
                   fetchTranscripts();
@@ -472,14 +471,17 @@ export const useCallTranscriptService = () => {
             console.log('Real-time update received for calls:', payload);
             
             // Validate the received payload has proper format and valid UUID
-            if (payload && ((payload.new && payload.new.id) || (payload.old && payload.old.id))) {
+            const hasValidNewId = payload && payload.new && typeof payload.new === 'object' && 'id' in payload.new;
+            const hasValidOldId = payload && payload.old && typeof payload.old === 'object' && 'id' in payload.old;
+            
+            if (hasValidNewId || hasValidOldId) {
               try {
                 // Dispatch appropriate event based on the change type
-                if (payload.eventType === 'INSERT' && payload.new && payload.new.id) {
+                if (payload.eventType === 'INSERT' && hasValidNewId) {
                   dispatchEvent('call-created', payload.new);
-                } else if (payload.eventType === 'UPDATE' && payload.new && payload.new.id) {
+                } else if (payload.eventType === 'UPDATE' && hasValidNewId) {
                   dispatchEvent('call-updated', payload.new);
-                } else if (payload.eventType === 'DELETE' && payload.old && payload.old.id) {
+                } else if (payload.eventType === 'DELETE' && hasValidOldId) {
                   dispatchEvent('call-deleted', payload.old);
                 }
               } catch (parseError) {

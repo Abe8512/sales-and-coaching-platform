@@ -11,10 +11,13 @@ import { ThemeContext } from "@/App";
 import BulkUploadButton from "../components/BulkUpload/BulkUploadButton";
 import BulkUploadModal from "../components/BulkUpload/BulkUploadModal";
 import WhisperButton from "../components/Whisper/WhisperButton";
+import LiveMetricsDisplay from "../components/CallAnalysis/LiveMetricsDisplay";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
+  const [showLiveMetrics, setShowLiveMetrics] = useState(false);
 
   return (
     <DashboardLayout>
@@ -38,7 +41,24 @@ const Index = () => {
         </div>
       </div>
 
-      <PerformanceMetrics />
+      <Tabs defaultValue="dashboard" className="w-full mb-8">
+        <TabsList className="mb-4">
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="livemetrics" onClick={() => setShowLiveMetrics(true)}>Live Metrics</TabsTrigger>
+        </TabsList>
+        <TabsContent value="dashboard">
+          <PerformanceMetrics />
+        </TabsContent>
+        <TabsContent value="livemetrics">
+          <LiveMetricsDisplay 
+            isCallActive={showLiveMetrics}
+            duration={120}
+            talkRatio={{ agent: 65, customer: 35 }}
+            sentiment={{ agent: 0.82, customer: 0.65 }}
+            keyPhrases={["pricing", "timeline", "competitors", "features"]}
+          />
+        </TabsContent>
+      </Tabs>
       
       <div className="grid grid-cols-3 gap-6 mt-6">
         <div className="col-span-2">

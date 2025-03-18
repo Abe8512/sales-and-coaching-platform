@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import LiveMetricsDisplay from "../CallAnalysis/LiveMetricsDisplay";
 
 const LiveCallAnalysis = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -33,6 +34,7 @@ const LiveCallAnalysis = () => {
     agent: false,
     customer: false
   });
+  const [detectedKeywords, setDetectedKeywords] = useState<string[]>([]);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -53,20 +55,16 @@ const LiveCallAnalysis = () => {
   } = useWhisperService();
 
   useEffect(() => {
-    // Check if API key exists in localStorage
     const storedKey = localStorage.getItem("openai_api_key");
     if (storedKey) {
       setHasApiKey(true);
       setApiKey(storedKey);
     }
     
-    // Check if local Whisper is enabled
     setUseLocalWhisper(getUseLocalWhisper());
     
-    // Check number of speakers
     setNumSpeakers(getNumSpeakers());
     
-    // Cleanup on unmount
     return () => {
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
@@ -77,32 +75,39 @@ const LiveCallAnalysis = () => {
     };
   }, [getUseLocalWhisper, getNumSpeakers]);
 
-  // Generate AI suggestions based on transcript content
   const generateSuggestions = (text: string) => {
-    // Very basic keyword-based suggestion generation
     const newSuggestions = [];
+    const detectedKeywords = [];
     
     if (text.toLowerCase().includes('price') || text.toLowerCase().includes('cost')) {
       newSuggestions.push("Focus on value proposition rather than price");
+      detectedKeywords.push("pricing");
     }
     
     if (text.toLowerCase().includes('competitor') || text.toLowerCase().includes('alternative')) {
       newSuggestions.push("Highlight our unique features like [feature] that competitors don't have");
+      detectedKeywords.push("competitors");
     }
     
     if (text.toLowerCase().includes('think') || text.toLowerCase().includes('consider')) {
       newSuggestions.push("Ask 'What would make this decision easier for you?'");
+      detectedKeywords.push("consideration");
     }
     
     if (text.toLowerCase().includes('not sure') || text.toLowerCase().includes('uncertain')) {
       newSuggestions.push("Share a relevant case study to build confidence");
+      detectedKeywords.push("uncertainty");
     }
 
     if (text.toLowerCase().includes('timeline') || text.toLowerCase().includes('when')) {
       newSuggestions.push("Suggest a concrete next step with a specific date");
+      detectedKeywords.push("timeline");
     }
     
-    // Add default suggestions if we don't have enough context-specific ones
+    if (detectedKeywords.length > 0) {
+      setDetectedKeywords(prev => [...new Set([...prev, ...detectedKeywords])]);
+    }
+    
     if (newSuggestions.length < 3) {
       if (!newSuggestions.includes("Ask more open-ended questions about their specific needs")) {
         newSuggestions.push("Ask more open-ended questions about their specific needs");
@@ -134,12 +139,11 @@ const LiveCallAnalysis = () => {
       setIsRecording(true);
       setRecordingDuration(0);
       setTranscript("");
+      setDetectedKeywords([]);
       
-      // Start timer to track recording duration
       recordingTimerRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
         
-        // Simulate speaking feedback (randomly toggle who is talking)
         if (Math.random() > 0.7) {
           setIsTalkingMap(prev => ({
             agent: Math.random() > 0.5,
@@ -153,15 +157,12 @@ const LiveCallAnalysis = () => {
         description: "Listening to your call for analysis",
       });
       
-      // Start real-time transcription
       realtimeTranscriptionRef.current = await startRealtimeTranscription(
-        // On transcript update
         (newTranscript) => {
           setTranscript(newTranscript);
           const newSuggestions = generateSuggestions(newTranscript);
           setSuggestions(newSuggestions);
         },
-        // On error
         (error) => {
           toast({
             title: "Transcription Error",
@@ -186,13 +187,11 @@ const LiveCallAnalysis = () => {
 
   const stopRecording = async () => {
     if (isRecording) {
-      // Stop the duration timer
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
       }
       
-      // Stop real-time transcription
       if (realtimeTranscriptionRef.current) {
         realtimeTranscriptionRef.current.stop();
         realtimeTranscriptionRef.current = null;
@@ -207,7 +206,6 @@ const LiveCallAnalysis = () => {
       });
       
       try {
-        // Save the final transcript
         if (transcript) {
           const audioFileName = `Live Call ${new Date().toLocaleString()}`;
           await saveTranscriptionWithAnalysis(transcript, undefined, audioFileName);
@@ -400,7 +398,23 @@ const LiveCallAnalysis = () => {
             </div>
           </div>
           
-          <div className="flex justify-center items-center flex-col gap-2">
+          {isRecording && (
+            <LiveMetricsDisplay 
+              isCallActive={isRecording}
+              duration={recordingDuration}
+              talkRatio={{
+                agent: isTalkingMap.agent ? 65 : 45,
+                customer: isTalkingMap.customer ? 55 : 35,
+              }}
+              sentiment={{
+                agent: 0.75,
+                customer: 0.62,
+              }}
+              keyPhrases={detectedKeywords}
+            />
+          )}
+          
+          <div className="flex justify-center items-center flex-col gap-2 mt-4">
             <Button
               onClick={isRecording ? stopRecording : startRecording}
               disabled={(!hasApiKey && !useLocalWhisper) || processingChunk}

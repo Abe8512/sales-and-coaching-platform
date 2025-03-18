@@ -398,11 +398,13 @@ const CallActivity = () => {
                     calls.map((call) => (
                       <TableRow key={call.id}>
                         <TableCell>{formatDate(call.date)}</TableCell>
-                        {(isAdmin || isManager) && <TableCell>{call.userName}</TableCell>}
-                        <TableCell>{call.customerName}</TableCell>
-                        <TableCell>{call.duration} min</TableCell>
+                        {(isAdmin || isManager) && <TableCell>{String(call.userName || 'Unknown')}</TableCell>}
+                        <TableCell>{String(call.customerName || 'Unknown')}</TableCell>
+                        <TableCell>{String(call.duration || '0')} min</TableCell>
                         <TableCell>
-                          {typeof call.outcome === 'string' ? call.outcome : String(call.outcome || 'N/A')}
+                          {typeof call.outcome === 'string' ? call.outcome : 
+                           typeof call.outcome === 'object' && call.outcome !== null ? 'Complex Outcome' : 
+                           String(call.outcome || 'N/A')}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center">
@@ -418,7 +420,7 @@ const CallActivity = () => {
                             <span>{Math.round(call.sentiment * 100)}%</span>
                           </div>
                         </TableCell>
-                        <TableCell>{call.nextSteps}</TableCell>
+                        <TableCell>{String(call.nextSteps || 'N/A')}</TableCell>
                         <TableCell>
                           <Button 
                             variant="outline" 

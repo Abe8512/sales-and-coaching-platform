@@ -401,7 +401,7 @@ const CallActivity = () => {
                         {(isAdmin || isManager) && <TableCell>{call.userName}</TableCell>}
                         <TableCell>{call.customerName}</TableCell>
                         <TableCell>{call.duration} min</TableCell>
-                        <TableCell>{call.outcome}</TableCell>
+                        <TableCell>{call.outcome ? String(call.outcome) : 'N/A'}</TableCell>
                         <TableCell>
                           <div className="flex items-center">
                             <div className="w-full bg-gray-200 rounded-full h-2 mr-2">

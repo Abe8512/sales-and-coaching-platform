@@ -25,12 +25,11 @@ const TopBar = ({ setSidebarOpen }: TopBarProps) => {
               <Menu className="h-5 w-5" />
             </Button>
           )}
-          <div className="relative max-w-md w-full hidden sm:block">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search..." 
-              className="pl-8 bg-background w-full" 
-            />
+          <div className="relative hidden sm:block">
+            <Button variant="ghost" size="sm" className="text-muted-foreground h-8 pl-2 pr-3">
+              <Search className="h-3.5 w-3.5 mr-1" />
+              <span className="text-xs">Search</span>
+            </Button>
           </div>
         </div>
         <div className="flex items-center gap-2">

@@ -93,7 +93,12 @@ export const useRealTimeRepMetrics = (repIds?: string[]): [RepMetrics[], boolean
     repIds ? { repIds } : {}, [repIds]
   );
   
-  const { metrics, isLoading, error } = useSharedRepMetrics(filters);
+  // Modified this part to ensure proper typing
+  const repMetricsResponse = useSharedRepMetrics(filters);
+  const { metrics, isLoading } = repMetricsResponse;
+  // Access the error property safely
+  const error = 'error' in repMetricsResponse ? repMetricsResponse.error : undefined;
+  
   const stableLoading = useStableLoadingState(isLoading, 400);
   
   // Stabilize rep metrics data with memoization
@@ -113,7 +118,7 @@ export const useRealTimeRepMetrics = (repIds?: string[]): [RepMetrics[], boolean
     if (error) {
       errorHandler.handleError({
         message: "Couldn't load rep metrics",
-        technical: error instanceof Error ? error.message : String(error),
+        technical: typeof error === 'object' ? String(error) : error,
         severity: "warning",
         code: "REP_METRICS_ERROR"
       }, "RepMetrics");

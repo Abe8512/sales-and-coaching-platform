@@ -1,3 +1,4 @@
+
 import { toast } from 'sonner';
 
 export type ErrorSeverity = 'info' | 'warning' | 'error' | 'critical';
@@ -127,21 +128,21 @@ class ErrorHandlingService {
    * Convert any error to a standardized ErrorDetails format
    */
   private normalizeError(error: Error | ErrorDetails, context?: string): ErrorDetails {
-    if ('message' in error && typeof error.message === 'string') {
-      if ('severity' in error) {
-        // Already in ErrorDetails format
-        return error as ErrorDetails;
-      } else {
-        // Regular Error object, convert to ErrorDetails
-        return {
-          message: this.getUserFriendlyMessage(error.message),
-          technical: error.stack || error.message,
-          severity: 'error',
-          code: context ? `${context}:${error.name || 'Error'}` : error.name,
-        };
-      }
-    } else {
-      // Unknown error format
+    // Check if it's an Error instance
+    if (error instanceof Error) {
+      return {
+        message: this.getUserFriendlyMessage(error.message),
+        technical: error.stack || error.message,
+        severity: 'error',
+        code: context ? `${context}:${error.name}` : error.name,
+      };
+    } 
+    // It's already an ErrorDetails object
+    else if ('message' in error && typeof error.message === 'string') {
+      return error as ErrorDetails;
+    } 
+    // Unknown error format
+    else {
       return {
         message: 'An unexpected error occurred',
         technical: JSON.stringify(error),
@@ -257,3 +258,4 @@ export const withErrorHandling = async <T>(
     return fallback;
   }
 };
+

@@ -13,6 +13,9 @@ export type EventType =
   | 'bulk-upload-started'
   | 'recording-completed';
 
+// Event dispatcher type
+export type EventDispatcher = (type: EventType, data?: any) => void;
+
 // Event payload interface
 export interface EventPayload {
   type: EventType;

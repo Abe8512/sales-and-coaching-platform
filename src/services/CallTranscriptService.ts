@@ -109,7 +109,7 @@ export const useCallTranscriptService = () => {
       // Get total count first - using a safer approach that won't trigger a 400 error
       try {
         console.log('Fetching transcript count...');
-        const { count, error: countError } = await withErrorHandling(
+        const countResponse = await withErrorHandling<{ id: string }[]>(
           async () => {
             const countQuery = supabase
               .from('call_transcripts')
@@ -139,15 +139,15 @@ export const useCallTranscriptService = () => {
             // Execute the query and return the full response
             return await countQuery;
           },
-          { data: [], count: null, error: null, status: 200, statusText: 'OK' } as PostgrestSingleResponse<{ id: string }[]>,
+          { data: [], count: null, error: null as PostgrestError | null, status: 200, statusText: 'OK' } as PostgrestSingleResponse<{ id: string }[]>,
           'TranscriptCount'
         );
           
-        if (!countError && count !== null) {
-          console.log(`Found ${count} transcripts`);
-          setTotalCount(count);
-        } else if (countError) {
-          console.error('Error getting transcript count:', countError);
+        if (!countResponse.error && countResponse.count !== null) {
+          console.log(`Found ${countResponse.count} transcripts`);
+          setTotalCount(countResponse.count);
+        } else if (countResponse.error) {
+          console.error('Error getting transcript count:', countResponse.error);
         }
       } catch (countErr) {
         console.error('Exception getting transcript count:', countErr);
@@ -156,7 +156,7 @@ export const useCallTranscriptService = () => {
       // Then get data with filters
       console.log('Building transcript query with filters:', filters);
       
-      const { data, error: dataError } = await withErrorHandling<CallTranscript[]>(
+      const dataResponse = await withErrorHandling<CallTranscript[]>(
         async () => {
           let query = supabase
             .from('call_transcripts')
@@ -194,21 +194,21 @@ export const useCallTranscriptService = () => {
       );
       
       // If we got actual data, use it
-      if (data && data.length > 0) {
-        console.log(`Setting ${data.length} transcripts to state`);
-        setTranscripts(data);
+      if (dataResponse.data && dataResponse.data.length > 0) {
+        console.log(`Setting ${dataResponse.data.length} transcripts to state`);
+        setTranscripts(dataResponse.data);
         
         // Dispatch an event to notify other components that transcripts were refreshed
         dispatchEvent('transcripts-refreshed', {
-          count: data.length,
+          count: dataResponse.data.length,
           filters: filters
         });
         
         // Also update calls table to ensure metrics are fresh
-        await refreshCallsTable(data);
-      } else if (dataError) {
+        await refreshCallsTable(dataResponse.data);
+      } else if (dataResponse.error) {
         // Show error and fall back to demo data if we have none
-        console.error('Error fetching transcript data:', dataError);
+        console.error('Error fetching transcript data:', dataResponse.error);
         if (transcripts.length === 0) {
           const demoData = generateDemoTranscripts(15);
           setTranscripts(demoData);

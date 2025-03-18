@@ -29,6 +29,8 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
         totalCalls: 0,
         conversionRate: 0,
         avgCallDuration: 0,
+        avgSentiment: 0,
+        topKeywords: [],
         avgTalkRatio: { agent: 50, customer: 50 },
         callOutcomes: { successful: 0, unsuccessful: 0 }
       } as TeamMetrics;
@@ -59,9 +61,9 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
       throttledValidation();
       
       return () => {
-        // Cancel throttled function on cleanup
-        if (throttledValidation.cancel) {
-          throttledValidation.cancel();
+        // Check if throttle function has a cancel method before calling it
+        if (typeof throttledValidation === 'object' && 'cancel' in throttledValidation) {
+          (throttledValidation as { cancel: () => void }).cancel();
         }
       };
     }

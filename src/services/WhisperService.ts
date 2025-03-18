@@ -1,4 +1,3 @@
-
 import { useToast } from "@/hooks/use-toast";
 import { pipeline } from "@huggingface/transformers";
 
@@ -25,7 +24,6 @@ export interface StoredTranscription {
   callScore?: number;
   sentiment?: 'positive' | 'neutral' | 'negative';
   keywords?: string[];
-  // New fields for better speaker diarization
   transcript_segments?: TranscriptSegment[];
 }
 
@@ -599,6 +597,18 @@ export const useWhisperService = () => {
     return transcription;
   };
 
+  // Add this new method to force refresh of stored transcriptions
+  const forceRefreshTranscriptions = () => {
+    const existingTranscriptions = getStoredTranscriptions();
+    if (existingTranscriptions.length > 0) {
+      // Just re-save the existing transcriptions to trigger any listeners
+      localStorage.setItem('whisper_transcriptions', JSON.stringify(existingTranscriptions));
+      
+      // Dispatch a custom event that components can listen for
+      window.dispatchEvent(new CustomEvent('transcriptions-updated'));
+    }
+  };
+
   return {
     transcribeAudio,
     saveTranscriptionWithAnalysis,
@@ -610,6 +620,7 @@ export const useWhisperService = () => {
     setNumSpeakers,
     getNumSpeakers,
     startRealtimeTranscription,
-    analyzeCallFromUrl
+    analyzeCallFromUrl,
+    forceRefreshTranscriptions
   };
 };

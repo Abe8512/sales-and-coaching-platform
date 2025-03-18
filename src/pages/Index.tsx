@@ -60,6 +60,32 @@ const Index = () => {
     }
   }, [isRecording, saveSentimentTrend]);
   
+  // Listen for transcriptions-updated event
+  useEffect(() => {
+    const handleTranscriptionsUpdated = () => {
+      console.log("Transcriptions updated, refreshing data...");
+      // Refresh our data when transcriptions are updated
+      fetchTranscripts({
+        dateRange: filters.dateRange
+      });
+    };
+    
+    window.addEventListener('transcriptions-updated', handleTranscriptionsUpdated);
+    
+    return () => {
+      window.removeEventListener('transcriptions-updated', handleTranscriptionsUpdated);
+    };
+  }, [fetchTranscripts, filters.dateRange]);
+  
+  // Handle bulk upload modal closure - refresh data when closed
+  const handleBulkUploadClose = () => {
+    setIsBulkUploadOpen(false);
+    // Refresh data when the modal is closed (in case uploads happened)
+    fetchTranscripts({
+      dateRange: filters.dateRange
+    });
+  };
+  
   const handleLiveMetricsTab = (value: string) => {
     if (value === 'livemetrics') {
       setShowLiveMetrics(true);
@@ -95,7 +121,7 @@ const Index = () => {
           <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
           <BulkUploadModal 
             isOpen={isBulkUploadOpen} 
-            onClose={() => setIsBulkUploadOpen(false)} 
+            onClose={handleBulkUploadClose} 
           />
         </div>
       </div>

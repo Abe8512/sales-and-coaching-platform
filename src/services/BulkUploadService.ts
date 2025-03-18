@@ -2,6 +2,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import { useBulkUploadStore, UploadStatus } from "@/store/useBulkUploadStore";
 import { useWhisperService, WhisperTranscriptionResponse } from "@/services/WhisperService";
+import { toast } from "sonner";
+import { useCallTranscriptService } from "./CallTranscriptService";
 
 // Create a wrapper class for handling bulk uploads
 export class BulkUploadService {
@@ -45,6 +47,14 @@ export class BulkUploadService {
       
       updateStatus('complete', 100, result.text, undefined, id);
       
+      // Force a refresh of the local storage transcripts to ensure UI updates
+      this.whisperService.forceRefreshTranscriptions();
+      
+      // Notify using toast
+      toast.success("File processed successfully", {
+        description: "Transcript and metrics have been updated with this call data."
+      });
+      
       return id;
     } catch (error) {
       console.error(`Error processing file ${file.name}:`, error);
@@ -80,6 +90,9 @@ export class BulkUploadService {
       
       console.log(`Saving transcript with user_id: ${userId}`);
       
+      // Create timestamp for consistent usage
+      const timestamp = new Date().toISOString();
+      
       // Insert into database
       const { data, error } = await supabase
         .from('call_transcripts')
@@ -92,7 +105,7 @@ export class BulkUploadService {
           sentiment,
           keywords,
           transcript_segments: transcriptSegments ? JSON.stringify(transcriptSegments) : null,
-          created_at: new Date().toISOString()
+          created_at: timestamp
         })
         .select('id')
         .single();
@@ -106,7 +119,8 @@ export class BulkUploadService {
           sentiment_customer: sentiment === 'positive' ? 0.7 : sentiment === 'negative' ? 0.2 : 0.5,
           talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
           talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
-          key_phrases: keywords || []
+          key_phrases: keywords || [],
+          created_at: timestamp // Use the same timestamp for consistency
         });
       }
       
@@ -126,6 +140,7 @@ export class BulkUploadService {
     talk_ratio_agent: number;
     talk_ratio_customer: number;
     key_phrases: string[];
+    created_at?: string;
   }): Promise<void> {
     try {
       const { error } = await supabase
@@ -375,6 +390,14 @@ export const useBulkUploadService = () => {
     }
     
     setProcessing(false);
+    
+    // After processing all files, trigger a reload of the history
+    loadUploadHistory();
+    
+    // Notify the user that processing is complete
+    toast.success("All files processed", {
+      description: "Your data has been uploaded and metrics have been updated."
+    });
   };
   
   return {

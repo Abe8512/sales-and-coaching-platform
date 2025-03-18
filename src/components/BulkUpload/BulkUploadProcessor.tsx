@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Loader2, CheckCircle, AlertCircle, Clock, X, FileAudio } from 'lucide-react';
+import { useCallTranscriptService } from '@/services/CallTranscriptService';
 
 const BulkUploadProcessor = () => {
   const { 
@@ -16,6 +17,7 @@ const BulkUploadProcessor = () => {
   } = useBulkUploadService();
   const { toast } = useToast();
   const [totalProgress, setTotalProgress] = useState(0);
+  const { fetchTranscripts } = useCallTranscriptService();
   
   useEffect(() => {
     // Calculate total progress
@@ -26,6 +28,19 @@ const BulkUploadProcessor = () => {
       setTotalProgress(0);
     }
   }, [files]);
+  
+  // Refresh data when all files are completed
+  useEffect(() => {
+    const allCompleted = files.length > 0 && files.every(file => file.status === "complete");
+    if (allCompleted) {
+      // Refresh the transcript data
+      fetchTranscripts();
+      toast({
+        title: "Processing Complete",
+        description: "All files have been processed successfully. Data has been refreshed.",
+      });
+    }
+  }, [files, fetchTranscripts, toast]);
   
   const getStatusIcon = (status: string) => {
     switch (status) {

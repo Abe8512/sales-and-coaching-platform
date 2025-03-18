@@ -6,13 +6,22 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Zap, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConnectionStatus } from '@/services/ConnectionMonitorService';
 
 const RealtimeStatus = () => {
   const [tableStatus, setTableStatus] = useState<{[key: string]: boolean}>({});
   const [loading, setLoading] = useState(false);
   const [enabling, setEnabling] = useState(false);
+  const { isConnected } = useConnectionStatus();
   
   const checkRealtimeStatus = async () => {
+    if (!isConnected) {
+      toast.error('Cannot check realtime status', {
+        description: 'You are not connected to the database',
+      });
+      return;
+    }
+    
     setLoading(true);
     const tables = ['call_transcripts', 'calls', 'keyword_trends', 'sentiment_trends'];
     const statuses: {[key: string]: boolean} = {};
@@ -32,6 +41,13 @@ const RealtimeStatus = () => {
   };
   
   const enableRealtime = async () => {
+    if (!isConnected) {
+      toast.error('Cannot enable realtime', {
+        description: 'You are not connected to the database',
+      });
+      return;
+    }
+    
     setEnabling(true);
     try {
       const results = await realtimeService.enableRealtimeForAllTables();
@@ -60,8 +76,10 @@ const RealtimeStatus = () => {
   };
   
   useEffect(() => {
-    checkRealtimeStatus();
-  }, []);
+    if (isConnected) {
+      checkRealtimeStatus();
+    }
+  }, [isConnected]);
   
   return (
     <Card>
@@ -72,7 +90,7 @@ const RealtimeStatus = () => {
             variant="outline" 
             size="sm" 
             onClick={checkRealtimeStatus}
-            disabled={loading}
+            disabled={loading || !isConnected}
           >
             <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -85,7 +103,14 @@ const RealtimeStatus = () => {
       
       <CardContent>
         <div className="space-y-2">
-          {Object.keys(tableStatus).length > 0 ? (
+          {!isConnected && (
+            <div className="text-center p-4 text-amber-600 bg-amber-50 rounded-md">
+              <AlertCircle className="h-5 w-5 mx-auto mb-2" />
+              <p>Cannot check realtime status while offline</p>
+            </div>
+          )}
+          
+          {isConnected && Object.keys(tableStatus).length > 0 ? (
             Object.entries(tableStatus).map(([table, enabled]) => (
               <div key={table} className="flex justify-between items-center">
                 <span className="text-sm font-medium">{table}</span>
@@ -102,11 +127,15 @@ const RealtimeStatus = () => {
                 )}
               </div>
             ))
-          ) : (
+          ) : isConnected && loading ? (
             <div className="py-2 text-center text-muted-foreground">
-              {loading ? 'Checking status...' : 'No status information available'}
+              Checking status...
             </div>
-          )}
+          ) : isConnected ? (
+            <div className="py-2 text-center text-muted-foreground">
+              No status information available
+            </div>
+          ) : null}
         </div>
       </CardContent>
       
@@ -114,7 +143,7 @@ const RealtimeStatus = () => {
         <Button 
           className="w-full" 
           onClick={enableRealtime}
-          disabled={enabling || loading}
+          disabled={enabling || loading || !isConnected}
         >
           <Zap className="h-4 w-4 mr-2" />
           {enabling ? 'Enabling...' : 'Enable Realtime for All Tables'}

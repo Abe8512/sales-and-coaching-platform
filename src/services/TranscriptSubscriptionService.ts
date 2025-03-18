@@ -1,6 +1,6 @@
 
 import { useEffect, useRef } from 'react';
-import { supabase, isConnected } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/client';
 import { CallTranscript, CallTranscriptFilter } from './CallTranscriptService';
 import { EventType } from './events/types';
 import { toast } from 'sonner';
@@ -15,10 +15,18 @@ export const useTranscriptRealtimeSubscriptions = (
   // Keep track of subscription attempts
   const subscriptionAttemptsRef = useRef(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
     if (!isConnected) {
       console.log('Skipping realtime setup - not connected to Supabase');
+      
+      // Clean up any existing timeouts when disconnected
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      
       return;
     }
     
@@ -148,16 +156,24 @@ export const useTranscriptRealtimeSubscriptions = (
           
           if (status === 'SUBSCRIBED') {
             console.log('Successfully subscribed to real-time updates');
+            
+            // Clear any pending reconnection attempts
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+              reconnectTimeoutRef.current = null;
+            }
           } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
             console.error(`Subscription ${channelName} closed or errored with status:`, status);
             
             // On connection issues, try to reconnect after a delay
             // But only if still connected to Supabase overall
-            if (isConnected) {
+            if (isConnected && !reconnectTimeoutRef.current) {
               console.log('Will attempt to reconnect in 3 seconds...');
-              setTimeout(() => {
+              
+              reconnectTimeoutRef.current = setTimeout(() => {
                 console.log('Attempting to reestablish real-time connection...');
                 setupChannel();
+                reconnectTimeoutRef.current = null;
               }, 3000);
             }
           }
@@ -174,6 +190,12 @@ export const useTranscriptRealtimeSubscriptions = (
     // Clean up subscription on unmount or when connection status changes
     return () => {
       console.log('Cleaning up real-time subscriptions...');
+      
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;

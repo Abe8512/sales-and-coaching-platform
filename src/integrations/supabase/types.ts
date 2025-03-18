@@ -137,7 +137,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      add_table_to_realtime_publication: {
+        Args: {
+          table_name: string
+        }
+        Returns: undefined
+      }
+      check_table_in_publication: {
+        Args: {
+          table_name: string
+          publication_name: string
+        }
+        Returns: boolean
+      }
+      set_replica_identity_full_for_table: {
+        Args: {
+          table_name: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

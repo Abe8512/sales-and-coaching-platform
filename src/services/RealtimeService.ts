@@ -41,13 +41,11 @@ export const realtimeService = {
   },
   
   /**
-   * Check if a table has realtime enabled - this uses a direct SQL query
-   * which requires higher privileges than the typical app user has
+   * Check if a table has realtime enabled using our custom SQL function
    */
   checkRealtimeEnabled: async (tableName: string) => {
     try {
-      // This is an administrative function that requires elevated permissions
-      // It will only work if called with admin privileges
+      // This uses our new SQL function to check if the table is in the realtime publication
       const { data, error } = await supabase.rpc('check_table_in_publication', {
         table_name: tableName,
         publication_name: 'supabase_realtime'

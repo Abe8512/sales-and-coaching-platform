@@ -9,8 +9,8 @@ export const enableRealtimeForTable = async (tableName: string) => {
   try {
     console.log(`Enabling realtime for table: ${tableName}`);
 
-    // Set the table to track all field changes using an RPC function
-    const { error: replicaError } = await supabase.rpc('enable_replica_identity', {
+    // Set the table to track all field changes using the SQL function we created
+    const { error: replicaError } = await supabase.rpc('set_replica_identity_full_for_table', {
       table_name: tableName,
     });
 
@@ -19,8 +19,8 @@ export const enableRealtimeForTable = async (tableName: string) => {
       return { success: false, error: replicaError };
     }
 
-    // Add the table to the realtime publication using an RPC function
-    const { error: pubError } = await supabase.rpc('add_table_to_publication', {
+    // Add the table to the realtime publication using the SQL function we created
+    const { error: pubError } = await supabase.rpc('add_table_to_realtime_publication', {
       table_name: tableName,
     });
 
@@ -43,7 +43,7 @@ export const enableRealtimeForAllTables = async () => {
   const tables = [
     'call_transcripts',
     'calls',
-    'keyword_trends',
+    'keyword_trends', 
     'sentiment_trends'
   ];
   

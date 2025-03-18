@@ -15,11 +15,18 @@ import {
 interface DateRangeFilterProps {
   dateRange: DateRange | undefined;
   setDateRange: React.Dispatch<React.SetStateAction<DateRange | undefined>>;
+  className?: string;
+  label?: string;
 }
 
-export function DateRangeFilter({ dateRange, setDateRange }: DateRangeFilterProps) {
+export function DateRangeFilter({ 
+  dateRange, 
+  setDateRange, 
+  className = "",
+  label = "Pick a date range" 
+}: DateRangeFilterProps) {
   return (
-    <div className="grid gap-2">
+    <div className={`grid gap-2 ${className}`}>
       <Popover>
         <PopoverTrigger asChild>
           <Button
@@ -41,7 +48,7 @@ export function DateRangeFilter({ dateRange, setDateRange }: DateRangeFilterProp
                 format(dateRange.from, "LLL dd, y")
               )
             ) : (
-              <span>Pick a date range</span>
+              <span>{label}</span>
             )}
           </Button>
         </PopoverTrigger>

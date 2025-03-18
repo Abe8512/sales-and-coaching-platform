@@ -1,9 +1,8 @@
 
-import React, { useState } from "react";
+import React from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, Filter, RefreshCw, FileDown, Settings } from "lucide-react";
 import PerformanceMetrics from "@/components/Dashboard/PerformanceMetrics";
@@ -17,7 +16,9 @@ import LiveCallAnalysis from "@/components/Performance/LiveCallAnalysis";
 import CustomScoring from "@/components/Performance/CustomScoring";
 import AISimulator from "@/components/Performance/AISimulator";
 import LearningPath from "@/components/Performance/LearningPath";
-import { addDays } from "date-fns";
+import { DateRangeFilter } from "@/components/CallAnalysis/DateRangeFilter";
+import { useSharedFilters } from "@/contexts/SharedFilterContext";
+import { useSharedTeamMetrics } from "@/services/SharedDataService";
 import { useToast } from "@/hooks/use-toast";
 import { 
   AlertDialog,
@@ -34,23 +35,16 @@ import {
 const Performance = () => {
   const { isManager, isAdmin } = useAuth();
   const { toast } = useToast();
-  const [date, setDate] = useState({
-    from: addDays(new Date(), -30),
-    to: new Date(),
-  });
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState("trends");
+  const { filters, updateDateRange } = useSharedFilters();
+  const { refreshMetrics, isLoading } = useSharedTeamMetrics(filters);
+  const [activeTab, setActiveTab] = React.useState("trends");
   
   const handleRefresh = () => {
-    setIsRefreshing(true);
-    // Simulate data refresh
-    setTimeout(() => {
-      setIsRefreshing(false);
-      toast({
-        title: "Data Refreshed",
-        description: "Performance metrics updated with latest data",
-      });
-    }, 1000);
+    refreshMetrics();
+    toast({
+      title: "Data Refreshed",
+      description: "Performance metrics updated with latest data",
+    });
   };
   
   const handleExport = () => {
@@ -72,16 +66,19 @@ const Performance = () => {
           </div>
           
           <div className="flex flex-col sm:flex-row gap-2">
-            <DateRangePicker date={date} setDate={setDate} />
+            <DateRangeFilter 
+              dateRange={filters.dateRange} 
+              setDateRange={updateDateRange}
+            />
             
             <div className="flex gap-2">
               <Button 
                 variant="outline" 
                 size="icon"
                 onClick={handleRefresh}
-                disabled={isRefreshing}
+                disabled={isLoading}
               >
-                <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
               </Button>
               
               <AlertDialog>
@@ -145,19 +142,19 @@ const Performance = () => {
           </TabsList>
           
           <TabsContent value="trends">
-            <HistoricalTrends dateRange={date} />
+            <HistoricalTrends dateRange={filters.dateRange} />
           </TabsContent>
           
           <TabsContent value="goals">
-            <GoalTracking dateRange={date} />
+            <GoalTracking dateRange={filters.dateRange} />
           </TabsContent>
           
           <TabsContent value="metrics">
-            <KeyMetricsTable dateRange={date} />
+            <KeyMetricsTable dateRange={filters.dateRange} />
           </TabsContent>
           
           <TabsContent value="reports">
-            <ReportGenerator dateRange={date} />
+            <ReportGenerator dateRange={filters.dateRange} />
           </TabsContent>
           
           <TabsContent value="live-analysis">

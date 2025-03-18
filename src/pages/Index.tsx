@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useEffect } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
@@ -17,9 +18,12 @@ import { useCallMetricsStore } from "@/store/useCallMetricsStore";
 import KeywordInsights from "../components/CallAnalysis/KeywordInsights";
 import KeywordTrendsChart from "../components/CallAnalysis/KeywordTrendsChart";
 import { SentimentTrendsChart } from "../components/CallAnalysis/SentimentTrendsChart";
+import { DateRangeFilter } from "../components/CallAnalysis/DateRangeFilter";
+import { useSharedFilters } from "@/contexts/SharedFilterContext";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
+  const { filters, updateDateRange } = useSharedFilters();
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [showLiveMetrics, setShowLiveMetrics] = useState(false);
   const { startRecording, stopRecording, isRecording } = useCallMetricsStore();
@@ -58,7 +62,11 @@ const Index = () => {
           </p>
         </div>
         
-        <div className="flex space-x-3">
+        <div className="flex space-x-3 items-center">
+          <DateRangeFilter 
+            dateRange={filters.dateRange} 
+            setDateRange={updateDateRange}
+          />
           <WhisperButton recordingId="latest" />
           <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
           <BulkUploadModal 

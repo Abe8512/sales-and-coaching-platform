@@ -1,5 +1,7 @@
+
 import { create } from 'zustand';
 import { supabase } from "@/integrations/supabase/client";
+import { validateDataConsistency } from '@/services/SharedDataService';
 
 interface CallMetricsState {
   isRecording: boolean;
@@ -169,6 +171,19 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     
     updateMetrics: (data) => {
       set({ ...data });
+      
+      // Validate data consistency
+      if (data.talkRatio) {
+        validateDataConsistency('useCallMetricsStore', {
+          avgTalkRatio: data.talkRatio
+        });
+      }
+      
+      if (data.sentiment) {
+        validateDataConsistency('useCallMetricsStore', {
+          avgSentiment: (data.sentiment.agent + data.sentiment.customer) / 2
+        });
+      }
     },
     
     updateKeyPhrases: (phrase) => {
@@ -277,6 +292,11 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       try {
         const { sentiment } = get();
         
+        // Validate sentiment data before saving
+        validateDataConsistency('saveSentimentTrend', {
+          avgSentiment: (sentiment.agent + sentiment.customer) / 2
+        });
+        
         await Promise.all([
           supabase.from('sentiment_trends').insert([{
             sentiment_label: sentiment.agent > 0.6 ? 'positive' : sentiment.agent < 0.4 ? 'negative' : 'neutral',
@@ -299,6 +319,13 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       await get().saveSentimentTrend();
       
       try {
+        // Validate data before saving
+        validateDataConsistency('savePastCall', {
+          totalCalls: 1,
+          avgSentiment: (sentiment.agent + sentiment.customer) / 2,
+          avgTalkRatio: talkRatio
+        });
+        
         const { data, error } = await supabase
           .from('calls')
           .insert([
@@ -318,6 +345,48 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           console.error("Error saving to Supabase:", error);
         } else {
           console.log("Call saved to Supabase:", data);
+        }
+        
+        // Save keywords to keyword_trends table
+        if (keyPhrases.length > 0) {
+          const keywordPromises = keyPhrases.map(async (phrase) => {
+            const { data: existingKeyword } = await supabase
+              .from('keyword_trends')
+              .select('*')
+              .eq('keyword', phrase.toLowerCase())
+              .maybeSingle();
+              
+            if (existingKeyword) {
+              // Update existing keyword count
+              await supabase
+                .from('keyword_trends')
+                .update({ 
+                  count: existingKeyword.count + 1,
+                  last_used: new Date().toISOString()
+                })
+                .eq('id', existingKeyword.id);
+            } else {
+              // Insert new keyword
+              await supabase
+                .from('keyword_trends')
+                .insert([{
+                  keyword: phrase.toLowerCase(),
+                  count: 1,
+                  category: get().keywordsByCategory.positive.includes(phrase) 
+                    ? 'positive' 
+                    : get().keywordsByCategory.negative.includes(phrase)
+                      ? 'negative'
+                      : 'neutral'
+                }]);
+            }
+          });
+          
+          try {
+            await Promise.all(keywordPromises);
+            console.log("Keywords saved to trends");
+          } catch (keywordError) {
+            console.error("Error saving keywords:", keywordError);
+          }
         }
       } catch (error) {
         console.error("Exception saving to Supabase:", error);

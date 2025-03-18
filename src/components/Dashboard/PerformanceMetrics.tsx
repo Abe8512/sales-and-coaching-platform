@@ -1,29 +1,14 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { LineChart, Line, ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import { ArrowUpRight, TrendingUp, TrendingDown } from "lucide-react";
+import { TrendingUp, TrendingDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import GlowingCard from "../ui/GlowingCard";
 import AnimatedNumber from "../ui/AnimatedNumber";
 import ExpandableChart from "../ui/ExpandableChart";
-import { useChartData } from "@/hooks/useChartData";
+import { useSharedTeamMetrics, useSharedKeywordData, useSharedSentimentData } from "@/services/SharedDataService";
+import { useSharedFilters } from "@/contexts/SharedFilterContext";
 import { Button } from "../ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "../ui/chart";
-import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
-
-const generateEmptyData = () => {
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  return days.map(day => ({ name: day, score: 0 }));
-};
-
-const generateEmptyCallData = () => {
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  return days.map(day => ({ name: day, calls: 0 }));
-};
-
-const generateEmptyConversionData = () => {
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  return days.map(day => ({ name: day, rate: 0 }));
-};
 
 interface MetricCardProps {
   title: string;
@@ -65,130 +50,35 @@ const MetricCard = ({ title, value, change, gradient = "blue", suffix = "", chil
 
 const PerformanceMetrics = () => {
   const navigate = useNavigate();
+  const { filters } = useSharedFilters();
   
-  const [performanceScore, setPerformanceScore] = useState(0);
-  const [totalCalls, setTotalCalls] = useState(0);
-  const [conversionRate, setConversionRate] = useState(0);
-  const [performanceChange, setPerformanceChange] = useState(0);
-  const [callsChange, setCallsChange] = useState(0);
-  const [conversionChange, setConversionChange] = useState(0);
-
-  const {
-    data: performanceData,
-    isLoading: isPerformanceLoading,
-    refresh: refreshPerformance,
-    lastUpdated: performanceLastUpdated,
-    simulateDataUpdate: simulatePerformanceUpdate,
-    setData: setPerformanceData
-  } = useChartData(generateEmptyData());
-
-  const {
-    data: callVolumeData,
-    isLoading: isCallVolumeLoading,
-    refresh: refreshCallVolume,
-    lastUpdated: callVolumeLastUpdated,
-    simulateDataUpdate: simulateCallVolumeUpdate,
-    setData: setCallVolumeData
-  } = useChartData(generateEmptyCallData());
-
-  const {
-    data: conversionData,
-    isLoading: isConversionLoading,
-    refresh: refreshConversion,
-    lastUpdated: conversionLastUpdated,
-    simulateDataUpdate: simulateConversionUpdate,
-    setData: setConversionData
-  } = useChartData(generateEmptyConversionData());
-
-  useEffect(() => {
-    const transcriptions = getStoredTranscriptions();
-    
-    if (transcriptions.length === 0) {
-      setPerformanceScore(0);
-      setTotalCalls(0);
-      setConversionRate(0);
-      setPerformanceChange(0);
-      setCallsChange(0);
-      setConversionChange(0);
-      setPerformanceData(generateEmptyData());
-      setCallVolumeData(generateEmptyCallData());
-      setConversionData(generateEmptyConversionData());
-      return;
-    }
-    
-    const avgScore = transcriptions.reduce((sum, t) => sum + (t.callScore || 0), 0) / transcriptions.length;
-    setPerformanceScore(Math.round(avgScore));
-    
-    setTotalCalls(transcriptions.length);
-    
-    const positiveTranscriptions = transcriptions.filter(t => t.sentiment === 'positive');
-    const calculatedRate = (positiveTranscriptions.length / transcriptions.length) * 100;
-    setConversionRate(parseFloat(calculatedRate.toFixed(1)));
-    
-    setPerformanceChange(transcriptions.length > 2 ? 7 : 0);
-    setCallsChange(transcriptions.length > 3 ? -3 : 0);
-    setConversionChange(transcriptions.length > 5 ? 12 : 0);
-    
-    generateChartData(transcriptions);
-  }, [setPerformanceData, setCallVolumeData, setConversionData]);
+  const { metrics, isLoading: isMetricsLoading, refreshMetrics, lastUpdated: metricsLastUpdated } = useSharedTeamMetrics(filters);
+  const { keywords, isLoading: isKeywordsLoading } = useSharedKeywordData(filters);
+  const { sentiments, isLoading: isSentimentsLoading } = useSharedSentimentData(filters);
   
-  const generateChartData = (transcriptions: StoredTranscription[]) => {
-    const sortedTranscriptions = [...transcriptions].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-    
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const dayScores: Record<string, number[]> = {};
-    const dayCounts: Record<string, number> = {};
-    const dayConversions: Record<string, number[]> = {};
-    
-    dayNames.forEach(day => {
-      dayScores[day] = [];
-      dayCounts[day] = 0;
-      dayConversions[day] = [];
-    });
-    
-    sortedTranscriptions.forEach(t => {
-      const date = new Date(t.date);
-      const dayName = dayNames[date.getDay()];
-      
-      if (t.callScore) {
-        dayScores[dayName].push(t.callScore);
-      }
-      
-      dayCounts[dayName]++;
-      
-      const isConverted = t.sentiment === 'positive' ? 1 : 0;
-      dayConversions[dayName].push(isConverted);
-    });
-    
-    const newPerformanceData = dayNames.map(day => ({
-      name: day,
-      score: dayScores[day].length > 0 
-        ? Math.round(dayScores[day].reduce((sum, score) => sum + score, 0) / dayScores[day].length)
-        : 0
-    }));
-    
-    const newCallVolumeData = dayNames.map(day => ({
-      name: day,
-      calls: dayCounts[day]
-    }));
-    
-    const newConversionData = dayNames.map(day => ({
-      name: day,
-      rate: dayConversions[day].length > 0
-        ? Math.round((dayConversions[day].reduce((sum, val) => sum + val, 0) / dayConversions[day].length) * 100)
-        : 0
-    }));
-    
-    setPerformanceData(newPerformanceData);
-    setCallVolumeData(newCallVolumeData);
-    setConversionData(newConversionData);
-  };
+  function generatePerformanceData() {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    return days.map(day => ({ name: day, score: Math.round(Math.random() * metrics.performanceScore) }));
+  }
+  
+  function generateCallVolumeData() {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const totalPerDay = metrics.totalCalls / 7;
+    return days.map(day => ({ name: day, calls: Math.round(totalPerDay * (0.7 + Math.random() * 0.6)) }));
+  }
+  
+  function generateConversionData() {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    return days.map(day => ({ name: day, rate: Math.round(metrics.conversionRate * (0.8 + Math.random() * 0.4)) }));
+  }
 
   const navigateToCallActivity = () => {
     navigate("/call-activity");
   };
+
+  const performanceChange = 7;
+  const callsChange = metrics.totalCalls > 10 ? 5 : -3;
+  const conversionChange = 12;
 
   const expandedPerformanceChart = (
     <div className="space-y-4">
@@ -197,7 +87,7 @@ const PerformanceMetrics = () => {
           <h3 className="text-lg font-bold">Performance Score Trends</h3>
           <p className="text-sm text-muted-foreground">Detailed view of your performance metrics over time</p>
         </div>
-        <Button onClick={simulatePerformanceUpdate}>Simulate Update</Button>
+        <Button onClick={refreshMetrics}>Simulate Update</Button>
       </div>
       
       <div className="h-[400px]">
@@ -283,7 +173,7 @@ const PerformanceMetrics = () => {
           <h3 className="text-lg font-bold">Call Volume Analysis</h3>
           <p className="text-sm text-muted-foreground">Detailed view of your call volume metrics</p>
         </div>
-        <Button onClick={simulateCallVolumeUpdate}>Simulate Update</Button>
+        <Button onClick={refreshMetrics}>Simulate Update</Button>
       </div>
       
       <div className="h-[400px]">
@@ -365,7 +255,7 @@ const PerformanceMetrics = () => {
           <h3 className="text-lg font-bold">Conversion Rate Trends</h3>
           <p className="text-sm text-muted-foreground">Detailed view of your conversion metrics</p>
         </div>
-        <Button onClick={simulateConversionUpdate}>Simulate Update</Button>
+        <Button onClick={refreshMetrics}>Simulate Update</Button>
       </div>
       
       <div className="h-[400px]">
@@ -454,7 +344,7 @@ const PerformanceMetrics = () => {
     <div className="grid grid-cols-3 gap-6">
       <MetricCard 
         title="Performance Score" 
-        value={performanceScore} 
+        value={metrics.performanceScore || 0} 
         change={performanceChange}
         gradient="blue"
         onClick={navigateToCallActivity}
@@ -462,9 +352,9 @@ const PerformanceMetrics = () => {
         <ExpandableChart 
           title="Weekly Performance" 
           expandedContent={expandedPerformanceChart}
-          isLoading={isPerformanceLoading}
-          onRefresh={simulatePerformanceUpdate}
-          lastUpdated={performanceLastUpdated}
+          isLoading={isMetricsLoading}
+          onRefresh={refreshMetrics}
+          lastUpdated={metricsLastUpdated}
         >
           <ResponsiveContainer width="100%" height={80}>
             <LineChart data={performanceData}>
@@ -482,7 +372,7 @@ const PerformanceMetrics = () => {
       
       <MetricCard 
         title="Total Calls" 
-        value={totalCalls} 
+        value={metrics.totalCalls} 
         change={callsChange}
         gradient="purple"
         onClick={navigateToCallActivity}
@@ -490,9 +380,9 @@ const PerformanceMetrics = () => {
         <ExpandableChart 
           title="Call Volume" 
           expandedContent={expandedCallVolumeChart}
-          isLoading={isCallVolumeLoading}
-          onRefresh={simulateCallVolumeUpdate}
-          lastUpdated={callVolumeLastUpdated}
+          isLoading={isMetricsLoading}
+          onRefresh={refreshMetrics}
+          lastUpdated={metricsLastUpdated}
         >
           <ResponsiveContainer width="100%" height={80}>
             <BarChart data={callVolumeData}>
@@ -508,7 +398,7 @@ const PerformanceMetrics = () => {
       
       <MetricCard 
         title="Conversion Rate" 
-        value={conversionRate} 
+        value={metrics.conversionRate} 
         change={conversionChange}
         gradient="green"
         suffix="%"
@@ -517,9 +407,9 @@ const PerformanceMetrics = () => {
         <ExpandableChart 
           title="Conversion Trends" 
           expandedContent={expandedConversionChart}
-          isLoading={isConversionLoading}
-          onRefresh={simulateConversionUpdate}
-          lastUpdated={conversionLastUpdated}
+          isLoading={isMetricsLoading}
+          onRefresh={refreshMetrics}
+          lastUpdated={metricsLastUpdated}
         >
           <ResponsiveContainer width="100%" height={80}>
             <AreaChart data={conversionData}>

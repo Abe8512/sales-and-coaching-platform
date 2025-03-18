@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React from "react";
 import { 
   Select, 
   SelectContent, 
@@ -16,20 +16,18 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { useSharedFilters } from "@/contexts/SharedFilterContext";
 
-interface TeamFilterProps {
-  onFilterChange?: (filters: {
-    teamMembers: string[];
-    productLines: string[];
-    callTypes: string[];
-  }) => void;
-}
-
-const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
-  const [selectedTeamMembers, setSelectedTeamMembers] = useState<string[]>([]);
-  const [selectedProductLines, setSelectedProductLines] = useState<string[]>([]);
-  const [selectedCallTypes, setSelectedCallTypes] = useState<string[]>([]);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+const TeamFilter = () => {
+  const { 
+    filters, 
+    updateRepIds, 
+    updateProductLines, 
+    updateCallTypes, 
+    clearAllFilters 
+  } = useSharedFilters();
+  
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
   
   // Mock team members data
   const teamMembers = [
@@ -58,64 +56,35 @@ const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
   ];
   
   const handleTeamMemberSelect = (value: string) => {
-    if (!selectedTeamMembers.includes(value)) {
-      const newSelection = [...selectedTeamMembers, value];
-      setSelectedTeamMembers(newSelection);
-      updateFilters({ teamMembers: newSelection });
+    if (!filters.repIds?.includes(value)) {
+      const newSelection = [...(filters.repIds || []), value];
+      updateRepIds(newSelection);
     }
   };
   
   const handleTeamMemberRemove = (id: string) => {
-    const newSelection = selectedTeamMembers.filter(memberId => memberId !== id);
-    setSelectedTeamMembers(newSelection);
-    updateFilters({ teamMembers: newSelection });
+    const newSelection = (filters.repIds || []).filter(memberId => memberId !== id);
+    updateRepIds(newSelection);
   };
   
   const handleProductLineToggle = (id: string) => {
     let newSelection: string[];
-    if (selectedProductLines.includes(id)) {
-      newSelection = selectedProductLines.filter(lineId => lineId !== id);
+    if ((filters.productLines || []).includes(id)) {
+      newSelection = (filters.productLines || []).filter(lineId => lineId !== id);
     } else {
-      newSelection = [...selectedProductLines, id];
+      newSelection = [...(filters.productLines || []), id];
     }
-    setSelectedProductLines(newSelection);
-    updateFilters({ productLines: newSelection });
+    updateProductLines(newSelection);
   };
   
   const handleCallTypeToggle = (id: string) => {
     let newSelection: string[];
-    if (selectedCallTypes.includes(id)) {
-      newSelection = selectedCallTypes.filter(typeId => typeId !== id);
+    if ((filters.callTypes || []).includes(id)) {
+      newSelection = (filters.callTypes || []).filter(typeId => typeId !== id);
     } else {
-      newSelection = [...selectedCallTypes, id];
+      newSelection = [...(filters.callTypes || []), id];
     }
-    setSelectedCallTypes(newSelection);
-    updateFilters({ callTypes: newSelection });
-  };
-  
-  const clearAllFilters = () => {
-    setSelectedTeamMembers([]);
-    setSelectedProductLines([]);
-    setSelectedCallTypes([]);
-    updateFilters({ 
-      teamMembers: [], 
-      productLines: [], 
-      callTypes: [] 
-    });
-  };
-  
-  const updateFilters = (updates: Partial<{
-    teamMembers: string[];
-    productLines: string[];
-    callTypes: string[];
-  }>) => {
-    if (onFilterChange) {
-      onFilterChange({
-        teamMembers: updates.teamMembers || selectedTeamMembers,
-        productLines: updates.productLines || selectedProductLines,
-        callTypes: updates.callTypes || selectedCallTypes,
-      });
-    }
+    updateCallTypes(newSelection);
   };
   
   const getTeamMember = (id: string) => {
@@ -131,9 +100,9 @@ const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
   };
   
   const totalActiveFilters = 
-    selectedTeamMembers.length + 
-    selectedProductLines.length + 
-    selectedCallTypes.length;
+    (filters.repIds?.length || 0) + 
+    (filters.productLines?.length || 0) + 
+    (filters.callTypes?.length || 0);
 
   return (
     <Card className="p-4">
@@ -150,7 +119,7 @@ const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
                   <SelectItem 
                     key={member.id} 
                     value={member.id}
-                    disabled={selectedTeamMembers.includes(member.id)}
+                    disabled={(filters.repIds || []).includes(member.id)}
                   >
                     {member.name}
                   </SelectItem>
@@ -179,7 +148,7 @@ const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
                       <div key={line.id} className="flex items-center space-x-2">
                         <Checkbox 
                           id={`product-${line.id}`} 
-                          checked={selectedProductLines.includes(line.id)}
+                          checked={(filters.productLines || []).includes(line.id)}
                           onCheckedChange={() => handleProductLineToggle(line.id)}
                         />
                         <Label htmlFor={`product-${line.id}`}>{line.name}</Label>
@@ -195,7 +164,7 @@ const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
                       <div key={type.id} className="flex items-center space-x-2">
                         <Checkbox 
                           id={`call-${type.id}`} 
-                          checked={selectedCallTypes.includes(type.id)}
+                          checked={(filters.callTypes || []).includes(type.id)}
                           onCheckedChange={() => handleCallTypeToggle(type.id)}
                         />
                         <Label htmlFor={`call-${type.id}`}>{type.name}</Label>
@@ -218,8 +187,8 @@ const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
         </div>
         
         <div className="flex flex-wrap gap-2 flex-1">
-          {selectedTeamMembers.length > 0 ? (
-            selectedTeamMembers.map((memberId) => {
+          {(filters.repIds?.length || 0) > 0 ? (
+            (filters.repIds || []).map((memberId) => {
               const member = getTeamMember(memberId);
               return (
                 <Badge key={memberId} variant="secondary" className="px-3 py-1">
@@ -234,14 +203,14 @@ const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
               );
             })
           ) : (
-            selectedProductLines.length === 0 && selectedCallTypes.length === 0 && (
+            (filters.productLines?.length || 0) === 0 && (filters.callTypes?.length || 0) === 0 && (
               <div className="text-sm text-muted-foreground">
                 Showing data for all team members
               </div>
             )
           )}
           
-          {selectedProductLines.map((lineId) => {
+          {(filters.productLines || []).map((lineId) => {
             const line = getProductLine(lineId);
             return (
               <Badge key={`product-${lineId}`} variant="outline" className="px-3 py-1 border-neon-blue text-neon-blue">
@@ -256,7 +225,7 @@ const TeamFilter = ({ onFilterChange }: TeamFilterProps) => {
             );
           })}
           
-          {selectedCallTypes.map((typeId) => {
+          {(filters.callTypes || []).map((typeId) => {
             const type = getCallType(typeId);
             return (
               <Badge key={`call-${typeId}`} variant="outline" className="px-3 py-1 border-neon-purple text-neon-purple">

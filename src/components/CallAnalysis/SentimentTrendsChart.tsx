@@ -1,49 +1,63 @@
 
 import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 
-interface SentimentTrend {
-  id: string;
-  sentiment_label: 'positive' | 'neutral' | 'negative';
-  confidence: number;
-  recorded_at: string;
-  recorded_at_formatted?: string;
+interface SentimentData {
+  date: string;
+  positive: number;
+  negative: number;
+  neutral: number;
+  total: number;
 }
 
-const SentimentTrendsChart = () => {
+export const SentimentTrendsChart = () => {
   const [isLoading, setIsLoading] = useState(true);
-  const [sentimentTrends, setSentimentTrends] = useState<SentimentTrend[]>([]);
+  const [sentimentData, setSentimentData] = useState<SentimentData[]>([]);
   
   useEffect(() => {
     const fetchSentimentTrends = async () => {
       setIsLoading(true);
       
       try {
-        const { data, error } = await supabase
+        // Fetch data from database table
+        const { data: sentimentTrends, error } = await supabase
           .from('sentiment_trends')
           .select('*')
-          .order('recorded_at', { ascending: true })
-          .limit(100);
+          .order('recorded_at', { ascending: false });
           
         if (error) {
           console.error('Error fetching sentiment trends:', error);
           return;
         }
         
-        // Format data for chart and ensure correct types
-        const formattedData: SentimentTrend[] = data.map(item => ({
-          ...item,
-          sentiment_label: (item.sentiment_label as 'positive' | 'neutral' | 'negative'),
-          recorded_at_formatted: format(new Date(item.recorded_at || new Date()), 'MM/dd HH:mm')
-        }));
-        
-        setSentimentTrends(formattedData);
+        // If we have data, process it by day
+        if (sentimentTrends && sentimentTrends.length > 0) {
+          processSentimentData(sentimentTrends);
+        } else {
+          // Also check call_transcripts table for sentiment data
+          const { data: transcripts, error: transcriptsError } = await supabase
+            .from('call_transcripts')
+            .select('created_at, sentiment');
+            
+          if (transcriptsError) {
+            console.error('Error fetching transcripts for sentiment:', transcriptsError);
+            return;
+          }
+          
+          if (transcripts && transcripts.length > 0) {
+            processSentimentFromTranscripts(transcripts);
+          } else {
+            // If no data from either source, use some placeholder data
+            generatePlaceholderData();
+          }
+        }
       } catch (error) {
-        console.error('Error fetching sentiment trends:', error);
+        console.error('Error in sentiment trends processing:', error);
+        generatePlaceholderData();
       } finally {
         setIsLoading(false);
       }
@@ -51,27 +65,109 @@ const SentimentTrendsChart = () => {
     
     fetchSentimentTrends();
     
-    // Refresh data every 30 seconds
-    const interval = setInterval(fetchSentimentTrends, 30000);
+    // Refresh data every 60 seconds
+    const interval = setInterval(fetchSentimentTrends, 60000);
     return () => clearInterval(interval);
   }, []);
   
-  // Save the current sentiment to the database when a call ends
-  const saveSentimentTrend = async (label: 'positive' | 'neutral' | 'negative', confidence: number) => {
-    try {
-      const { error } = await supabase
-        .from('sentiment_trends')
-        .insert([{
-          sentiment_label: label,
-          confidence
-        }]);
-        
-      if (error) {
-        console.error('Error saving sentiment trend:', error);
-      }
-    } catch (error) {
-      console.error('Error saving sentiment trend:', error);
+  // Process sentiment data from sentiment_trends table
+  const processSentimentData = (sentimentTrends: any[]) => {
+    // Group by day
+    const groupedByDay: Record<string, { positive: number; negative: number; neutral: number; total: number }> = {};
+    
+    // Get the last 7 days
+    for (let i = 6; i >= 0; i--) {
+      const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
+      groupedByDay[date] = { positive: 0, negative: 0, neutral: 0, total: 0 };
     }
+    
+    // Count sentiments by day
+    sentimentTrends.forEach(item => {
+      const date = format(new Date(item.recorded_at), 'yyyy-MM-dd');
+      
+      // Only process last 7 days
+      if (groupedByDay[date]) {
+        groupedByDay[date].total += 1;
+        
+        if (item.sentiment_label === 'positive') {
+          groupedByDay[date].positive += 1;
+        } else if (item.sentiment_label === 'negative') {
+          groupedByDay[date].negative += 1;
+        } else {
+          groupedByDay[date].neutral += 1;
+        }
+      }
+    });
+    
+    // Convert to array format for chart
+    const chartData = Object.entries(groupedByDay).map(([date, counts]) => ({
+      date: format(new Date(date), 'MMM d'),
+      positive: counts.positive,
+      negative: counts.negative,
+      neutral: counts.neutral,
+      total: counts.total
+    }));
+    
+    setSentimentData(chartData);
+  };
+  
+  // Process sentiment data from call_transcripts table
+  const processSentimentFromTranscripts = (transcripts: any[]) => {
+    // Group by day
+    const groupedByDay: Record<string, { positive: number; negative: number; neutral: number; total: number }> = {};
+    
+    // Get the last 7 days
+    for (let i = 6; i >= 0; i--) {
+      const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
+      groupedByDay[date] = { positive: 0, negative: 0, neutral: 0, total: 0 };
+    }
+    
+    // Count sentiments by day
+    transcripts.forEach(item => {
+      const date = format(new Date(item.created_at), 'yyyy-MM-dd');
+      
+      // Only process last 7 days
+      if (groupedByDay[date]) {
+        groupedByDay[date].total += 1;
+        
+        if (item.sentiment === 'positive') {
+          groupedByDay[date].positive += 1;
+        } else if (item.sentiment === 'negative') {
+          groupedByDay[date].negative += 1;
+        } else {
+          groupedByDay[date].neutral += 1;
+        }
+      }
+    });
+    
+    // Convert to array format for chart
+    const chartData = Object.entries(groupedByDay).map(([date, counts]) => ({
+      date: format(new Date(date), 'MMM d'),
+      positive: counts.positive,
+      negative: counts.negative,
+      neutral: counts.neutral,
+      total: counts.total
+    }));
+    
+    setSentimentData(chartData);
+  };
+  
+  // Generate placeholder data if no real data is available
+  const generatePlaceholderData = () => {
+    const data: SentimentData[] = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = format(subDays(new Date(), i), 'MMM d');
+      data.push({
+        date,
+        positive: 0,
+        negative: 0,
+        neutral: 0,
+        total: 0
+      });
+    }
+    
+    setSentimentData(data);
   };
   
   if (isLoading) {
@@ -87,20 +183,6 @@ const SentimentTrendsChart = () => {
     );
   }
   
-  // If no data yet, show a message
-  if (sentimentTrends.length === 0) {
-    return (
-      <Card className="shadow-md">
-        <CardHeader>
-          <CardTitle>Sentiment Trends</CardTitle>
-        </CardHeader>
-        <CardContent className="flex justify-center items-center h-64">
-          <p className="text-muted-foreground">No sentiment data available yet. Complete a call to see trends.</p>
-        </CardContent>
-      </Card>
-    );
-  }
-  
   return (
     <Card className="shadow-md">
       <CardHeader>
@@ -108,37 +190,27 @@ const SentimentTrendsChart = () => {
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart
-            data={sentimentTrends}
+          <BarChart
+            data={sentimentData}
             margin={{
               top: 20,
               right: 30,
               left: 20,
-              bottom: 60,
+              bottom: 20,
             }}
           >
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis 
-              dataKey="recorded_at_formatted" 
-              angle={-45} 
-              textAnchor="end"
-              height={60}
-            />
-            <YAxis domain={[0, 1]} />
+            <XAxis dataKey="date" />
+            <YAxis />
             <Tooltip />
             <Legend />
-            <Line 
-              type="monotone" 
-              dataKey="confidence" 
-              stroke="#8884d8" 
-              name="Sentiment Score"
-              dot={{ r: 4 }}
-            />
-          </LineChart>
+            <Bar dataKey="positive" name="Positive" stackId="a" fill="#10B981" />
+            <Bar dataKey="neutral" name="Neutral" stackId="a" fill="#3B82F6" />
+            <Bar dataKey="negative" name="Negative" stackId="a" fill="#EF4444" />
+            <Line type="monotone" dataKey="total" name="Total Calls" stroke="#9333EA" strokeWidth={2} />
+          </BarChart>
         </ResponsiveContainer>
       </CardContent>
     </Card>
   );
 };
-
-export { SentimentTrendsChart, type SentimentTrend };

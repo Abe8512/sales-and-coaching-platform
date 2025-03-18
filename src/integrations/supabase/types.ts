@@ -9,6 +9,45 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      call_transcripts: {
+        Row: {
+          call_score: number | null
+          created_at: string | null
+          duration: number | null
+          filename: string | null
+          id: string
+          keywords: string[] | null
+          sentiment: string | null
+          text: string
+          transcript_segments: Json | null
+          user_id: string | null
+        }
+        Insert: {
+          call_score?: number | null
+          created_at?: string | null
+          duration?: number | null
+          filename?: string | null
+          id?: string
+          keywords?: string[] | null
+          sentiment?: string | null
+          text: string
+          transcript_segments?: Json | null
+          user_id?: string | null
+        }
+        Update: {
+          call_score?: number | null
+          created_at?: string | null
+          duration?: number | null
+          filename?: string | null
+          id?: string
+          keywords?: string[] | null
+          sentiment?: string | null
+          text?: string
+          transcript_segments?: Json | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       calls: {
         Row: {
           created_at: string | null

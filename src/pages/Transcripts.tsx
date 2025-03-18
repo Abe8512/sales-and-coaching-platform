@@ -22,6 +22,13 @@ const Transcripts = () => {
   const [selectedTranscript, setSelectedTranscript] = useState<StoredTranscription | null>(null);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(false);
+  
+  // Check for API key
+  useEffect(() => {
+    const apiKey = localStorage.getItem("openai_api_key");
+    setHasApiKey(Boolean(apiKey && apiKey.trim() !== ''));
+  }, []);
   
   useEffect(() => {
     loadTranscriptions();
@@ -32,6 +39,12 @@ const Transcripts = () => {
     const stored = getStoredTranscriptions();
     setTranscriptions(stored);
     setFilteredTranscriptions(stored);
+    
+    // Select the first transcript if available and none selected
+    if (stored.length > 0 && !selectedTranscript) {
+      setSelectedTranscript(stored[0]);
+    }
+    
     setIsLoading(false);
   };
   
@@ -69,6 +82,10 @@ const Transcripts = () => {
     if (score >= 60) return "text-amber-500";
     return "text-red-500";
   };
+  
+  const handleTranscriptEnd = () => {
+    loadTranscriptions();
+  };
 
   return (
     <DashboardLayout>
@@ -94,7 +111,19 @@ const Transcripts = () => {
             <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             </Button>
-            <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
+            <BulkUploadButton 
+              onClick={() => {
+                if (!hasApiKey) {
+                  toast({
+                    title: "API Key Required",
+                    description: "Please set your OpenAI API key in Settings first", 
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                setIsBulkUploadOpen(true);
+              }} 
+            />
           </div>
         </div>
         
@@ -107,7 +136,9 @@ const Transcripts = () => {
                   <Badge variant="outline">{filteredTranscriptions.length}</Badge>
                 </div>
                 <CardDescription>
-                  Select a transcript to view details
+                  {filteredTranscriptions.length > 0 
+                    ? "Select a transcript to view details"
+                    : "Upload audio files to generate transcripts"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -159,7 +190,21 @@ const Transcripts = () => {
                         {searchTerm ? "Try a different search term" : "Upload audio files to get started"}
                       </p>
                       {!searchTerm && (
-                        <Button variant="outline" className="mt-4" onClick={() => setIsBulkUploadOpen(true)}>
+                        <Button 
+                          variant="outline" 
+                          className="mt-4" 
+                          onClick={() => {
+                            if (!hasApiKey) {
+                              toast({
+                                title: "API Key Required",
+                                description: "Please set your OpenAI API key in Settings first", 
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                            setIsBulkUploadOpen(true);
+                          }}
+                        >
                           Upload Audio Files
                         </Button>
                       )}

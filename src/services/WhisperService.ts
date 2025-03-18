@@ -31,6 +31,7 @@ let OPENAI_API_KEY = localStorage.getItem("openai_api_key") || "";
 
 export const setOpenAIKey = (key: string) => {
   OPENAI_API_KEY = key;
+  localStorage.setItem("openai_api_key", key);
 };
 
 // Utility function to get all stored transcriptions
@@ -120,6 +121,29 @@ const generateCallScore = (text: string): number => {
   return Math.max(0, Math.min(100, score));
 };
 
+// Calculate audio duration in seconds based on audio file
+const calculateAudioDuration = async (audioBlob: Blob): Promise<number> => {
+  return new Promise((resolve) => {
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(audioUrl);
+    
+    audio.addEventListener('loadedmetadata', () => {
+      const duration = audio.duration;
+      URL.revokeObjectURL(audioUrl);
+      resolve(Math.round(duration));
+    });
+    
+    // Fallback if metadata doesn't load properly
+    audio.addEventListener('error', () => {
+      URL.revokeObjectURL(audioUrl);
+      // Estimate duration based on file size (very rough approximation)
+      // Assuming 16bit 16kHz mono audio (~32kB per second)
+      const estimatedSeconds = Math.round(audioBlob.size / 32000);
+      resolve(estimatedSeconds > 0 ? estimatedSeconds : 60); // Default to 60 seconds if calculation fails
+    });
+  });
+};
+
 export const useWhisperService = () => {
   const { toast } = useToast();
 
@@ -141,6 +165,11 @@ export const useWhisperService = () => {
       formData.append("model", "whisper-1");
       formData.append("response_format", "verbose_json");
       
+      toast({
+        title: "Transcribing",
+        description: "Processing audio with Whisper API...",
+      });
+      
       const response = await fetch(
         "https://api.openai.com/v1/audio/transcriptions",
         {
@@ -157,7 +186,14 @@ export const useWhisperService = () => {
         throw new Error(error.error?.message || "Failed to transcribe audio");
       }
 
-      return await response.json();
+      const result = await response.json();
+      
+      toast({
+        title: "Transcription Complete",
+        description: "Audio has been successfully transcribed",
+      });
+      
+      return result;
     } catch (error) {
       console.error("Whisper transcription error:", error);
       toast({
@@ -169,29 +205,43 @@ export const useWhisperService = () => {
     }
   };
 
-  const saveTranscriptionWithAnalysis = (text: string, filename?: string): StoredTranscription => {
+  const saveTranscriptionWithAnalysis = async (text: string, audioBlob?: Blob, filename?: string): Promise<StoredTranscription> => {
     const id = crypto.randomUUID();
     const sentiment = analyzeSentiment(text);
     const keywords = extractKeywords(text);
     const callScore = generateCallScore(text);
+    
+    // Calculate duration if audioBlob is provided
+    let duration: number | undefined;
+    if (audioBlob) {
+      duration = await calculateAudioDuration(audioBlob);
+    }
     
     const transcription: StoredTranscription = {
       id,
       text,
       filename,
       date: new Date().toISOString(),
+      duration,
       sentiment,
       keywords,
       callScore
     };
     
     saveTranscription(transcription);
+    
+    toast({
+      title: "Analysis Complete",
+      description: "Transcription and analysis have been saved",
+    });
+    
     return transcription;
   };
 
   return {
     transcribeAudio,
     saveTranscriptionWithAnalysis,
-    getStoredTranscriptions
+    getStoredTranscriptions,
+    setOpenAIKey
   };
 };

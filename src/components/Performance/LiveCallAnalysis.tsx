@@ -4,10 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Mic, MicOff, MessageSquare, Settings, Zap } from "lucide-react";
-import { useWhisperService, setOpenAIKey } from "@/services/WhisperService";
+import { useWhisperService } from "@/services/WhisperService";
 import AIWaveform from "../ui/AIWaveform";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 
@@ -29,14 +29,14 @@ const LiveCallAnalysis = () => {
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { transcribeAudio, saveTranscriptionWithAnalysis } = useWhisperService();
+  const { transcribeAudio, saveTranscriptionWithAnalysis, setOpenAIKey } = useWhisperService();
 
   useEffect(() => {
     // Check if API key exists in localStorage
     const storedKey = localStorage.getItem("openai_api_key");
     if (storedKey) {
       setHasApiKey(true);
-      setOpenAIKey(storedKey);
+      setApiKey(storedKey);
     }
   }, []);
 
@@ -98,49 +98,10 @@ const LiveCallAnalysis = () => {
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
       setRecordingDuration(0);
+      setTranscript("");
 
       mediaRecorderRef.current.ondataavailable = (e) => {
         audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorderRef.current.onstop = async () => {
-        // Final processing happens in stopRecording
-      };
-
-      // Process audio in chunks for real-time analysis
-      const processAudioChunk = async () => {
-        if (!isRecording) return;
-        
-        if (audioChunksRef.current.length > 0 && !processingChunk) {
-          setProcessingChunk(true);
-          
-          // Create a copy of current chunks and process them
-          const currentChunks = [...audioChunksRef.current];
-          const audioBlob = new Blob(currentChunks, { type: "audio/webm" });
-          
-          try {
-            const result = await transcribeAudio(audioBlob);
-            
-            if (result) {
-              setTranscript(prev => {
-                const newTranscript = prev + " " + result.text;
-                // Generate new suggestions based on updated transcript
-                const newSuggestions = generateSuggestions(newTranscript);
-                setSuggestions(newSuggestions);
-                return newTranscript;
-              });
-            }
-          } catch (error) {
-            console.error("Error processing audio chunk:", error);
-          } finally {
-            setProcessingChunk(false);
-          }
-        }
-        
-        // Schedule next chunk processing if still recording
-        if (isRecording) {
-          setTimeout(processAudioChunk, 15000); // Process every 15 seconds
-        }
       };
 
       // Start the recorder and timer
@@ -151,9 +112,6 @@ const LiveCallAnalysis = () => {
       recordingTimerRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
-      
-      // Initial processing after a short delay
-      setTimeout(processAudioChunk, 5000);
       
       toast({
         title: "Recording Started",
@@ -191,6 +149,7 @@ const LiveCallAnalysis = () => {
       // Process the entire recording
       if (audioChunksRef.current.length > 0) {
         try {
+          setProcessingChunk(true);
           const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
           const result = await transcribeAudio(audioBlob);
           
@@ -203,7 +162,8 @@ const LiveCallAnalysis = () => {
             setSuggestions(finalSuggestions);
             
             // Save the full transcription with analysis
-            saveTranscriptionWithAnalysis(result.text, `Live Call ${new Date().toLocaleString()}`);
+            const audioFileName = `Live Call ${new Date().toLocaleString()}`;
+            await saveTranscriptionWithAnalysis(result.text, audioBlob, audioFileName);
             
             toast({
               title: "Analysis Complete",
@@ -217,6 +177,8 @@ const LiveCallAnalysis = () => {
             description: "Could not process the recording",
             variant: "destructive",
           });
+        } finally {
+          setProcessingChunk(false);
         }
       }
     }
@@ -224,7 +186,6 @@ const LiveCallAnalysis = () => {
 
   const saveApiKey = () => {
     setOpenAIKey(apiKey);
-    localStorage.setItem("openai_api_key", apiKey);
     setHasApiKey(true);
     setOpenAPIKeyDialog(false);
     toast({
@@ -249,7 +210,7 @@ const LiveCallAnalysis = () => {
         <div className="flex justify-between items-center">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Mic className="h-5 w-5 text-neon-blue" />
+              <Mic className="h-5 w-5 text-blue-500" />
               Live Call Analysis
             </CardTitle>
             <CardDescription>
@@ -279,10 +240,10 @@ const LiveCallAnalysis = () => {
                     Your API key is stored locally and never sent to our servers
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <DialogFooter>
                   <Button onClick={saveApiKey} className="flex-1">Save API Key</Button>
                   <Button onClick={goToSettings} variant="outline" className="flex-1">Go to Settings</Button>
-                </div>
+                </DialogFooter>
               </div>
             </DialogContent>
           </Dialog>
@@ -305,7 +266,7 @@ const LiveCallAnalysis = () => {
             <Button
               onClick={isRecording ? stopRecording : startRecording}
               disabled={!hasApiKey || processingChunk}
-              className={`${isRecording ? "bg-red-500 hover:bg-red-600" : "bg-neon-blue hover:bg-neon-blue/80"} text-white px-6 py-6 rounded-full h-auto`}
+              className={`${isRecording ? "bg-red-500 hover:bg-red-600" : "bg-blue-500 hover:bg-blue-600"} text-white px-6 py-6 rounded-full h-auto`}
             >
               {isRecording ? (
                 <MicOff className="h-8 w-8" />
@@ -342,15 +303,15 @@ const LiveCallAnalysis = () => {
               </p>
             </div>
             
-            <div className="p-4 border border-neon-blue/30 bg-neon-blue/5 rounded-lg">
-              <h3 className="text-sm font-medium mb-2 flex items-center gap-2 text-neon-blue">
+            <div className="p-4 border border-blue-500/30 bg-blue-500/5 rounded-lg">
+              <h3 className="text-sm font-medium mb-2 flex items-center gap-2 text-blue-500">
                 <Zap className="h-4 w-4" />
                 Live Suggestions
               </h3>
               <ul className="space-y-2">
                 {suggestions.map((suggestion, i) => (
                   <li key={i} className="text-sm flex items-start gap-2">
-                    <div className="w-1 h-1 rounded-full bg-neon-blue mt-2"></div>
+                    <div className="w-1 h-1 rounded-full bg-blue-500 mt-2"></div>
                     <span>{suggestion}</span>
                   </li>
                 ))}

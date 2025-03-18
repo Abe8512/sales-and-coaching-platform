@@ -1,5 +1,5 @@
 
-import React, { useContext, useState, useRef } from "react";
+import React, { useContext, useState, useRef, useEffect } from "react";
 import { X, Upload, CheckCircle, Clock, AlertCircle, FileAudio } from "lucide-react";
 import { ThemeContext } from "@/App";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
@@ -29,18 +29,25 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
   const [dragActive, setDragActive] = useState(false);
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [openAIKeyMissing, setOpenAIKeyMissing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  useEffect(() => {
+    // Check if OpenAI API key exists
+    const apiKey = localStorage.getItem("openai_api_key");
+    setOpenAIKeyMissing(!apiKey || apiKey.trim() === '');
+  }, [isOpen]);
   
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "complete":
-        return <CheckCircle className="h-4 w-4 text-neon-green" />;
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
       case "processing":
-        return <Clock className="h-4 w-4 text-neon-blue" />;
+        return <Clock className="h-4 w-4 text-blue-500" />;
       case "queued":
         return <Clock className="h-4 w-4 text-gray-400" />;
       case "error":
-        return <AlertCircle className="h-4 w-4 text-neon-red" />;
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
       default:
         return <Clock className="h-4 w-4 text-gray-400" />;
     }
@@ -74,13 +81,17 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
 
   const handleFiles = (fileList: FileList) => {
     const audioFiles = Array.from(fileList).filter(file => 
-      file.type.includes('audio') || file.name.toLowerCase().endsWith('.wav')
+      file.type.includes('audio') || 
+      file.name.toLowerCase().endsWith('.wav') ||
+      file.name.toLowerCase().endsWith('.mp3') ||
+      file.name.toLowerCase().endsWith('.m4a') ||
+      file.name.toLowerCase().endsWith('.webm')
     );
     
     if (audioFiles.length === 0) {
       toast({
         title: "Invalid Files",
-        description: "Please upload audio files only (WAV, MP3, etc.)",
+        description: "Please upload audio files only (WAV, MP3, M4A, etc.)",
         variant: "destructive",
       });
       return;
@@ -104,6 +115,15 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
   const processFiles = async () => {
     if (files.length === 0 || isUploading) return;
     
+    if (openAIKeyMissing) {
+      toast({
+        title: "API Key Missing",
+        description: "Please set your OpenAI API key in the Settings page",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setIsUploading(true);
     
     // Process files sequentially
@@ -119,25 +139,22 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
           prev.map(f => f.id === file.id ? { ...f, status: "processing", progress: 10 } : f)
         );
         
-        // Simulating progress updates
-        const progressInterval = setInterval(() => {
-          setFiles(prev => {
-            const currentFile = prev.find(f => f.id === file.id);
-            if (currentFile && currentFile.status === "processing" && currentFile.progress < 90) {
-              return prev.map(f => 
-                f.id === file.id ? { ...f, progress: Math.min(f.progress + 10, 90) } : f
-              );
-            }
-            return prev;
-          });
-        }, 500);
+        // Update progress as we process
+        setFiles(prev => 
+          prev.map(f => f.id === file.id ? { ...f, progress: 30 } : f)
+        );
         
         // Transcribe the audio file
         const result = await transcribeAudio(file.file);
         
-        clearInterval(progressInterval);
+        setFiles(prev => 
+          prev.map(f => f.id === file.id ? { ...f, progress: 70 } : f)
+        );
         
         if (result) {
+          // Save transcription with analysis
+          await saveTranscriptionWithAnalysis(result.text, file.file, file.file.name);
+          
           setFiles(prev => 
             prev.map(f => f.id === file.id ? { 
               ...f, 
@@ -146,9 +163,6 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
               result: result.text
             } : f)
           );
-          
-          // Save transcription with analysis
-          saveTranscriptionWithAnalysis(result.text, file.file.name);
         } else {
           throw new Error("Transcription failed");
         }
@@ -187,16 +201,24 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
         <DialogHeader>
           <DialogTitle className={isDarkMode ? "text-white" : "text-gray-800"}>Bulk Upload Recordings</DialogTitle>
           <DialogDescription className={isDarkMode ? "text-gray-400" : "text-gray-500"}>
-            Upload multiple audio files for analysis and transcription
+            Upload multiple audio files for transcription and analysis with Whisper AI
           </DialogDescription>
         </DialogHeader>
+        
+        {openAIKeyMissing && (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 mb-4">
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              OpenAI API key is required for transcription. Please set your API key in the Settings page.
+            </p>
+          </div>
+        )}
         
         <div 
           className={`mt-4 border-2 border-dashed rounded-lg p-8 text-center ${
             dragActive 
               ? isDarkMode 
-                ? "border-neon-purple bg-neon-purple/10" 
-                : "border-neon-purple bg-neon-purple/5"
+                ? "border-purple-500 bg-purple-500/10" 
+                : "border-purple-500 bg-purple-500/5"
               : isDarkMode
                 ? "border-gray-700 hover:border-gray-600"
                 : "border-gray-300 hover:border-gray-400"
@@ -212,13 +234,13 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
             id="fileInput" 
             type="file" 
             multiple 
-            accept="audio/*,.wav" 
+            accept="audio/*,.wav,.mp3,.m4a,.webm" 
             className="hidden" 
             onChange={handleFileInputChange}
           />
           <Upload className={`mx-auto h-12 w-12 mb-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`} />
           <h3 className={`font-medium mb-1 ${isDarkMode ? "text-white" : "text-gray-800"}`}>
-            Drop files here or click to browse
+            Drop audio files here or click to browse
           </h3>
           <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
             Supports WAV, MP3, M4A and other audio formats
@@ -246,7 +268,7 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
                     } border-b last:border-b-0`}
                   >
                     <div className="flex items-center gap-3 overflow-hidden">
-                      <FileAudio className="h-5 w-5 text-neon-purple flex-shrink-0" />
+                      <FileAudio className="h-5 w-5 text-purple-500 flex-shrink-0" />
                       <div className="overflow-hidden">
                         <p className={`text-sm truncate ${isDarkMode ? "text-white" : "text-gray-800"}`}>
                           {file.file.name}
@@ -266,6 +288,7 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
                         size="icon" 
                         className="h-6 w-6"
                         onClick={() => removeFile(file.id)}
+                        disabled={file.status === "processing"}
                       >
                         <X className="h-3 w-3" />
                       </Button>
@@ -289,10 +312,10 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
           </DialogClose>
           <Button 
             onClick={processFiles}
-            disabled={files.length === 0 || isUploading || files.every(f => f.status === "complete")}
-            className="bg-neon-purple hover:bg-neon-purple/90 text-white"
+            disabled={files.length === 0 || isUploading || files.every(f => f.status === "complete") || openAIKeyMissing}
+            className="bg-purple-600 hover:bg-purple-700 text-white"
           >
-            {isUploading ? "Processing..." : "Process Files"}
+            {isUploading ? "Processing..." : "Process with Whisper AI"}
           </Button>
         </div>
       </DialogContent>

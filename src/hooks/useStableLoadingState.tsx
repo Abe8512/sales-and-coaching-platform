@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 
 /**
  * Creates a stable loading state to prevent quick flashes of loading indicators

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { animationUtils } from "@/utils/animationUtils";
@@ -31,7 +31,7 @@ export const ContentLoader: React.FC<ContentLoaderProps> = ({
   const [showContent, setShowContent] = useState(!isLoading);
   const [delayedLoading, setDelayedLoading] = useState(isLoading);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
-  const contentRef = React.useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   
   // Stabilize state changes to prevent rapid toggling
   const stableSetDelayedLoading = animationUtils.debounce(setDelayedLoading, 100);

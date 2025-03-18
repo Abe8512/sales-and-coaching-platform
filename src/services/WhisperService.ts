@@ -25,11 +25,24 @@ export interface StoredTranscription {
   callScore?: number;
   sentiment?: 'positive' | 'neutral' | 'negative';
   keywords?: string[];
+  // New fields for better speaker diarization
+  transcript_segments?: TranscriptSegment[];
+}
+
+// Inspired by the example's TranscriptSegment format
+export interface TranscriptSegment {
+  id: number;
+  start: number;
+  end: number;
+  text: string;
+  speaker: string;  // "Agent" or "Customer"
+  confidence: number;
 }
 
 // Get API key from localStorage if available
 let OPENAI_API_KEY = localStorage.getItem("openai_api_key") || "";
 let useLocalWhisper = localStorage.getItem("use_local_whisper") === "true";
+let numSpeakers = Number(localStorage.getItem("num_speakers")) || 2;
 
 export const setOpenAIKey = (key: string) => {
   OPENAI_API_KEY = key;
@@ -43,6 +56,15 @@ export const setUseLocalWhisper = (value: boolean) => {
 
 export const getUseLocalWhisper = (): boolean => {
   return useLocalWhisper;
+};
+
+export const setNumSpeakers = (value: number) => {
+  numSpeakers = value;
+  localStorage.setItem("num_speakers", value.toString());
+};
+
+export const getNumSpeakers = (): number => {
+  return numSpeakers;
 };
 
 // Utility function to get all stored transcriptions
@@ -175,6 +197,41 @@ const loadWhisperModel = async () => {
     }
   }
   return whisperModel;
+};
+
+// New function to split transcript into segments by speaker
+const splitBySpeaker = (result: WhisperTranscriptionResponse, numberOfSpeakers: number = 2): TranscriptSegment[] => {
+  if (!result.segments || result.segments.length === 0) {
+    // If no segments, create a single segment with the full text
+    return [{
+      id: 1,
+      start: 0,
+      end: 30, // Arbitrary end time if not known
+      text: result.text,
+      speaker: "Agent", // Default to Agent
+      confidence: 0.9
+    }];
+  }
+  
+  // Simple algorithm to alternate speakers
+  // In a real app, you'd use a proper diarization model
+  const segments: TranscriptSegment[] = result.segments.map((segment, index) => {
+    // Simple alternating pattern for agent/customer
+    // For more than 2 speakers, you'd need a more complex approach
+    const speakerIndex = index % numberOfSpeakers;
+    const speaker = speakerIndex === 0 ? "Agent" : "Customer";
+    
+    return {
+      id: segment.id,
+      start: segment.start,
+      end: segment.end,
+      text: segment.text,
+      speaker,
+      confidence: segment.confidence
+    };
+  });
+  
+  return segments;
 };
 
 export const useWhisperService = () => {
@@ -357,12 +414,202 @@ export const useWhisperService = () => {
     return transcription;
   };
 
+  // New function for real-time transcription inspired by the example
+  const startRealtimeTranscription = async (
+    onTranscriptUpdate: (text: string) => void,
+    onError: (error: string) => void
+  ) => {
+    // Check if browser supports Web Audio API
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      onError("Your browser doesn't support audio recording");
+      return { stop: () => {} };
+    }
+
+    try {
+      // Get audio stream
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let mediaRecorder: MediaRecorder | null = null;
+      let audioChunks: Blob[] = [];
+      let isProcessing = false;
+      
+      // Create a MediaRecorder to capture audio
+      mediaRecorder = new MediaRecorder(stream);
+      
+      // Process audio in chunks
+      mediaRecorder.ondataavailable = async (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+          
+          // Process audio if we're not already processing
+          if (!isProcessing && audioChunks.length > 0) {
+            isProcessing = true;
+            
+            // Create a blob from all accumulated chunks
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            
+            try {
+              // Use either local or API-based transcription
+              let result: WhisperTranscriptionResponse | null;
+              
+              if (useLocalWhisper) {
+                // We'll use a simpler approach for real-time with the local model
+                const model = await loadWhisperModel();
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const modelResult = await model(audioUrl);
+                URL.revokeObjectURL(audioUrl);
+                
+                result = {
+                  text: modelResult.text,
+                  language: 'en'
+                };
+              } else {
+                // Use the API
+                result = await transcribeWithAPI(audioBlob);
+              }
+              
+              if (result && result.text) {
+                onTranscriptUpdate(result.text);
+              }
+            } catch (error) {
+              console.error("Real-time transcription error:", error);
+              onError(error instanceof Error ? error.message : "Transcription failed");
+            } finally {
+              isProcessing = false;
+            }
+          }
+        }
+      };
+      
+      // Start recording
+      mediaRecorder.start(10000); // Collect 10 seconds of audio at a time
+      
+      // Return an object with a method to stop the recording
+      return {
+        stop: () => {
+          if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+            stream.getTracks().forEach(track => track.stop());
+          }
+        }
+      };
+    } catch (error) {
+      console.error("Error starting real-time transcription:", error);
+      onError(error instanceof Error ? error.message : "Failed to start recording");
+      return { stop: () => {} };
+    }
+  };
+
+  // New function to analyze call from a URL (inspired by the example)
+  const analyzeCallFromUrl = async (url: string): Promise<StoredTranscription | null> => {
+    try {
+      toast({
+        title: "Fetching Audio",
+        description: "Downloading audio file from URL...",
+      });
+      
+      // Fetch the audio file
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audio file: ${response.statusText}`);
+      }
+      
+      const audioBlob = await response.blob();
+      
+      // Extract filename from URL
+      const urlParts = url.split('/');
+      const filename = urlParts[urlParts.length - 1] || "recording.wav";
+      
+      // Transcribe the audio
+      const result = await transcribeAudio(audioBlob);
+      
+      if (!result) {
+        throw new Error("Transcription failed");
+      }
+      
+      // Process the transcription into segments by speaker
+      const transcriptSegments = splitBySpeaker(result, numSpeakers);
+      
+      // Save the transcription with analysis
+      const transcription = await saveTranscriptionWithAnalysis(result.text, audioBlob, filename);
+      
+      // Add the transcript segments
+      transcription.transcript_segments = transcriptSegments;
+      
+      // Update in storage
+      const transcriptions = getStoredTranscriptions();
+      const index = transcriptions.findIndex(t => t.id === transcription.id);
+      if (index >= 0) {
+        transcriptions[index] = transcription;
+        localStorage.setItem('transcriptions', JSON.stringify(transcriptions));
+      }
+      
+      return transcription;
+    } catch (error) {
+      console.error("Error analyzing call from URL:", error);
+      toast({
+        title: "Analysis Failed",
+        description: error instanceof Error ? error.message : "Failed to analyze call",
+        variant: "destructive",
+      });
+      return null;
+    }
+  };
+
+  // Enhanced saveTranscriptionWithAnalysis to include segments
+  const saveTranscriptionWithFullAnalysis = async (
+    result: WhisperTranscriptionResponse, 
+    audioBlob?: Blob, 
+    filename?: string
+  ): Promise<StoredTranscription> => {
+    const text = result.text;
+    const id = crypto.randomUUID();
+    const sentiment = analyzeSentiment(text);
+    const keywords = extractKeywords(text);
+    const callScore = generateCallScore(text);
+    
+    // Calculate duration if audioBlob is provided
+    let duration: number | undefined;
+    if (audioBlob) {
+      duration = await calculateAudioDuration(audioBlob);
+    }
+    
+    // Generate transcript segments with speaker diarization
+    const transcriptSegments = splitBySpeaker(result, numSpeakers);
+    
+    const transcription: StoredTranscription = {
+      id,
+      text,
+      filename,
+      date: new Date().toISOString(),
+      duration,
+      sentiment,
+      keywords,
+      callScore,
+      transcript_segments: transcriptSegments
+    };
+    
+    saveTranscription(transcription);
+    
+    toast({
+      title: "Analysis Complete",
+      description: "Transcription and analysis have been saved",
+    });
+    
+    return transcription;
+  };
+
   return {
     transcribeAudio,
     saveTranscriptionWithAnalysis,
+    saveTranscriptionWithFullAnalysis,
     getStoredTranscriptions,
     setOpenAIKey,
     setUseLocalWhisper,
-    getUseLocalWhisper
+    getUseLocalWhisper,
+    setNumSpeakers,
+    getNumSpeakers,
+    startRealtimeTranscription,
+    analyzeCallFromUrl
   };
 };

@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, MicOff, MessageSquare, Settings, Zap, ToggleLeft, ToggleRight } from "lucide-react";
+import { Mic, MicOff, MessageSquare, Settings, Zap, ToggleLeft, ToggleRight, UserCircle, Radio, Slider } from "lucide-react";
 import { useWhisperService } from "@/services/WhisperService";
 import AIWaveform from "../ui/AIWaveform";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const LiveCallAnalysis = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -27,9 +28,17 @@ const LiveCallAnalysis = () => {
   const [processingChunk, setProcessingChunk] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [useLocalWhisper, setUseLocalWhisper] = useState(false);
+  const [numSpeakers, setNumSpeakers] = useState(2);
+  const [isTalkingMap, setIsTalkingMap] = useState<Record<string, boolean>>({
+    agent: false,
+    customer: false
+  });
+  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const realtimeTranscriptionRef = useRef<{ stop: () => void } | null>(null);
+  
   const navigate = useNavigate();
   const { toast } = useToast();
   const { 
@@ -37,7 +46,10 @@ const LiveCallAnalysis = () => {
     saveTranscriptionWithAnalysis, 
     setOpenAIKey, 
     setUseLocalWhisper: saveUseLocalWhisperSetting, 
-    getUseLocalWhisper 
+    getUseLocalWhisper,
+    setNumSpeakers: saveNumSpeakers,
+    getNumSpeakers,
+    startRealtimeTranscription
   } = useWhisperService();
 
   useEffect(() => {
@@ -50,7 +62,20 @@ const LiveCallAnalysis = () => {
     
     // Check if local Whisper is enabled
     setUseLocalWhisper(getUseLocalWhisper());
-  }, [getUseLocalWhisper]);
+    
+    // Check number of speakers
+    setNumSpeakers(getNumSpeakers());
+    
+    // Cleanup on unmount
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      if (realtimeTranscriptionRef.current) {
+        realtimeTranscriptionRef.current.stop();
+      }
+    };
+  }, [getUseLocalWhisper, getNumSpeakers]);
 
   // Generate AI suggestions based on transcript content
   const generateSuggestions = (text: string) => {
@@ -106,29 +131,45 @@ const LiveCallAnalysis = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
+      setIsRecording(true);
       setRecordingDuration(0);
       setTranscript("");
-
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        audioChunksRef.current.push(e.data);
-      };
-
-      // Start the recorder and timer
-      mediaRecorderRef.current.start(5000); // Collect data in 5-second chunks
-      setIsRecording(true);
       
       // Start timer to track recording duration
       recordingTimerRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
+        
+        // Simulate speaking feedback (randomly toggle who is talking)
+        if (Math.random() > 0.7) {
+          setIsTalkingMap(prev => ({
+            agent: Math.random() > 0.5,
+            customer: Math.random() > 0.5
+          }));
+        }
       }, 1000);
       
       toast({
         title: "Recording Started",
         description: "Listening to your call for analysis",
       });
+      
+      // Start real-time transcription
+      realtimeTranscriptionRef.current = await startRealtimeTranscription(
+        // On transcript update
+        (newTranscript) => {
+          setTranscript(newTranscript);
+          const newSuggestions = generateSuggestions(newTranscript);
+          setSuggestions(newSuggestions);
+        },
+        // On error
+        (error) => {
+          toast({
+            title: "Transcription Error",
+            description: error,
+            variant: "destructive",
+          });
+        }
+      );
     } catch (error) {
       console.error("Error starting recording:", error);
       toast({
@@ -136,62 +177,48 @@ const LiveCallAnalysis = () => {
         description: "Could not access microphone",
         variant: "destructive",
       });
+      setIsRecording(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
     }
   };
 
   const stopRecording = async () => {
-    if (mediaRecorderRef.current && isRecording) {
-      // Stop the media recorder
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      
+    if (isRecording) {
       // Stop the duration timer
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
       }
       
+      // Stop real-time transcription
+      if (realtimeTranscriptionRef.current) {
+        realtimeTranscriptionRef.current.stop();
+        realtimeTranscriptionRef.current = null;
+      }
+      
       setIsRecording(false);
+      setIsTalkingMap({ agent: false, customer: false });
       
       toast({
         title: "Recording Stopped",
-        description: `Analyzing your call${useLocalWhisper ? " using local Whisper model" : ""}...`,
+        description: "Finalizing your call analysis"
       });
       
-      // Process the entire recording
-      if (audioChunksRef.current.length > 0) {
-        try {
-          setProcessingChunk(true);
-          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-          const result = await transcribeAudio(audioBlob);
+      try {
+        // Save the final transcript
+        if (transcript) {
+          const audioFileName = `Live Call ${new Date().toLocaleString()}`;
+          await saveTranscriptionWithAnalysis(transcript, undefined, audioFileName);
           
-          if (result) {
-            // Update the displayed transcript
-            setTranscript(result.text);
-            
-            // Generate final suggestions
-            const finalSuggestions = generateSuggestions(result.text);
-            setSuggestions(finalSuggestions);
-            
-            // Save the full transcription with analysis
-            const audioFileName = `Live Call ${new Date().toLocaleString()}`;
-            await saveTranscriptionWithAnalysis(result.text, audioBlob, audioFileName);
-            
-            toast({
-              title: "Analysis Complete",
-              description: "Your call has been analyzed and saved",
-            });
-          }
-        } catch (error) {
-          console.error("Error processing final recording:", error);
           toast({
-            title: "Analysis Failed",
-            description: "Could not process the recording",
-            variant: "destructive",
+            title: "Analysis Complete",
+            description: "Your call has been analyzed and saved",
           });
-        } finally {
-          setProcessingChunk(false);
         }
+      } catch (error) {
+        console.error("Error saving final transcript:", error);
       }
     }
   };
@@ -203,6 +230,16 @@ const LiveCallAnalysis = () => {
     toast({
       title: "API Key Saved",
       description: "Your OpenAI API key has been saved",
+    });
+  };
+  
+  const updateNumSpeakers = (value: string) => {
+    const num = parseInt(value, 10);
+    setNumSpeakers(num);
+    saveNumSpeakers(num);
+    toast({
+      title: "Speakers Updated",
+      description: `Set to ${num} speakers for diarization`,
     });
   };
 
@@ -248,7 +285,7 @@ const LiveCallAnalysis = () => {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>OpenAI API Settings</DialogTitle>
+                <DialogTitle>Call Analysis Settings</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
@@ -274,8 +311,30 @@ const LiveCallAnalysis = () => {
                 <p className="text-xs text-muted-foreground">
                   Local Whisper runs directly in your browser. It's a bit slower but doesn't require an API key.
                 </p>
+                
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="num-speakers">Number of Speakers</Label>
+                  <Select 
+                    value={numSpeakers.toString()} 
+                    onValueChange={updateNumSpeakers}
+                  >
+                    <SelectTrigger id="num-speakers">
+                      <SelectValue placeholder="Select number of speakers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 Speaker</SelectItem>
+                      <SelectItem value="2">2 Speakers</SelectItem>
+                      <SelectItem value="3">3 Speakers</SelectItem>
+                      <SelectItem value="4">4 Speakers</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Helps with speaker identification in transcripts
+                  </p>
+                </div>
+                
                 <DialogFooter>
-                  <Button onClick={saveApiKey} className="flex-1" disabled={useLocalWhisper && !apiKey.trim()}>Save API Key</Button>
+                  <Button onClick={saveApiKey} className="flex-1" disabled={useLocalWhisper && !apiKey.trim()}>Save Settings</Button>
                   <Button onClick={goToSettings} variant="outline" className="flex-1">Go to Settings</Button>
                 </DialogFooter>
               </div>
@@ -332,6 +391,13 @@ const LiveCallAnalysis = () => {
                 )}
               </Label>
             </div>
+            
+            <div className="flex items-center space-x-3">
+              <Radio className="h-4 w-4 text-blue-500" />
+              <span className="text-sm">
+                Speakers: {numSpeakers}
+              </span>
+            </div>
           </div>
           
           <div className="flex justify-center items-center flex-col gap-2">
@@ -360,9 +426,25 @@ const LiveCallAnalysis = () => {
             )}
           </div>
           
-          <div className="flex items-center justify-center h-8">
-            {isRecording && <AIWaveform color="blue" barCount={20} className="h-full" />}
-          </div>
+          {isRecording && (
+            <div className="flex items-center justify-center gap-6 py-2">
+              <div className="flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full ${isTalkingMap.agent ? "bg-blue-500" : "bg-blue-200"} flex items-center justify-center`}>
+                  <UserCircle className="h-5 w-5 text-white" />
+                </div>
+                <span className="text-xs mt-1">Agent</span>
+                {isTalkingMap.agent && <AIWaveform color="blue" barCount={5} className="h-3 mt-1" />}
+              </div>
+              
+              <div className="flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full ${isTalkingMap.customer ? "bg-pink-500" : "bg-pink-200"} flex items-center justify-center`}>
+                  <UserCircle className="h-5 w-5 text-white" />
+                </div>
+                <span className="text-xs mt-1">Customer</span>
+                {isTalkingMap.customer && <AIWaveform color="pink" barCount={5} className="h-3 mt-1" />}
+              </div>
+            </div>
+          )}
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
             <div className="p-4 border rounded-lg bg-muted/50 min-h-[200px] max-h-[300px] overflow-y-auto">

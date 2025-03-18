@@ -1,11 +1,12 @@
 
 import React, { useContext, useEffect, useState } from "react";
-import { Copy, Flag, Play, User } from "lucide-react";
+import { Copy, Flag, Play, User, MicWaveform } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
 import { ThemeContext } from "@/App";
 import WhisperButton from "../Whisper/WhisperButton";
-import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
+import SpeechToTextRecorder from "../Whisper/SpeechToTextRecorder";
+import { getStoredTranscriptions, StoredTranscription, TranscriptSegment } from "@/services/WhisperService";
 import { useToast } from "@/hooks/use-toast";
 
 interface MessageProps {
@@ -71,55 +72,88 @@ const CallTranscript = () => {
       
       setTranscript(latest);
       
-      // Try to parse the transcript text into a conversation
-      // This is a simple parsing logic, can be improved for better conversation structure
-      try {
-        const text = latest.text;
-        
-        // Split by newlines or obvious speaker indicators
-        const segments = text.split(/\n|(?:Agent:|Customer:|Speaker \d+:)/g).filter(Boolean).map(s => s.trim());
-        
-        const messages = segments.map((content, index) => {
-          // Alternate between agent and customer for simplicity
-          // In a real app, you'd have proper speaker diarization
-          const sender = index % 2 === 0 ? "agent" : "customer";
+      // Check if the transcript has segments from speaker diarization
+      if (latest.transcript_segments && latest.transcript_segments.length > 0) {
+        // Use the segments directly
+        const messages = latest.transcript_segments.map((segment) => {
+          // Format timestamp
+          const minutes = Math.floor(segment.start / 60);
+          const seconds = Math.floor(segment.start % 60);
+          const timestamp = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
           
-          // Generate a timestamp based on position in transcript
-          const minute = Math.floor(index * 45 / segments.length);
-          const second = Math.floor((index * 45 / segments.length - minute) * 60);
-          const timestamp = `00:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')}`;
+          // Determine if this is an interruption by checking time gap with previous segment
+          // This is a simple heuristic and could be improved
+          const isInterruption = false; // Implement this logic if needed
           
-          // Flag some messages that might contain interruptions (simple heuristic)
-          const flagged = content.toLowerCase().includes("interrupt") || 
-                         (content.length < 20 && content.endsWith("--")) ||
-                         index > 0 && segments[index-1].length < 15;
-          
-          // Highlight messages with negative sentiment cues
-          const highlight = content.toLowerCase().includes("no") || 
-                          content.toLowerCase().includes("problem") ||
-                          content.toLowerCase().includes("not interested") ||
-                          content.toLowerCase().includes("expensive");
+          // Look for negative sentiment cues
+          const text = segment.text.toLowerCase();
+          const highlight = text.includes("no") || 
+                           text.includes("problem") ||
+                           text.includes("not interested") ||
+                           text.includes("expensive");
           
           return {
-            id: index + 1,
-            sender,
-            content,
+            id: segment.id,
+            sender: segment.speaker.toLowerCase().includes("agent") ? "agent" : "customer",
+            content: segment.text,
             timestamp,
-            flagged,
+            flagged: isInterruption,
             highlight
           };
         });
         
         setParsedMessages(messages);
-      } catch (error) {
-        console.error("Error parsing transcript:", error);
-        // Fallback to a single message with the full text
-        setParsedMessages([{
-          id: 1,
-          sender: "agent",
-          content: latest.text,
-          timestamp: "00:00:00"
-        }]);
+      } else {
+        // Try to parse the transcript text into a conversation if no segments
+        // This is a simple parsing logic, can be improved for better conversation structure
+        try {
+          const text = latest.text;
+          
+          // Split by newlines or obvious speaker indicators
+          const segments = text.split(/\n|(?:Agent:|Customer:|Speaker \d+:)/g).filter(Boolean).map(s => s.trim());
+          
+          const messages = segments.map((content, index) => {
+            // Alternate between agent and customer for simplicity
+            // In a real app, you'd have proper speaker diarization
+            const sender = index % 2 === 0 ? "agent" : "customer";
+            
+            // Generate a timestamp based on position in transcript
+            const minute = Math.floor(index * 45 / segments.length);
+            const second = Math.floor((index * 45 / segments.length - minute) * 60);
+            const timestamp = `00:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')}`;
+            
+            // Flag some messages that might contain interruptions (simple heuristic)
+            const flagged = content.toLowerCase().includes("interrupt") || 
+                           (content.length < 20 && content.endsWith("--")) ||
+                           index > 0 && segments[index-1].length < 15;
+            
+            // Highlight messages with negative sentiment cues
+            const highlight = content.toLowerCase().includes("no") || 
+                            content.toLowerCase().includes("problem") ||
+                            content.toLowerCase().includes("not interested") ||
+                            content.toLowerCase().includes("expensive");
+            
+            return {
+              id: index + 1,
+              sender,
+              content,
+              timestamp,
+              flagged,
+              highlight
+            };
+          });
+          
+          setParsedMessages(messages);
+        } catch (error) {
+          console.error("Error parsing transcript:", error);
+          // Fallback to a single message with the full text
+          setParsedMessages([{
+            id: 1,
+            sender: "agent",
+            content: latest.text,
+            timestamp: "00:00:00"
+          }]);
+        }
       }
     }
   }, []);
@@ -130,6 +164,27 @@ const CallTranscript = () => {
       toast({
         title: "Copied to clipboard",
         description: "Transcript text has been copied to your clipboard"
+      });
+    }
+  };
+  
+  const handleSpeechInput = (text: string) => {
+    if (text && transcript) {
+      // Add the new speech as a message
+      const newMessage = {
+        id: parsedMessages.length + 1,
+        sender: "agent", // Assume it's the agent speaking
+        content: text,
+        timestamp: "Live",
+        flagged: false,
+        highlight: false
+      };
+      
+      setParsedMessages(prev => [...prev, newMessage]);
+      
+      toast({
+        title: "Speech Added",
+        description: "Your speech has been added to the transcript"
       });
     }
   };
@@ -150,6 +205,13 @@ const CallTranscript = () => {
         
         <div className="flex items-center gap-3">
           {transcript && <WhisperButton recordingId={transcript.id} />}
+          
+          <div className="flex items-center">
+            <SpeechToTextRecorder 
+              onTranscriptionComplete={handleSpeechInput}
+              buttonSize="sm"
+            />
+          </div>
           
           <button 
             className={`flex items-center gap-1 ${isDarkMode ? "bg-white/5 hover:bg-white/10 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-800"} px-3 py-1.5 rounded text-sm transition-colors`}

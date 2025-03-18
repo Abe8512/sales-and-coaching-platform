@@ -13,7 +13,11 @@ export type EventType =
   | 'processing-completed' 
   | 'processing-error'
   | 'connection-restored'
-  | 'connection-lost';
+  | 'connection-lost'
+  | 'bulk-upload-started'
+  | 'bulk-upload-completed'
+  | 'recording-completed'
+  | 'transcripts-refreshed';
 
 // Event dispatcher type
 export type EventDispatcher = (type: EventType, data?: any) => void;

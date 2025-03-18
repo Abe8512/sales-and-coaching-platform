@@ -1,4 +1,3 @@
-
 import React, { useContext, useState, useEffect } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
@@ -16,7 +15,7 @@ import KeywordTrendsChart from "../components/CallAnalysis/KeywordTrendsChart";
 import { SentimentTrendsChart } from "../components/CallAnalysis/SentimentTrendsChart";
 import { DateRangeFilter } from "../components/CallAnalysis/DateRangeFilter";
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
-import { useCallTranscriptService } from "@/services/CallTranscriptService";
+import { useCallTranscripts } from "@/services/CallTranscriptService";
 import ContentLoader from "@/components/ui/ContentLoader";
 import { useEventListener } from "@/services/EventsService";
 import { animationUtils } from "@/utils/animationUtils";
@@ -32,9 +31,8 @@ const Index = () => {
   const { 
     fetchTranscripts,
     loading: transcriptsLoading 
-  } = useCallTranscriptService();
+  } = useCallTranscripts();
   
-  // Use throttled fetch to prevent multiple rapid fetches
   const throttledFetchTranscripts = animationUtils.throttle((options?: any) => {
     fetchTranscripts({
       dateRange: filters.dateRange,

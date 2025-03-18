@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,7 +11,7 @@ import KeywordInsights from "@/components/CallAnalysis/KeywordInsights";
 import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useCallTranscriptService } from "@/services/CallTranscriptService";
+import { useCallTranscripts } from "@/services/CallTranscriptService";
 import { useEventListener } from '@/services/events';
 import { toast } from "sonner";
 import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
@@ -58,7 +57,7 @@ const CallActivity = () => {
     fetchTranscripts,
     getMetrics,
     getCallDistributionData
-  } = useCallTranscriptService();
+  } = useCallTranscripts();
   
   const refreshData = useCallback(() => {
     const transcriptFilter = {

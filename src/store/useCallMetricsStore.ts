@@ -1,499 +1,211 @@
 import { create } from 'zustand';
-import { supabase, generateAnonymousUserId } from "@/integrations/supabase/client";
-import { validateDataConsistency } from '@/services/SharedDataService';
-import { useEventsStore } from '@/services/events';
-import { v4 as uuidv4 } from 'uuid';
+import { CallMetricsState } from './types';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { SentimentData } from '@/types/call';
+import { EventType, useEventsStore } from '@/services/events';
 
-interface CallMetricsState {
-  isRecording: boolean;
-  callDuration: number;
-  talkRatio: { agent: number; customer: number };
-  sentiment: { agent: number; customer: number };
-  isTalkingMap: { agent: boolean; customer: boolean };
-  keyPhrases: string[];
-  socketConnected: boolean;
-  recordingStartTime: number | null;
-  callHistory: CallHistoryItem[];
-  coachingAlerts: CoachingAlert[];
-  keywordsByCategory: KeywordCategories;
+const initialCallState = {
+  startTime: null,
+  endTime: null,
+  duration: 0,
+  agentTalkTime: 0,
+  customerTalkTime: 0,
+  agentInterruptions: 0,
+  customerInterruptions: 0,
+  keyPhrases: [],
+  sentiment: { agent: 0.5, customer: 0.5 },
+  sentimentTrend: [],
+  transcript: '',
+  recordingUrl: '',
+  recordingId: null,
+  isRecording: false,
+  isCallEnded: false,
+  callScore: 0,
+  outcome: '',
+  summary: '',
+  nextSteps: '',
+  feedback: '',
+  date: new Date().toISOString().slice(0, 10),
+  talkRatio: { agent: 50, customer: 50 },
+};
+
+export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
+  ...initialCallState,
+  callHistory: [],
+  isLoading: false,
+  error: null,
   
-  // Actions
-  startRecording: () => void;
-  stopRecording: () => void;
-  updateMetrics: (data: Partial<CallMetricsState>) => void;
-  updateKeyPhrases: (phrase: string) => void;
-  toggleSpeaking: (speaker: 'agent' | 'customer', isSpeaking: boolean) => void;
-  savePastCall: () => void;
-  loadPastCalls: () => void;
-  checkCoachingAlerts: () => void;
-  dismissAlert: (id: string) => void;
-  classifyKeywords: () => void;
-  saveSentimentTrend: () => Promise<void>;
-}
-
-interface CallHistoryItem {
-  id: string;
-  date: string;
-  duration: number;
-  talkRatio: { agent: number; customer: number };
-  sentiment: { agent: number; customer: number };
-  keyPhrases: string[];
-}
-
-interface CoachingAlert {
-  id: string;
-  type: 'warning' | 'info' | 'critical';
-  message: string;
-  timestamp: number;
-  dismissed: boolean;
-}
-
-interface KeywordCategories {
-  positive: string[];
-  neutral: string[];
-  negative: string[];
-}
-
-export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
-  let durationTimer: NodeJS.Timeout | null = null;
-  let speakingSimulationTimer: NodeJS.Timeout | null = null;
-  let alertCheckTimer: NodeJS.Timeout | null = null;
+  startRecording: () => {
+    set({ 
+      ...initialCallState,
+      startTime: new Date(), 
+      isRecording: true,
+      date: new Date().toISOString().slice(0, 10)
+    });
+  },
   
-  const initializeSocketConnection = () => {
-    set({ socketConnected: true });
-    return () => {
-      if (durationTimer) clearInterval(durationTimer);
-      if (speakingSimulationTimer) clearInterval(speakingSimulationTimer);
-      if (alertCheckTimer) clearInterval(alertCheckTimer);
+  stopRecording: async () => {
+    const endTime = new Date();
+    const startTime = get().startTime;
+    const duration = startTime ? (endTime.getTime() - startTime.getTime()) / 1000 : 0;
+    
+    set({ 
+      endTime, 
+      duration, 
+      isRecording: false,
+      isCallEnded: true
+    });
+    
+    await get().saveCallMetrics();
+  },
+  
+  resetCallState: () => {
+    set(initialCallState);
+  },
+  
+  updateCallMetrics: (metrics) => {
+    set(metrics);
+  },
+  
+  saveSentimentTrend: () => {
+    const currentSentiment = get().sentiment;
+    const sentimentTrend = get().sentimentTrend;
+    
+    const newSentiment = {
+      time: new Date().toLocaleTimeString(),
+      agent: currentSentiment.agent,
+      customer: currentSentiment.customer
     };
-  };
+    
+    set({ sentimentTrend: [...sentimentTrend, newSentiment] });
+  },
   
-  initializeSocketConnection();
+  setRecordingUrl: (recordingUrl) => {
+    set({ recordingUrl });
+  },
   
-  return {
-    isRecording: false,
-    callDuration: 0,
-    talkRatio: { agent: 50, customer: 50 },
-    sentiment: { agent: 0.7, customer: 0.5 },
-    isTalkingMap: { agent: false, customer: false },
-    keyPhrases: [],
-    socketConnected: false,
-    recordingStartTime: null,
-    callHistory: [],
-    coachingAlerts: [],
-    keywordsByCategory: { positive: [], neutral: [], negative: [] },
+  setRecordingId: (recordingId) => {
+    set({ recordingId });
+  },
+  
+  saveCallMetrics: async () => {
+    set({ isLoading: true, error: null });
     
-    startRecording: () => {
-      const startTime = Date.now();
-      set({ 
-        isRecording: true, 
-        callDuration: 0,
-        recordingStartTime: startTime,
-        keyPhrases: [],
-        coachingAlerts: [],
-        keywordsByCategory: { positive: [], neutral: [], negative: [] }
-      });
+    try {
+      const { user } = useAuth.getState();
+      const {
+        startTime,
+        endTime,
+        duration,
+        agentTalkTime,
+        customerTalkTime,
+        agentInterruptions,
+        customerInterruptions,
+        keyPhrases,
+        sentiment,
+        sentimentTrend,
+        transcript,
+        recordingUrl,
+        recordingId,
+        callScore,
+        outcome,
+        summary,
+        nextSteps,
+        feedback,
+        date,
+        talkRatio
+      } = get();
       
-      durationTimer = setInterval(() => {
-        const { recordingStartTime } = get();
-        if (recordingStartTime) {
-          const duration = Math.floor((Date.now() - recordingStartTime) / 1000);
-          set({ callDuration: duration });
-        }
-      }, 1000);
-      
-      speakingSimulationTimer = setInterval(() => {
-        if (Math.random() > 0.7) {
-          const agentSpeaking = Math.random() > 0.5;
-          const customerSpeaking = Math.random() > 0.5;
-          
-          set({ 
-            isTalkingMap: { 
-              agent: agentSpeaking, 
-              customer: customerSpeaking 
-            }
-          });
-          
-          set(state => {
-            const agentShift = (Math.random() * 2 - 1) * 0.2;
-            return {
-              talkRatio: {
-                agent: Math.max(30, Math.min(70, state.talkRatio.agent + agentShift)),
-                customer: Math.max(30, Math.min(70, 100 - (state.talkRatio.agent + agentShift)))
-              },
-              sentiment: {
-                agent: Math.max(0.2, Math.min(0.9, state.sentiment.agent + (Math.random() * 0.02 - 0.01))), 
-                customer: Math.max(0.2, Math.min(0.9, state.sentiment.customer + (Math.random() * 0.02 - 0.01)))
-              }
-            };
-          });
-          
-          if (Math.random() > 0.9) {
-            const phrases = [
-              "pricing options",
-              "contract terms",
-              "delivery timeline",
-              "feature request",
-              "technical support",
-              "customer satisfaction",
-              "follow-up meeting",
-              "product quality",
-              "discount request",
-              "competitive offer"
-            ];
-            const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
-            get().updateKeyPhrases(randomPhrase);
-            get().classifyKeywords();
-          }
-        }
-      }, 5000);
-      
-      alertCheckTimer = setInterval(() => {
-        get().checkCoachingAlerts();
-      }, 10000);
-    },
-    
-    stopRecording: () => {
-      if (durationTimer) clearInterval(durationTimer);
-      if (speakingSimulationTimer) clearInterval(speakingSimulationTimer);
-      if (alertCheckTimer) clearInterval(alertCheckTimer);
-      
-      if (get().isRecording) {
-        get().savePastCall();
+      if (!user || !startTime || !endTime) {
+        console.error('User not authenticated or call not started.');
+        set({ isLoading: false, error: 'User not authenticated or call not started.' });
+        return;
       }
       
-      set({ 
-        isRecording: false,
-        isTalkingMap: { agent: false, customer: false },
-        recordingStartTime: null,
-        coachingAlerts: []
-      });
+      const { data, error } = await supabase
+        .from('calls')
+        .insert([
+          {
+            user_id: user.id,
+            start_time: startTime.toISOString(),
+            end_time: endTime.toISOString(),
+            duration,
+            agent_talk_time: agentTalkTime,
+            customer_talk_time: customerTalkTime,
+            agent_interruptions: agentInterruptions,
+            customer_interruptions: customerInterruptions,
+            key_phrases: keyPhrases.map(kp => kp.text),
+            sentiment,
+            sentiment_trend: sentimentTrend,
+            transcript,
+            recording_url: recordingUrl,
+            recording_id: recordingId,
+            call_score: callScore,
+            outcome,
+            summary,
+            next_steps: nextSteps,
+            feedback,
+            date,
+            talk_ratio: talkRatio,
+          },
+        ])
+        .select()
+        .single();
       
-      useEventsStore.getState().dispatchEvent('recording-completed', {
-        duration: get().callDuration,
-        sentiment: get().sentiment
-      });
-    },
-    
-    updateMetrics: (data) => {
-      set({ ...data });
-      
-      if (data.talkRatio) {
-        validateDataConsistency('useCallMetricsStore', {
-          avgTalkRatio: data.talkRatio
-        });
-      }
-      
-      if (data.sentiment) {
-        validateDataConsistency('useCallMetricsStore', {
-          avgSentiment: (data.sentiment.agent + data.sentiment.customer) / 2
-        });
-      }
-    },
-    
-    updateKeyPhrases: (phrase) => {
-      set(state => ({
-        keyPhrases: [...new Set([...state.keyPhrases, phrase])]
-      }));
-    },
-    
-    toggleSpeaking: (speaker, isSpeaking) => {
-      set(state => ({
-        isTalkingMap: {
-          ...state.isTalkingMap,
-          [speaker]: isSpeaking
-        }
-      }));
-    },
-    
-    classifyKeywords: () => {
-      const { keyPhrases } = get();
-      
-      const positiveKeywords = [
-        "satisfied", "great", "excellent", "happy", "interested", 
-        "quality", "value", "recommend", "helpful", "support",
-        "appreciate", "like", "love", "satisfaction", "impressive"
-      ];
-      
-      const negativeKeywords = [
-        "expensive", "problem", "issue", "disappointed", "delay", 
-        "difficult", "complicated", "cancel", "refund", "complaint",
-        "unhappy", "frustrated", "disconnect", "slow", "confusing"
-      ];
-      
-      const categorizedKeywords: KeywordCategories = {
-        positive: [],
-        neutral: [], 
-        negative: []
-      };
-      
-      keyPhrases.forEach(phrase => {
-        if (positiveKeywords.some(keyword => phrase.toLowerCase().includes(keyword))) {
-          categorizedKeywords.positive.push(phrase);
-        } else if (negativeKeywords.some(keyword => phrase.toLowerCase().includes(keyword))) {
-          categorizedKeywords.negative.push(phrase);
-        } else {
-          categorizedKeywords.neutral.push(phrase);
-        }
-      });
-      
-      set({ keywordsByCategory: categorizedKeywords });
-    },
-    
-    checkCoachingAlerts: () => {
-      const { talkRatio, sentiment, keyPhrases, coachingAlerts } = get();
-      const timestamp = Date.now();
-      const newAlerts: CoachingAlert[] = [];
-      
-      if (talkRatio.agent > 70 && Math.random() > 0.5) {
-        newAlerts.push({
-          id: `talk-ratio-${timestamp}`,
-          type: 'warning',
-          message: '🗣️ The agent is talking too much. Let the customer speak more.',
-          timestamp,
-          dismissed: false
-        });
-      }
-      
-      if (sentiment.customer < 0.4 && Math.random() > 0.6) {
-        newAlerts.push({
-          id: `negative-sentiment-${timestamp}`,
-          type: 'critical',
-          message: '⚠️ Customer is showing negative sentiment. Address their concerns.',
-          timestamp,
-          dismissed: false
-        });
-      }
-      
-      const objectionKeywords = ['pricing', 'expensive', 'cost', 'price', 'discount', 'competitive'];
-      if (keyPhrases.some(phrase => 
-          objectionKeywords.some(keyword => phrase.toLowerCase().includes(keyword))
-        ) && Math.random() > 0.7) {
-        newAlerts.push({
-          id: `objection-${timestamp}`,
-          type: 'info',
-          message: '💰 Customer has mentioned pricing. Focus on value proposition.',
-          timestamp,
-          dismissed: false
-        });
-      }
-      
-      if (newAlerts.length > 0) {
-        set({
-          coachingAlerts: [...coachingAlerts, ...newAlerts]
-        });
-      }
-    },
-    
-    dismissAlert: (id) => {
-      set(state => ({
-        coachingAlerts: state.coachingAlerts.map(alert => 
-          alert.id === id ? { ...alert, dismissed: true } : alert
-        )
-      }));
-    },
-    
-    saveSentimentTrend: async () => {
-      try {
-        const { sentiment } = get();
+      if (error) {
+        console.error('Error saving call metrics:', error);
+        set({ isLoading: false, error: error.message });
+      } else {
+        console.log('Call metrics saved successfully:', data);
+        set({ isLoading: false, error: null });
         
-        validateDataConsistency('saveSentimentTrend', {
-          avgSentiment: (sentiment.agent + sentiment.customer) / 2
+        const dispatchEvent = useEventsStore.getState().dispatchEvent;
+        
+        dispatchEvent('recording-completed', {
+          id: recordingId,
+          duration,
+          sentiment,
+          talkRatio,
+          keywords: keyPhrases.map(kp => kp.text)
         });
         
-        const userId = generateAnonymousUserId();
-        console.log('Using user ID for sentiment trend:', userId);
-        
-        await Promise.all([
-          supabase.from('sentiment_trends').insert({
-            sentiment_label: sentiment.agent > 0.6 ? 'positive' : sentiment.agent < 0.4 ? 'negative' : 'neutral',
-            confidence: sentiment.agent,
-            user_id: userId
-          }),
-          
-          supabase.from('sentiment_trends').insert({
-            sentiment_label: sentiment.customer > 0.6 ? 'positive' : sentiment.customer < 0.4 ? 'negative' : 'neutral',
-            confidence: sentiment.customer,
-            user_id: userId
-          })
-        ]);
-        
-        console.log('Successfully saved sentiment trends to Supabase');
-      } catch (error) {
-        console.error('Error saving sentiment trend to Supabase:', error);
+        get().loadPastCalls();
       }
-    },
+    } catch (err) {
+      console.error('Unexpected error saving call metrics:', err);
+      set({ isLoading: false, error: 'An unexpected error occurred.' });
+    }
+  },
+  
+  loadPastCalls: async () => {
+    set({ isLoading: true, error: null });
     
-    savePastCall: async () => {
-      const { callDuration, talkRatio, sentiment, keyPhrases } = get();
+    try {
+      const { user } = useAuth.getState();
       
-      await get().saveSentimentTrend();
-      
-      try {
-        validateDataConsistency('savePastCall', {
-          totalCalls: 1,
-          avgSentiment: (sentiment.agent + sentiment.customer) / 2,
-          avgTalkRatio: talkRatio
-        });
-        
-        const userId = generateAnonymousUserId();
-        if (!userId.startsWith('anonymous-')) {
-          console.error('Invalid user ID format generated:', userId);
-          return;
-        }
-        console.log('Using user ID for call:', userId);
-        
-        const callId = uuidv4();
-        console.log('Generated call ID:', callId);
-        
-        try {
-          const { data, error } = await supabase
-            .from('calls')
-            .insert({
-              id: callId,
-              user_id: userId,
-              duration: callDuration,
-              talk_ratio_agent: talkRatio.agent,
-              talk_ratio_customer: talkRatio.customer,
-              sentiment_agent: sentiment.agent,
-              sentiment_customer: sentiment.customer,
-              key_phrases: keyPhrases
-            })
-            .select()
-            .single();
-          
-          if (error) {
-            console.error("Error saving to Supabase:", error);
-          } else {
-            console.log("Call saved to Supabase:", data);
-          }
-        } catch (supabaseError) {
-          console.error("Error saving to Supabase:", supabaseError);
-        }
-        
-        if (keyPhrases.length > 0) {
-          const keywordPromises = keyPhrases.map(async (phrase) => {
-            try {
-              const { data: existingKeyword } = await supabase
-                .from('keyword_trends')
-                .select('*')
-                .eq('keyword', phrase.toLowerCase())
-                .maybeSingle();
-                
-              if (existingKeyword) {
-                await supabase
-                  .from('keyword_trends')
-                  .update({ 
-                    count: (existingKeyword.count || 1) + 1,
-                    last_used: new Date().toISOString()
-                  })
-                  .eq('id', existingKeyword.id);
-              } else {
-                await supabase
-                  .from('keyword_trends')
-                  .insert({
-                    keyword: phrase.toLowerCase(),
-                    count: 1,
-                    category: get().keywordsByCategory.positive.includes(phrase) 
-                      ? 'positive' 
-                      : get().keywordsByCategory.negative.includes(phrase)
-                        ? 'negative'
-                        : 'neutral'
-                  });
-              }
-            } catch (keywordError) {
-              console.error(`Error saving keyword "${phrase}":`, keywordError);
-            }
-          });
-          
-          try {
-            await Promise.all(keywordPromises);
-            console.log("Keywords saved to trends");
-          } catch (keywordError) {
-            console.error("Error saving keywords:", keywordError);
-          }
-        }
-      } catch (error) {
-        console.error("Exception saving to Supabase:", error);
+      if (!user) {
+        console.error('User not authenticated.');
+        set({ isLoading: false, error: 'User not authenticated.' });
+        return;
       }
       
-      const newHistoryItem: CallHistoryItem = {
-        id: `call-${Date.now()}`,
-        date: new Date().toISOString(),
-        duration: callDuration,
-        talkRatio: { ...talkRatio },
-        sentiment: { ...sentiment },
-        keyPhrases: [...keyPhrases]
-      };
+      const { data, error } = await supabase
+        .from('calls')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('start_time', { ascending: false });
       
-      set(state => ({
-        callHistory: [newHistoryItem, ...state.callHistory]
-      }));
-    },
-    
-    loadPastCalls: async () => {
-      try {
-        try {
-          console.log('Fetching past calls from Supabase...');
-          const { data, error } = await supabase
-            .from('calls')
-            .select('*')
-            .order('created_at', { ascending: false });
-            
-          if (error) {
-            console.error("Error loading from Supabase:", error);
-          } else {
-            console.log(`Retrieved ${data.length} calls from Supabase`);
-            const formattedCalls: CallHistoryItem[] = data.map(call => ({
-              id: call.id,
-              date: call.created_at || new Date().toISOString(),
-              duration: call.duration,
-              talkRatio: {
-                agent: call.talk_ratio_agent,
-                customer: call.talk_ratio_customer
-              },
-              sentiment: {
-                agent: call.sentiment_agent,
-                customer: call.sentiment_customer
-              },
-              keyPhrases: call.key_phrases || []
-            }));
-            
-            set({ callHistory: formattedCalls });
-            console.log("Loaded calls from Supabase:", formattedCalls);
-          }
-        } catch (supabaseError) {
-          console.error("Error loading from Supabase:", supabaseError);
-          
-          if (get().callHistory.length === 0) {
-            console.log('Generating demo calls data...');
-            const demoCalls: CallHistoryItem[] = Array.from({ length: 5 }).map((_, i) => ({
-              id: `demo-call-${i}`,
-              date: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
-              duration: Math.floor(Math.random() * 600) + 120,
-              talkRatio: {
-                agent: Math.floor(Math.random() * 30) + 40,
-                customer: Math.floor(Math.random() * 30) + 40
-              },
-              sentiment: {
-                agent: Math.random() * 0.5 + 0.5,
-                customer: Math.random() * 0.5 + 0.3
-              },
-              keyPhrases: [
-                "product features",
-                "pricing options",
-                "implementation timeline",
-                "technical support"
-              ]
-            }));
-            
-            set({ callHistory: demoCalls });
-            console.log("Using demo calls:", demoCalls);
-          }
-        }
-      } catch (error) {
-        console.error("Exception loading past calls:", error);
+      if (error) {
+        console.error('Error loading past calls:', error);
+        set({ isLoading: false, error: error.message });
+      } else {
+        console.log('Past calls loaded successfully:', data);
+        set({ callHistory: data || [], isLoading: false, error: null });
       }
-    },
-  };
-});
+    } catch (err) {
+      console.error('Unexpected error loading past calls:', err);
+      set({ isLoading: false, error: 'An unexpected error occurred.' });
+    }
+  },
+}));

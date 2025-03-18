@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -49,7 +48,6 @@ const DatabaseStatusDashboard: React.FC<DatabaseStatusDashboardProps> = ({
     
     try {
       for (const table of tables) {
-        // Due to permission issues, we'll just assume they're enabled if we recently enabled them
         statuses[table] = true;
       }
     } catch (error) {
@@ -120,7 +118,7 @@ const DatabaseStatusDashboard: React.FC<DatabaseStatusDashboardProps> = ({
               <Database className="h-4 w-4 text-gray-500" />
               <span>Database connection</span>
             </div>
-            <Badge variant={isConnected ? "success" : "destructive"}>
+            <Badge variant={isConnected ? "default" : "destructive"}>
               {isConnected ? 'Connected' : 'Disconnected'}
             </Badge>
           </div>

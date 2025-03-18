@@ -1,4 +1,3 @@
-
 import { useBulkUploadStore, UploadStatus } from "@/store/useBulkUploadStore";
 import { useWhisperService } from "@/services/WhisperService";
 import { toast } from "sonner";
@@ -6,7 +5,7 @@ import { useEventsStore } from "@/services/events";
 import { BulkUploadProcessorService } from "./BulkUploadProcessorService";
 import { debounce } from "lodash";
 import { errorHandler } from "./ErrorHandlingService";
-import { useCallTranscripts } from "./CallTranscriptService";
+import { useCallTranscripts, CallTranscriptFilter } from "./CallTranscriptService";
 
 export interface BulkUploadFilter {
   force?: boolean;
@@ -60,7 +59,7 @@ export const useBulkUploadService = () => {
     try {
       setProcessing(true);
       
-      dispatchEvent('bulk-upload-started' as any, {
+      dispatchEvent('bulk-upload-started', {
         fileCount: files.filter(f => f.status === 'queued' || f.status === 'processing').length,
         fileIds: files.map(file => file.id)
       });
@@ -110,7 +109,7 @@ export const useBulkUploadService = () => {
       
       window.dispatchEvent(new CustomEvent('transcriptions-updated'));
       
-      dispatchEvent('bulk-upload-completed' as any, {
+      dispatchEvent('bulk-upload-completed', {
         fileCount: files.length,
         fileIds: files.map(f => f.id),
         transcriptIds: files.filter(f => f.transcriptId).map(f => f.transcriptId)
@@ -135,7 +134,7 @@ export const useBulkUploadService = () => {
   
   const refreshTranscripts = async (filter?: BulkUploadFilter) => {
     try {
-      const transcriptFilter = {
+      const transcriptFilter: CallTranscriptFilter = {
         force: filter?.force || false
       };
       

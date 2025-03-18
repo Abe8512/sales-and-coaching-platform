@@ -111,9 +111,7 @@ const Index = () => {
           <TabsTrigger value="trends">Trends</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard">
-          <PerformanceMetrics 
-            isLoading={transcriptsLoading}
-          />
+          <PerformanceMetrics />
         </TabsContent>
         <TabsContent value="livemetrics">
           <LiveMetricsDisplay isCallActive={showLiveMetrics} />

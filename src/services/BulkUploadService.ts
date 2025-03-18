@@ -6,9 +6,15 @@ import { useWhisperService, WhisperTranscriptionResponse } from "@/services/Whis
 // Create a wrapper class for handling bulk uploads
 export class BulkUploadService {
   private whisperService: ReturnType<typeof useWhisperService>;
+  private assignedUserId: string | null = null;
   
   constructor(whisperService: ReturnType<typeof useWhisperService>) {
     this.whisperService = whisperService;
+  }
+  
+  // Set the user ID to assign to the uploaded files
+  public setAssignedUserId(userId: string | null) {
+    this.assignedUserId = userId;
   }
   
   // Process a single file
@@ -63,10 +69,22 @@ export class BulkUploadService {
       // Calculate duration if possible
       const duration = await this.calculateAudioDuration(file);
       
+      // Get user ID either from assignment or current logged-in user
+      let userId = this.assignedUserId;
+      
+      // If no assigned userId, try to get current user from auth
+      if (!userId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        userId = user?.id || null;
+      }
+      
+      console.log(`Saving transcript with user_id: ${userId}`);
+      
       // Insert into database
       const { data, error } = await supabase
         .from('call_transcripts')
         .insert({
+          user_id: userId,
           filename: file.name,
           text: result.text,
           duration,
@@ -79,10 +97,46 @@ export class BulkUploadService {
         .select('id')
         .single();
       
+      // Also update the calls table with similar data for real-time metrics
+      if (data?.id) {
+        await this.updateCallsTable({
+          user_id: userId,
+          duration: duration || 0,
+          sentiment_agent: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.3 : 0.5,
+          sentiment_customer: sentiment === 'positive' ? 0.7 : sentiment === 'negative' ? 0.2 : 0.5,
+          talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
+          talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
+          key_phrases: keywords || []
+        });
+      }
+      
       return { id: data?.id || '', error };
     } catch (error) {
       console.error('Error saving transcript:', error);
       return { id: '', error };
+    }
+  }
+  
+  // Update calls table for real-time metrics
+  private async updateCallsTable(callData: {
+    user_id: string | null;
+    duration: number;
+    sentiment_agent: number;
+    sentiment_customer: number;
+    talk_ratio_agent: number;
+    talk_ratio_customer: number;
+    key_phrases: string[];
+  }): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('calls')
+        .insert(callData);
+      
+      if (error) {
+        console.error('Error updating calls table:', error);
+      }
+    } catch (error) {
+      console.error('Error updating calls table:', error);
     }
   }
   
@@ -174,6 +228,7 @@ export class BulkUploadService {
         .insert({
           sentiment_label: sentiment,
           confidence: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.7 : 0.6,
+          user_id: this.assignedUserId,
           recorded_at: new Date().toISOString()
         });
     } catch (error) {
@@ -295,6 +350,11 @@ export const useBulkUploadService = () => {
     hasLoadedHistory
   } = useBulkUploadStore();
   
+  // Set the user ID to assign to the uploaded files
+  const setAssignedUserId = (userId: string) => {
+    bulkUploadService.setAssignedUserId(userId);
+  };
+  
   // Process all files in the queue
   const processQueue = async () => {
     if (isProcessing || files.length === 0) return;
@@ -327,6 +387,7 @@ export const useBulkUploadService = () => {
     processQueue,
     uploadHistory,
     hasLoadedHistory,
-    loadUploadHistory
+    loadUploadHistory,
+    setAssignedUserId // New function to set the assigned user ID
   };
 };

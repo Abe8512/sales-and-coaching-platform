@@ -4,7 +4,6 @@ import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
-import { useBulkUploadStore } from "@/store/useBulkUploadStore";
 import { useRealTimeTeamMetrics, useRealTimeRepMetrics } from "@/services/RealTimeMetricsService";
 import DateRangeFilter from "@/components/CallAnalysis/DateRangeFilter";
 import TeamFilterWrapper from "@/components/Performance/TeamFilterWrapper";
@@ -13,8 +12,9 @@ import KeywordInsights from "@/components/CallAnalysis/KeywordInsights";
 import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useCallTranscriptService } from "@/services/CallTranscriptService";
 
-// Import the new components
+// Import the components
 import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
 import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
 import RecentCallsTable from "@/components/CallActivity/RecentCallsTable";
@@ -36,7 +36,6 @@ interface Call {
 const CallActivity = () => {
   const { user, isAdmin, isManager, getManagedUsers } = useAuth();
   const { isRecording } = useCallMetricsStore();
-  const { uploadHistory, hasLoadedHistory, loadUploadHistory } = useBulkUploadStore();
   
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
@@ -53,137 +52,67 @@ const CallActivity = () => {
   
   const [calls, setCalls] = useState<Call[]>([]);
   
+  // Use the new CallTranscriptService to fetch real data
+  const { 
+    transcripts, 
+    loading: transcriptsLoading, 
+    fetchTranscripts,
+    getMetrics,
+    getCallDistributionData
+  } = useCallTranscriptService();
+  
   useEffect(() => {
-    if (!hasLoadedHistory) {
-      loadUploadHistory();
-    }
+    // Set up filter for transcripts
+    const transcriptFilter = {
+      dateRange,
+      userId: selectedUser || undefined,
+      userIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
+    };
     
-    updateCallsData();
-  }, [hasLoadedHistory, selectedUser, filters, dateRange, repMetrics]);
+    // Fetch transcripts from Supabase
+    fetchTranscripts(transcriptFilter);
+  }, [selectedUser, filters, dateRange, fetchTranscripts]);
   
-  const updateCallsData = () => {
-    const MOCK_CALLS: Call[] = [
-      {
-        id: "call1",
-        userId: "3",
-        userName: "David Kim",
-        date: "2023-05-12T10:30:00",
-        duration: 14.5,
-        customerName: "Acme Inc.",
-        outcome: "Qualified Lead",
-        sentiment: 0.78,
-        nextSteps: "Follow up with quote",
-      },
-      {
-        id: "call2",
-        userId: "3",
-        userName: "Sales Rep 1",
-        date: "2023-05-10T13:45:00",
-        duration: 9.2,
-        customerName: "TechGiant Corp",
-        outcome: "No Interest",
-        sentiment: 0.32,
-        nextSteps: "No follow up needed",
-      },
-      {
-        id: "call3",
-        userId: "4",
-        userName: "Sales Rep 2",
-        date: "2023-05-11T15:00:00",
-        duration: 18.3,
-        customerName: "StartUp.io",
-        outcome: "Meeting Scheduled",
-        sentiment: 0.85,
-        nextSteps: "Prepare demo for next week",
-      },
-      {
-        id: "call4",
-        userId: "5",
-        userName: "Sales Rep 3",
-        date: "2023-05-12T09:15:00",
-        duration: 11.7,
-        customerName: "Global Systems Inc.",
-        outcome: "Request for Proposal",
-        sentiment: 0.67,
-        nextSteps: "Draft proposal by Friday",
-      },
-    ];
-    
-    const transcriptCalls: Call[] = uploadHistory.map(transcript => ({
-      id: transcript.id,
-      userId: user?.id || "1",
-      userName: user?.name || "Current User",
-      date: transcript.created_at || new Date().toISOString(),
-      duration: transcript.duration || Math.floor(Math.random() * 15) + 5,
-      customerName: `Customer ${transcript.id.substring(0, 5)}`,
-      outcome: transcript.sentiment === 'positive' ? "Qualified Lead" : 
-               transcript.sentiment === 'negative' ? "No Interest" : "Follow-up Required",
-      sentiment: transcript.sentiment === 'positive' ? 0.8 : 
-                 transcript.sentiment === 'negative' ? 0.3 : 0.6,
-      nextSteps: transcript.sentiment === 'positive' ? "Schedule demo" : 
-                 transcript.sentiment === 'negative' ? "No action required" : "Send additional information",
-    }));
-    
-    let combinedCalls = [...MOCK_CALLS, ...transcriptCalls];
-    
-    if (selectedUser) {
-      combinedCalls = combinedCalls.filter(call => call.userId === selectedUser);
-    } else if (filters.teamMembers.length > 0) {
-      combinedCalls = combinedCalls.filter(call => filters.teamMembers.includes(call.userId));
-    }
-    
-    if (dateRange?.from) {
-      const fromDate = new Date(dateRange.from);
-      fromDate.setHours(0, 0, 0, 0);
-      
-      combinedCalls = combinedCalls.filter(call => {
-        const callDate = new Date(call.date);
-        if (dateRange.to) {
-          const toDate = new Date(dateRange.to);
-          toDate.setHours(23, 59, 59, 999);
-          return callDate >= fromDate && callDate <= toDate;
-        }
-        return callDate >= fromDate;
+  // Convert transcripts to calls format
+  useEffect(() => {
+    if (transcripts.length > 0) {
+      const convertedCalls: Call[] = transcripts.map(transcript => {
+        // Generate a customer name from the filename if available
+        const filenameBase = transcript.filename?.split('.')[0] || '';
+        const customerName = filenameBase.includes('_') 
+          ? filenameBase.split('_')[1] 
+          : `Customer ${transcript.id.substring(0, 5)}`;
+        
+        // Determine outcome based on sentiment
+        const outcome = transcript.sentiment === 'positive' ? "Qualified Lead" : 
+                      transcript.sentiment === 'negative' ? "No Interest" : "Follow-up Required";
+        
+        // Convert sentiment string to number
+        const sentimentValue = transcript.sentiment === 'positive' ? 0.8 : 
+                              transcript.sentiment === 'negative' ? 0.3 : 0.6;
+        
+        // Set next steps based on outcome
+        const nextSteps = outcome === "Qualified Lead" ? "Schedule demo" : 
+                        outcome === "No Interest" ? "No action required" : "Send additional information";
+        
+        return {
+          id: transcript.id,
+          userId: transcript.user_id || user?.id || "unknown",
+          userName: getManagedUsers().find(u => u.id === transcript.user_id)?.name || user?.name || "Current User",
+          date: transcript.created_at || new Date().toISOString(),
+          duration: transcript.duration || 0,
+          customerName,
+          outcome,
+          sentiment: sentimentValue,
+          nextSteps
+        };
       });
+      
+      setCalls(convertedCalls);
+    } else {
+      setCalls([]);
     }
-    
-    setCalls(combinedCalls);
-  };
-  
-  const managedUsers = getManagedUsers();
-  
-  const getCallDistributionData = () => {
-    const userCalls: Record<string, number> = {};
-    
-    calls.forEach(call => {
-      if (!userCalls[call.userName]) {
-        userCalls[call.userName] = 0;
-      }
-      userCalls[call.userName]++;
-    });
-    
-    return Object.entries(userCalls).map(([name, count]) => ({
-      name,
-      calls: count as number
-    }));
-  };
-  
-  const getOutcomeStats = () => {
-    const outcomes: Record<string, number> = {};
-    
-    calls.forEach(call => {
-      if (!outcomes[call.outcome]) {
-        outcomes[call.outcome] = 0;
-      }
-      outcomes[call.outcome]++;
-    });
-    
-    return Object.entries(outcomes).map(([outcome, count]) => ({
-      outcome,
-      count: count as number,
-      percentage: Math.round((count as number / calls.length) * 100)
-    }));
-  };
+  }, [transcripts, user, getManagedUsers]);
 
   const handleFilterChange = (newFilters) => {
     setFilters(newFilters);
@@ -222,7 +151,7 @@ const CallActivity = () => {
       
       <TeamPerformanceOverview 
         teamMetrics={teamMetrics} 
-        teamMetricsLoading={teamMetricsLoading}
+        teamMetricsLoading={teamMetricsLoading || transcriptsLoading}
         callsLength={calls.length}
       />
       
@@ -245,20 +174,21 @@ const CallActivity = () => {
           <RecentCallsTable 
             calls={calls} 
             isAdmin={isAdmin} 
-            isManager={isManager} 
+            isManager={isManager}
+            loading={transcriptsLoading}
           />
         </TabsContent>
         
         <TabsContent value="analytics" className="mt-6">
           <CallOutcomeStats 
-            outcomeStats={getOutcomeStats()} 
+            outcomeStats={getMetrics().outcomeStats} 
             callDistributionData={getCallDistributionData()} 
           />
         </TabsContent>
         
         <TabsContent value="outcomes" className="mt-6">
           <CallOutcomeStats 
-            outcomeStats={getOutcomeStats()} 
+            outcomeStats={getMetrics().outcomeStats} 
             callDistributionData={getCallDistributionData()} 
           />
         </TabsContent>

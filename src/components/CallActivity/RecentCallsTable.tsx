@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 
 interface Call {
   id: string;
@@ -20,12 +21,14 @@ interface RecentCallsTableProps {
   calls: Call[];
   isAdmin: boolean;
   isManager: boolean;
+  loading?: boolean;
 }
 
 const RecentCallsTable: React.FC<RecentCallsTableProps> = ({ 
   calls, 
   isAdmin, 
-  isManager 
+  isManager,
+  loading = false
 }) => {
   const navigate = useNavigate();
 
@@ -40,9 +43,11 @@ const RecentCallsTable: React.FC<RecentCallsTableProps> = ({
       <CardHeader>
         <CardTitle>Recent Calls</CardTitle>
         <CardDescription>
-          {calls.length > 0 
-            ? `Showing ${calls.length} recent calls`
-            : 'No calls match the current filters'}
+          {loading 
+            ? 'Loading call data...'
+            : calls.length > 0 
+              ? `Showing ${calls.length} recent calls`
+              : 'No calls match the current filters'}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -60,7 +65,16 @@ const RecentCallsTable: React.FC<RecentCallsTableProps> = ({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {calls.length > 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={isAdmin || isManager ? 8 : 7} className="text-center py-8">
+                  <div className="flex justify-center items-center">
+                    <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                    <p>Loading call data...</p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : calls.length > 0 ? (
               calls.map((call) => (
                 <TableRow key={call.id}>
                   <TableCell>{formatDate(call.date)}</TableCell>
@@ -91,7 +105,7 @@ const RecentCallsTable: React.FC<RecentCallsTableProps> = ({
                     <Button 
                       variant="outline" 
                       size="sm"
-                      onClick={() => navigate(`/transcripts`)}
+                      onClick={() => navigate(`/transcripts?id=${call.id}`)}
                     >
                       View
                     </Button>

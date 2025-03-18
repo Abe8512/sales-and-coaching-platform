@@ -91,9 +91,72 @@ export const validateMetricConsistency = (metricName: string, values: number[]):
   return !inconsistent;
 };
 
+/**
+ * Calculate total calls from call transcripts data
+ * @param transcripts Array of call transcript data
+ * @returns Total number of calls
+ */
+export const calculateTotalCalls = (transcripts: any[]): number => {
+  return transcripts ? transcripts.length : 0;
+};
+
+/**
+ * Calculate average sentiment from call transcripts data
+ * @param transcripts Array of call transcript data 
+ * @returns Average sentiment score (0-1)
+ */
+export const calculateAvgSentiment = (transcripts: any[]): number => {
+  if (!transcripts || transcripts.length === 0) return 0;
+  
+  const sentimentSum = transcripts.reduce((sum, call) => {
+    if (call.sentiment === 'positive') return sum + 0.9;
+    if (call.sentiment === 'negative') return sum + 0.3;
+    if (call.sentiment === 'neutral') return sum + 0.6;
+    if (typeof call.sentiment === 'number') return sum + call.sentiment;
+    return sum + 0.5; // Default value if sentiment is undefined
+  }, 0);
+  
+  return sentimentSum / transcripts.length;
+};
+
+/**
+ * Calculate outcomes distribution from call transcripts
+ * @param transcripts Array of call transcript data
+ * @returns Object with counts and percentages for each outcome
+ */
+export const calculateOutcomeDistribution = (transcripts: any[]): {
+  outcome: string;
+  count: number;
+  percentage: number;
+}[] => {
+  if (!transcripts || transcripts.length === 0) return [];
+  
+  const outcomes: Record<string, number> = {};
+  
+  transcripts.forEach(call => {
+    const outcome = call.outcome || 
+                   (call.sentiment === 'positive' ? 'Qualified Lead' : 
+                    call.sentiment === 'negative' ? 'No Interest' : 'Follow-up Required');
+    
+    if (!outcomes[outcome]) {
+      outcomes[outcome] = 0;
+    }
+    outcomes[outcome]++;
+  });
+  
+  return Object.entries(outcomes).map(([outcome, count]) => ({
+    outcome,
+    count,
+    percentage: Math.round((count / transcripts.length) * 100)
+  }));
+};
+
 export default {
   calculateTalkRatio,
   calculateConversionRate,
   calculatePerformanceScore,
-  validateMetricConsistency
+  validateMetricConsistency,
+  calculateTotalCalls,
+  calculateAvgSentiment,
+  calculateOutcomeDistribution
 };

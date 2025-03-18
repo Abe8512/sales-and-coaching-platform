@@ -20,6 +20,7 @@ import KeywordTrendsChart from "../components/CallAnalysis/KeywordTrendsChart";
 import { SentimentTrendsChart } from "../components/CallAnalysis/SentimentTrendsChart";
 import { DateRangeFilter } from "../components/CallAnalysis/DateRangeFilter";
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
+import { useCallTranscriptService } from "@/services/CallTranscriptService";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
@@ -28,13 +29,24 @@ const Index = () => {
   const [showLiveMetrics, setShowLiveMetrics] = useState(false);
   const { startRecording, stopRecording, isRecording, saveSentimentTrend } = useCallMetricsStore();
   
+  // Use the CallTranscriptService to fetch metrics
+  const { 
+    fetchTranscripts,
+    loading: transcriptsLoading 
+  } = useCallTranscriptService();
+  
   useEffect(() => {
+    // Fetch initial data using current filters
+    fetchTranscripts({
+      dateRange: filters.dateRange
+    });
+    
     return () => {
       if (isRecording) {
         stopRecording();
       }
     };
-  }, [isRecording, stopRecording]);
+  }, [filters.dateRange, isRecording, stopRecording, fetchTranscripts]);
   
   // Save data periodically when recording to update shared state
   useEffect(() => {
@@ -99,7 +111,9 @@ const Index = () => {
           <TabsTrigger value="trends">Trends</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard">
-          <PerformanceMetrics />
+          <PerformanceMetrics 
+            isLoading={transcriptsLoading}
+          />
         </TabsContent>
         <TabsContent value="livemetrics">
           <LiveMetricsDisplay isCallActive={showLiveMetrics} />

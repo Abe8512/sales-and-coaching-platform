@@ -1,6 +1,6 @@
 
 import React, { useContext, useState, useRef, useEffect } from "react";
-import { X, Upload, CheckCircle, Clock, AlertCircle, FileAudio, ToggleLeft, ToggleRight } from "lucide-react";
+import { X, Upload, CheckCircle, Clock, AlertCircle, FileAudio, ToggleLeft, ToggleRight, UserPlus } from "lucide-react";
 import { ThemeContext } from "@/App";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useWhisperService } from "@/services/WhisperService";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import BulkUploadProcessor from "./BulkUploadProcessor";
 import { useBulkUploadService } from "@/services/BulkUploadService";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface BulkUploadModalProps {
   isOpen: boolean;
@@ -20,11 +22,16 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
   const { isDarkMode } = useContext(ThemeContext);
   const { toast } = useToast();
   const { getUseLocalWhisper, setUseLocalWhisper } = useWhisperService();
+  const { user, getManagedUsers } = useAuth();
   const [dragActive, setDragActive] = useState(false);
   const [openAIKeyMissing, setOpenAIKeyMissing] = useState(false);
   const [useLocalWhisper, setUseLocalWhisperState] = useState(false);
-  const { addFiles } = useBulkUploadService();
+  const [selectedRepId, setSelectedRepId] = useState<string>("");
+  const { addFiles, setAssignedUserId } = useBulkUploadService();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Get team members for rep selection
+  const managedUsers = getManagedUsers();
   
   useEffect(() => {
     if (isOpen) {
@@ -34,8 +41,13 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
       
       // Check local Whisper setting
       setUseLocalWhisperState(getUseLocalWhisper());
+      
+      // Set default rep ID to current user if available
+      if (user?.id && !selectedRepId) {
+        setSelectedRepId(user.id);
+      }
     }
-  }, [isOpen, getUseLocalWhisper]);
+  }, [isOpen, getUseLocalWhisper, user, selectedRepId]);
   
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -81,6 +93,8 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
       return;
     }
     
+    // Assign the selected rep ID for these files
+    setAssignedUserId(selectedRepId);
     addFiles(audioFiles);
     
     toast({
@@ -100,6 +114,15 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
     });
   };
 
+  const handleRepChange = (value: string) => {
+    setSelectedRepId(value);
+    setAssignedUserId(value);
+    toast({
+      title: "Sales Rep Selected",
+      description: "All uploaded files will be assigned to this rep"
+    });
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className={`sm:max-w-[600px] ${isDarkMode ? "bg-dark-purple border border-white/10" : "bg-white"}`}>
@@ -110,25 +133,59 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
           </DialogDescription>
         </DialogHeader>
         
-        <div className="flex items-center space-x-2 my-2">
-          <Switch
-            id="bulk-upload-local-whisper"
-            checked={useLocalWhisper}
-            onCheckedChange={toggleLocalWhisper}
-          />
-          <Label htmlFor="bulk-upload-local-whisper" className="text-sm">
-            {useLocalWhisper ? (
-              <span className="flex items-center">
-                <ToggleRight className="h-4 w-4 mr-1 text-green-500" /> 
-                Use Local Whisper (Browser-Based)
-              </span>
-            ) : (
-              <span className="flex items-center">
-                <ToggleLeft className="h-4 w-4 mr-1 text-gray-500" /> 
-                Use OpenAI API (Requires API Key)
-              </span>
-            )}
-          </Label>
+        <div className="grid grid-cols-1 gap-4 mb-2">
+          {/* Rep Selection Dropdown */}
+          <div className="space-y-2">
+            <Label htmlFor="sales-rep-select" className="text-sm flex items-center">
+              <UserPlus className="h-4 w-4 mr-1" /> 
+              Assign Calls to Sales Rep
+            </Label>
+            
+            <Select value={selectedRepId} onValueChange={handleRepChange}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a sales rep" />
+              </SelectTrigger>
+              <SelectContent>
+                {user && (
+                  <SelectItem value={user.id}>
+                    {user.name || 'Current User'} (You)
+                  </SelectItem>
+                )}
+                
+                {managedUsers && managedUsers.length > 0 && (
+                  managedUsers
+                    .filter(rep => rep.id !== user?.id) // Filter out current user
+                    .map(rep => (
+                      <SelectItem key={rep.id} value={rep.id}>
+                        {rep.name}
+                      </SelectItem>
+                    ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {/* Whisper Mode Toggle */}
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="bulk-upload-local-whisper"
+              checked={useLocalWhisper}
+              onCheckedChange={toggleLocalWhisper}
+            />
+            <Label htmlFor="bulk-upload-local-whisper" className="text-sm">
+              {useLocalWhisper ? (
+                <span className="flex items-center">
+                  <ToggleRight className="h-4 w-4 mr-1 text-green-500" /> 
+                  Use Local Whisper (Browser-Based)
+                </span>
+              ) : (
+                <span className="flex items-center">
+                  <ToggleLeft className="h-4 w-4 mr-1 text-gray-500" /> 
+                  Use OpenAI API (Requires API Key)
+                </span>
+              )}
+            </Label>
+          </div>
         </div>
         
         {openAIKeyMissing && !useLocalWhisper && (

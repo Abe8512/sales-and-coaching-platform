@@ -65,7 +65,10 @@ const Transcripts = () => {
           date: data.created_at,
           duration: data.duration,
           callScore: data.call_score,
-          sentiment: data.sentiment,
+          // Fix the type error by checking if sentiment is one of the allowed values
+          sentiment: (data.sentiment === 'positive' || data.sentiment === 'negative' || data.sentiment === 'neutral') 
+            ? data.sentiment as 'positive' | 'neutral' | 'negative' 
+            : 'neutral',
           keywords: data.keywords || [],
         };
         

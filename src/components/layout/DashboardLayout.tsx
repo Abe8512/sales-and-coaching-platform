@@ -17,7 +17,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       <Sidebar isDarkMode={isDarkMode} />
       <div className="flex flex-col flex-1">
         <TopBar setSidebarOpen={setSidebarOpen} />
-        <main className={`flex-1 p-6 overflow-y-auto ${isDarkMode ? 'bg-dark-purple' : 'bg-gray-50'}`}>
+        <main className={`flex-1 p-6 pt-16 overflow-y-auto ${isDarkMode ? 'bg-dark-purple' : 'bg-gray-50'}`}>
           {children}
         </main>
       </div>

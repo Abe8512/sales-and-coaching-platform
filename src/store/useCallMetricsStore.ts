@@ -1,6 +1,6 @@
 
 import { create } from 'zustand';
-import { io } from 'socket.io-client';
+import { supabase } from "@/integrations/supabase/client";
 
 interface CallMetricsState {
   isRecording: boolean;
@@ -176,10 +176,37 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       }));
     },
     
-    savePastCall: () => {
+    savePastCall: async () => {
       // Create a new call history item based on current metrics
       const { callDuration, talkRatio, sentiment, keyPhrases } = get();
       
+      // Save to Supabase
+      try {
+        const { data, error } = await supabase
+          .from('calls')
+          .insert([
+            { 
+              duration: callDuration,
+              talk_ratio_agent: talkRatio.agent,
+              talk_ratio_customer: talkRatio.customer,
+              sentiment_agent: sentiment.agent,
+              sentiment_customer: sentiment.customer,
+              key_phrases: keyPhrases
+            }
+          ])
+          .select()
+          .single();
+        
+        if (error) {
+          console.error("Error saving to Supabase:", error);
+        } else {
+          console.log("Call saved to Supabase:", data);
+        }
+      } catch (error) {
+        console.error("Exception saving to Supabase:", error);
+      }
+      
+      // For immediate UI update, also add to local state
       const newHistoryItem: CallHistoryItem = {
         id: `call-${Date.now()}`,
         date: new Date().toISOString(),
@@ -193,28 +220,40 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       set(state => ({
         callHistory: [newHistoryItem, ...state.callHistory]
       }));
-      
-      // In a real app, you'd save this to Supabase or another backend
-      console.log("Call saved to history:", newHistoryItem);
-      
-      // For demo purposes, we'll also store in localStorage to persist between refreshes
-      try {
-        const existingHistory = JSON.parse(localStorage.getItem('callHistory') || '[]');
-        const updatedHistory = [newHistoryItem, ...existingHistory];
-        localStorage.setItem('callHistory', JSON.stringify(updatedHistory.slice(0, 20))); // Keep last 20 calls
-      } catch (error) {
-        console.error("Error saving to localStorage:", error);
-      }
     },
     
-    loadPastCalls: () => {
-      // In a real app, you'd fetch this from Supabase or another backend
-      // For demo purposes, we'll load from localStorage
+    loadPastCalls: async () => {
       try {
-        const storedHistory = JSON.parse(localStorage.getItem('callHistory') || '[]');
-        set({ callHistory: storedHistory });
+        const { data, error } = await supabase
+          .from('calls')
+          .select('*')
+          .order('created_at', { ascending: false });
+          
+        if (error) {
+          console.error("Error loading from Supabase:", error);
+          return;
+        }
+        
+        // Transform Supabase data to our format
+        const formattedCalls: CallHistoryItem[] = data.map(call => ({
+          id: call.id,
+          date: call.created_at,
+          duration: call.duration,
+          talkRatio: {
+            agent: call.talk_ratio_agent,
+            customer: call.talk_ratio_customer
+          },
+          sentiment: {
+            agent: call.sentiment_agent,
+            customer: call.sentiment_customer
+          },
+          keyPhrases: call.key_phrases || []
+        }));
+        
+        set({ callHistory: formattedCalls });
+        console.log("Loaded calls from Supabase:", formattedCalls);
       } catch (error) {
-        console.error("Error loading from localStorage:", error);
+        console.error("Exception loading from Supabase:", error);
       }
     }
   };

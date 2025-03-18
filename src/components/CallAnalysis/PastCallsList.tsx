@@ -64,7 +64,7 @@ const PastCallsList = () => {
                   <CardContent className="p-4">
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <h4 className="font-medium">Call {call.id.substring(0, 8)}</h4>
+                        <h4 className="font-medium">Call {typeof call.id === 'string' ? call.id.substring(0, 8) : call.id}</h4>
                         <p className="text-sm text-muted-foreground">{formatDate(call.date)}</p>
                       </div>
                       <Badge className={getSentimentColor(getAverageSentiment(call.sentiment))}>

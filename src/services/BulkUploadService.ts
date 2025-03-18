@@ -1,3 +1,4 @@
+
 import { useBulkUploadStore, UploadStatus } from "@/store/useBulkUploadStore";
 import { useWhisperService } from "@/services/WhisperService";
 import { toast } from "sonner";
@@ -132,9 +133,9 @@ export const useBulkUploadService = () => {
     }
   };
   
-  async refreshTranscripts(filter?: BulkUploadFilter) {
+  const refreshTranscripts = async (filter?: BulkUploadFilter) => {
     try {
-      const transcriptFilter: CallTranscriptFilter = {
+      const transcriptFilter = {
         force: filter?.force || false
       };
       
@@ -143,7 +144,7 @@ export const useBulkUploadService = () => {
       console.error('Failed to refresh transcripts:', error);
       errorHandler.handleError(error, 'BulkUploadService.refreshTranscripts');
     }
-  }
+  };
   
   return {
     files,

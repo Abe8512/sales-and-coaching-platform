@@ -2,6 +2,7 @@
 import { create } from 'zustand';
 import { supabase } from "@/integrations/supabase/client";
 import { validateDataConsistency } from '@/services/SharedDataService';
+import { useEventsStore } from '@/services/events';
 
 interface CallMetricsState {
   isRecording: boolean;
@@ -167,6 +168,12 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         recordingStartTime: null,
         coachingAlerts: []
       });
+      
+      // Dispatch event that recording completed
+      useEventsStore.getState().dispatchEvent('recording-completed', {
+        duration: get().callDuration,
+        sentiment: get().sentiment
+      });
     },
     
     updateMetrics: (data) => {
@@ -297,17 +304,22 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           avgSentiment: (sentiment.agent + sentiment.customer) / 2
         });
         
-        await Promise.all([
-          supabase.from('sentiment_trends').insert([{
-            sentiment_label: sentiment.agent > 0.6 ? 'positive' : sentiment.agent < 0.4 ? 'negative' : 'neutral',
-            confidence: sentiment.agent
-          }]),
-          
-          supabase.from('sentiment_trends').insert([{
-            sentiment_label: sentiment.customer > 0.6 ? 'positive' : sentiment.customer < 0.4 ? 'negative' : 'neutral',
-            confidence: sentiment.customer
-          }])
-        ]);
+        // Save sentiment trends to Supabase
+        try {
+          await Promise.all([
+            supabase.from('sentiment_trends').insert({
+              sentiment_label: sentiment.agent > 0.6 ? 'positive' : sentiment.agent < 0.4 ? 'negative' : 'neutral',
+              confidence: sentiment.agent
+            }),
+            
+            supabase.from('sentiment_trends').insert({
+              sentiment_label: sentiment.customer > 0.6 ? 'positive' : sentiment.customer < 0.4 ? 'negative' : 'neutral',
+              confidence: sentiment.customer
+            })
+          ]);
+        } catch (error) {
+          console.error('Error saving sentiment trend to Supabase:', error);
+        }
       } catch (error) {
         console.error('Error saving sentiment trend:', error);
       }
@@ -326,58 +338,65 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           avgTalkRatio: talkRatio
         });
         
-        const { data, error } = await supabase
-          .from('calls')
-          .insert([
-            { 
+        // Save to Supabase
+        try {
+          const { data, error } = await supabase
+            .from('calls')
+            .insert({
               duration: callDuration,
               talk_ratio_agent: talkRatio.agent,
               talk_ratio_customer: talkRatio.customer,
               sentiment_agent: sentiment.agent,
               sentiment_customer: sentiment.customer,
               key_phrases: keyPhrases
-            }
-          ])
-          .select()
-          .single();
-        
-        if (error) {
-          console.error("Error saving to Supabase:", error);
-        } else {
-          console.log("Call saved to Supabase:", data);
+            })
+            .select()
+            .single();
+          
+          if (error) {
+            console.error("Error saving to Supabase:", error);
+          } else {
+            console.log("Call saved to Supabase:", data);
+          }
+        } catch (supabaseError) {
+          console.error("Error saving to Supabase:", supabaseError);
         }
         
         // Save keywords to keyword_trends table
         if (keyPhrases.length > 0) {
           const keywordPromises = keyPhrases.map(async (phrase) => {
-            const { data: existingKeyword } = await supabase
-              .from('keyword_trends')
-              .select('*')
-              .eq('keyword', phrase.toLowerCase())
-              .maybeSingle();
-              
-            if (existingKeyword) {
-              // Update existing keyword count
-              await supabase
+            try {
+              const { data: existingKeyword } = await supabase
                 .from('keyword_trends')
-                .update({ 
-                  count: existingKeyword.count + 1,
-                  last_used: new Date().toISOString()
-                })
-                .eq('id', existingKeyword.id);
-            } else {
-              // Insert new keyword
-              await supabase
-                .from('keyword_trends')
-                .insert([{
-                  keyword: phrase.toLowerCase(),
-                  count: 1,
-                  category: get().keywordsByCategory.positive.includes(phrase) 
-                    ? 'positive' 
-                    : get().keywordsByCategory.negative.includes(phrase)
-                      ? 'negative'
-                      : 'neutral'
-                }]);
+                .select('*')
+                .eq('keyword', phrase.toLowerCase())
+                .maybeSingle();
+                
+              if (existingKeyword) {
+                // Update existing keyword count
+                await supabase
+                  .from('keyword_trends')
+                  .update({ 
+                    count: (existingKeyword.count || 1) + 1,
+                    last_used: new Date().toISOString()
+                  })
+                  .eq('id', existingKeyword.id);
+              } else {
+                // Insert new keyword
+                await supabase
+                  .from('keyword_trends')
+                  .insert({
+                    keyword: phrase.toLowerCase(),
+                    count: 1,
+                    category: get().keywordsByCategory.positive.includes(phrase) 
+                      ? 'positive' 
+                      : get().keywordsByCategory.negative.includes(phrase)
+                        ? 'negative'
+                        : 'neutral'
+                  });
+              }
+            } catch (keywordError) {
+              console.error(`Error saving keyword "${phrase}":`, keywordError);
             }
           });
           
@@ -392,6 +411,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         console.error("Exception saving to Supabase:", error);
       }
       
+      // Save to local call history
       const newHistoryItem: CallHistoryItem = {
         id: `call-${Date.now()}`,
         date: new Date().toISOString(),
@@ -408,35 +428,65 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     
     loadPastCalls: async () => {
       try {
-        const { data, error } = await supabase
-          .from('calls')
-          .select('*')
-          .order('created_at', { ascending: false });
+        // Fetch calls from Supabase
+        try {
+          const { data, error } = await supabase
+            .from('calls')
+            .select('*')
+            .order('created_at', { ascending: false });
+            
+          if (error) {
+            console.error("Error loading from Supabase:", error);
+          } else {
+            const formattedCalls: CallHistoryItem[] = data.map(call => ({
+              id: call.id,
+              date: call.created_at || new Date().toISOString(),
+              duration: call.duration,
+              talkRatio: {
+                agent: call.talk_ratio_agent,
+                customer: call.talk_ratio_customer
+              },
+              sentiment: {
+                agent: call.sentiment_agent,
+                customer: call.sentiment_customer
+              },
+              keyPhrases: call.key_phrases || []
+            }));
+            
+            set({ callHistory: formattedCalls });
+            console.log("Loaded calls from Supabase:", formattedCalls);
+          }
+        } catch (supabaseError) {
+          console.error("Error loading from Supabase:", supabaseError);
           
-        if (error) {
-          console.error("Error loading from Supabase:", error);
-          return;
+          // Generate demo data if we have no data
+          if (get().callHistory.length === 0) {
+            const demoCalls: CallHistoryItem[] = Array.from({ length: 5 }).map((_, i) => ({
+              id: `demo-call-${i}`,
+              date: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
+              duration: Math.floor(Math.random() * 600) + 120,
+              talkRatio: {
+                agent: Math.floor(Math.random() * 30) + 40,
+                customer: Math.floor(Math.random() * 30) + 40
+              },
+              sentiment: {
+                agent: Math.random() * 0.5 + 0.5,
+                customer: Math.random() * 0.5 + 0.3
+              },
+              keyPhrases: [
+                "product features",
+                "pricing options",
+                "implementation timeline",
+                "technical support"
+              ]
+            }));
+            
+            set({ callHistory: demoCalls });
+            console.log("Using demo calls:", demoCalls);
+          }
         }
-        
-        const formattedCalls: CallHistoryItem[] = data.map(call => ({
-          id: call.id,
-          date: call.created_at,
-          duration: call.duration,
-          talkRatio: {
-            agent: call.talk_ratio_agent,
-            customer: call.talk_ratio_customer
-          },
-          sentiment: {
-            agent: call.sentiment_agent,
-            customer: call.sentiment_customer
-          },
-          keyPhrases: call.key_phrases || []
-        }));
-        
-        set({ callHistory: formattedCalls });
-        console.log("Loaded calls from Supabase:", formattedCalls);
       } catch (error) {
-        console.error("Exception loading from Supabase:", error);
+        console.error("Exception loading past calls:", error);
       }
     }
   };

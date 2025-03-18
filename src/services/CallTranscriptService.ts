@@ -43,9 +43,9 @@ export const useCallTranscriptService = () => {
     
     try {
       // First, check connection to Supabase
-      const { data: connectionTest, error: connectionError } = await supabase
+      const { count, error: connectionError } = await supabase
         .from('call_transcripts')
-        .select('count(*)', { count: 'exact', head: true });
+        .select('*', { count: 'exact', head: true });
         
       if (connectionError) {
         console.log("Connection error:", connectionError);
@@ -56,6 +56,16 @@ export const useCallTranscriptService = () => {
         }
       }
       
+      // Get total count first
+      const countResult = await supabase
+        .from('call_transcripts')
+        .select('*', { count: 'exact' });
+        
+      if (countResult.count !== null) {
+        setTotalCount(countResult.count);
+      }
+      
+      // Then get data with filters
       let query = supabase
         .from('call_transcripts')
         .select('*');
@@ -81,35 +91,7 @@ export const useCallTranscriptService = () => {
         query = query.lte('created_at', toDate.toISOString());
       }
       
-      // Get count first with timeout
-      const countPromise = new Promise<number>(async (resolve, reject) => {
-        try {
-          const { count, error: countError } = await supabase
-            .from('call_transcripts')
-            .select('*', { count: 'exact', head: true });
-            
-          if (countError) {
-            console.error('Error getting count:', countError);
-            reject(countError);
-          } else {
-            resolve(count || 0);
-          }
-        } catch (err) {
-          console.error('Error in count promise:', err);
-          reject(err);
-        }
-      });
-      
-      // Set a timeout to avoid hanging
-      const countTimeout = new Promise<number>((resolve) => {
-        setTimeout(() => resolve(transcripts.length || 0), 3000);
-      });
-      
-      // Race the actual count against the timeout
-      const finalCount = await Promise.race([countPromise, countTimeout]);
-      setTotalCount(finalCount);
-      
-      // Then get data with timeout
+      // Get data with timeout protection
       const dataPromise = new Promise<CallTranscript[]>(async (resolve, reject) => {
         try {
           const { data, error: dataError } = await query
@@ -184,27 +166,35 @@ export const useCallTranscriptService = () => {
       });
       
       for (const transcript of recentTranscripts) {
-        // Check if this transcript has a corresponding entry in the calls table
-        const { data, error } = await supabase
-          .from('calls')
-          .select('id')
-          .eq('user_id', transcript.user_id)
-          .eq('created_at', transcript.created_at)
-          .maybeSingle();
-          
-        if (!data && transcript.user_id) {
-          // Create a new call entry for this transcript
-          await supabase
+        // Only check for transcripts with valid user_id and created_at
+        if (!transcript.user_id || !transcript.created_at) continue;
+        
+        try {
+          // Check if this transcript has a corresponding entry in the calls table
+          const { data } = await supabase
             .from('calls')
-            .insert({
-              user_id: transcript.user_id,
-              duration: transcript.duration || 0,
-              sentiment_agent: transcript.sentiment === 'positive' ? 0.8 : transcript.sentiment === 'negative' ? 0.3 : 0.5,
-              sentiment_customer: transcript.sentiment === 'positive' ? 0.7 : transcript.sentiment === 'negative' ? 0.2 : 0.5,
-              talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
-              talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
-              key_phrases: transcript.keywords || []
-            });
+            .select('id')
+            .eq('user_id', transcript.user_id)
+            .eq('created_at', transcript.created_at)
+            .maybeSingle();
+            
+          if (!data) {
+            // Create a new call entry for this transcript
+            await supabase
+              .from('calls')
+              .insert({
+                user_id: transcript.user_id,
+                duration: transcript.duration || 0,
+                sentiment_agent: transcript.sentiment === 'positive' ? 0.8 : transcript.sentiment === 'negative' ? 0.3 : 0.5,
+                sentiment_customer: transcript.sentiment === 'positive' ? 0.7 : transcript.sentiment === 'negative' ? 0.2 : 0.5,
+                talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
+                talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
+                key_phrases: transcript.keywords || []
+              });
+          }
+        } catch (callError) {
+          console.error('Error checking/creating call record:', callError);
+          // Continue with next transcript even if one fails
         }
       }
     } catch (err) {
@@ -212,7 +202,7 @@ export const useCallTranscriptService = () => {
     }
   };
 
-  const getMetrics = useCallback(() => {
+  const getMetrics = (transcripts) => {
     // If no transcripts, provide reasonable defaults
     if (transcripts.length === 0) {
       return {
@@ -233,7 +223,7 @@ export const useCallTranscriptService = () => {
       o.outcome === 'Demo Scheduled'
     );
     
-    const successfulCalls = positiveOutcomes.reduce((sum, o) => sum + (o.count as number), 0);
+    const successfulCalls = positiveOutcomes.reduce((sum, o) => sum + (o.count || 0), 0);
     const conversionRate = totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 0;
     
     return {
@@ -242,15 +232,15 @@ export const useCallTranscriptService = () => {
       outcomeStats,
       conversionRate
     };
-  }, [transcripts]);
-  
-  const getCallDistributionData = useCallback(() => {
+  };
+
+  const getCallDistributionData = (transcripts) => {
     // If no transcripts, return empty array
     if (transcripts.length === 0) {
       return [];
     }
     
-    const userCalls: Record<string, number> = {};
+    const userCalls = {};
     
     transcripts.forEach(transcript => {
       // Use filename as fallback for user name if user_id doesn't map to a name
@@ -266,8 +256,8 @@ export const useCallTranscriptService = () => {
       name,
       calls: count
     }));
-  }, [transcripts]);
-  
+  };
+
   // Subscribe to real-time changes from Supabase
   useEffect(() => {
     // Subscribe to real-time changes to the call_transcripts table
@@ -343,7 +333,7 @@ export const useCallTranscriptService = () => {
   // Initial fetch on mount
   useEffect(() => {
     fetchTranscripts();
-  }, []);
+  }, [fetchTranscripts]);
   
   return {
     transcripts,

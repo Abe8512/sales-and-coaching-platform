@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Clock, Mic, BarChart2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEventListener } from '@/services/EventsService';
+import { useEventListener } from '@/services/events/hooks';
 
 const PastCallsList = () => {
   const { callHistory, loadPastCalls } = useCallMetricsStore();
@@ -21,6 +21,11 @@ const PastCallsList = () => {
   
   useEventListener('bulk-upload-completed', () => {
     console.log('Bulk upload completed, refreshing past calls...');
+    handleRefresh();
+  });
+  
+  useEventListener('transcripts-refreshed', () => {
+    console.log('Transcripts refreshed, updating past calls...');
     handleRefresh();
   });
   
@@ -117,7 +122,7 @@ const PastCallsList = () => {
                       </div>
                     </div>
                     
-                    {call.keyPhrases.length > 0 && (
+                    {call.keyPhrases && call.keyPhrases.length > 0 && (
                       <div className="mt-3">
                         <h5 className="text-sm font-medium mb-1 flex items-center">
                           <BarChart2 className="h-3 w-3 mr-1" />

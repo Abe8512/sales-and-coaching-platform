@@ -165,6 +165,21 @@ export const useWhisperService = () => {
     const existingTranscriptions = getStoredTranscriptions();
     localStorage.setItem('transcriptions', JSON.stringify([...existingTranscriptions, newTranscription]));
     
+    // Save to Supabase
+    try {
+      await supabase.from('call_transcripts').insert({
+        text: text,
+        duration: duration,
+        filename: fileName || "Manual Transcript",
+        sentiment: newTranscription.sentiment,
+        keywords: newTranscription.keywords,
+        call_score: newTranscription.callScore,
+        created_at: now
+      });
+    } catch (error) {
+      console.error("Error saving to Supabase:", error);
+    }
+    
     // Force refresh UI
     forceRefreshTranscriptions();
     

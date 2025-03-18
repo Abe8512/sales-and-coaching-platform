@@ -1,4 +1,3 @@
-
 import { debounce, throttle } from "lodash";
 
 /**
@@ -45,5 +44,56 @@ export const animationUtils = {
       return newValue;
     }
     return oldValue + (Math.sign(diff) * maxStep);
+  },
+  
+  /**
+   * Prevents content jump by maintaining consistent height during loading states
+   * @param element DOM element to measure
+   * @param defaultHeight Default height to use if element is not available
+   */
+  getStableHeight: (element: HTMLElement | null, defaultHeight: number = 300): number => {
+    if (!element) return defaultHeight;
+    
+    // Round to nearest multiple of 8 to prevent micro adjustments
+    return Math.ceil(element.offsetHeight / 8) * 8;
+  },
+  
+  /**
+   * Prevents layout shift by rounding dimensions to a fixed grid
+   * @param value The dimension value to stabilize
+   * @param gridSize The grid size to round to (default 8px)
+   */
+  stabilizeDimension: (value: number, gridSize: number = 8): number => {
+    return Math.ceil(value / gridSize) * gridSize;
+  },
+  
+  /**
+   * Creates a stable loading state to prevent quick flashes of loading indicators
+   * @param isLoading Current loading state
+   * @param minLoadingTime Minimum time to show loading state in ms
+   * @returns Stabilized loading state
+   */
+  useStableLoadingState: (isLoading: boolean, minLoadingTime: number = 500): boolean => {
+    const [stableLoading, setStableLoading] = React.useState(isLoading);
+    const timeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+    
+    React.useEffect(() => {
+      if (isLoading) {
+        setStableLoading(true);
+      } else if (stableLoading) {
+        // Keep showing loading state for minimum time
+        timeoutRef.current = setTimeout(() => {
+          setStableLoading(false);
+        }, minLoadingTime);
+      }
+      
+      return () => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+      };
+    }, [isLoading, stableLoading, minLoadingTime]);
+    
+    return stableLoading;
   }
 };

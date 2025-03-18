@@ -1,4 +1,5 @@
-import React, { useContext, useState, useEffect } from "react";
+
+import React, { useContext, useState, useEffect, useRef } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
 import CallsOverview from "../components/Dashboard/CallsOverview";
@@ -22,6 +23,8 @@ import { useSharedFilters } from "@/contexts/SharedFilterContext";
 import { useCallTranscriptService } from "@/services/CallTranscriptService";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEventListener } from "@/services/EventsService";
+import ContentLoader from "@/components/ui/ContentLoader";
+import { animationUtils } from "@/utils/animationUtils";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
@@ -29,23 +32,30 @@ const Index = () => {
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [showLiveMetrics, setShowLiveMetrics] = useState(false);
   const { startRecording, stopRecording, isRecording, saveSentimentTrend } = useCallMetricsStore();
+  const callAnalysisSectionRef = useRef<HTMLDivElement>(null);
   
   const { 
     fetchTranscripts,
     loading: transcriptsLoading 
   } = useCallTranscriptService();
   
-  useEffect(() => {
+  // Use throttled fetch to prevent multiple rapid fetches
+  const throttledFetchTranscripts = animationUtils.throttle((options?: any) => {
     fetchTranscripts({
-      dateRange: filters.dateRange
+      dateRange: filters.dateRange,
+      ...options
     });
+  }, 1000);
+  
+  useEffect(() => {
+    throttledFetchTranscripts();
     
     return () => {
       if (isRecording) {
         stopRecording();
       }
     };
-  }, [filters.dateRange, isRecording, stopRecording, fetchTranscripts]);
+  }, [filters.dateRange, isRecording, stopRecording, throttledFetchTranscripts]);
   
   useEffect(() => {
     if (isRecording) {
@@ -59,24 +69,18 @@ const Index = () => {
   
   useEventListener('transcript-created', (data) => {
     console.log('New transcript created, refreshing data...', data);
-    fetchTranscripts({
-      dateRange: filters.dateRange
-    });
+    throttledFetchTranscripts();
   });
   
   useEventListener('bulk-upload-completed', (data) => {
     console.log('Bulk upload completed, refreshing data...', data);
-    fetchTranscripts({
-      dateRange: filters.dateRange
-    });
+    throttledFetchTranscripts();
   });
   
   useEffect(() => {
     const handleTranscriptionsUpdated = () => {
       console.log("Transcriptions updated, refreshing data...");
-      fetchTranscripts({
-        dateRange: filters.dateRange
-      });
+      throttledFetchTranscripts();
     };
     
     window.addEventListener('transcriptions-updated', handleTranscriptionsUpdated);
@@ -84,13 +88,11 @@ const Index = () => {
     return () => {
       window.removeEventListener('transcriptions-updated', handleTranscriptionsUpdated);
     };
-  }, [fetchTranscripts, filters.dateRange]);
+  }, [throttledFetchTranscripts]);
   
   const handleBulkUploadClose = () => {
     setIsBulkUploadOpen(false);
-    fetchTranscripts({
-      dateRange: filters.dateRange
-    });
+    throttledFetchTranscripts();
   };
 
   const handleLiveMetricsTab = (value: string) => {
@@ -106,6 +108,10 @@ const Index = () => {
       }
     }
   };
+
+  // Calculate fixed heights for components to prevent layout shifts
+  const callTranscriptHeight = 400;
+  const sideComponentHeight = 120;
 
   return (
     <DashboardLayout>
@@ -163,47 +169,72 @@ const Index = () => {
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
         <div className="col-span-1 md:col-span-2">
-          {transcriptsLoading ? (
-            <Skeleton className="w-full h-[400px] rounded-lg" />
-          ) : (
+          <ContentLoader 
+            isLoading={transcriptsLoading} 
+            height={400}
+            skeletonCount={1}
+            preserveHeight={true}
+          >
             <CallsOverview />
-          )}
+          </ContentLoader>
         </div>
         <div>
-          {transcriptsLoading ? (
-            <Skeleton className="w-full h-[400px] rounded-lg" />
-          ) : (
+          <ContentLoader 
+            isLoading={transcriptsLoading} 
+            height={400}
+            skeletonCount={1}
+            preserveHeight={true}
+          >
             <AIInsights />
-          )}
+          </ContentLoader>
         </div>
       </div>
       
-      <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mt-8 mb-6`}>
+      <h2 
+        ref={callAnalysisSectionRef}
+        className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mt-8 mb-6`}
+      >
         Call Analysis
       </h2>
       
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
         <div className="col-span-1 md:col-span-3">
-          {transcriptsLoading ? (
-            <Skeleton className="w-full h-[400px] rounded-lg" />
-          ) : (
+          <ContentLoader 
+            isLoading={transcriptsLoading} 
+            height={callTranscriptHeight}
+            skeletonCount={1}
+            preserveHeight={true}
+          >
             <CallTranscript />
-          )}
+          </ContentLoader>
         </div>
         <div className="col-span-1 md:col-span-2 grid grid-rows-3 gap-6">
-          {transcriptsLoading ? (
-            <>
-              <Skeleton className="w-full h-[120px] rounded-lg" />
-              <Skeleton className="w-full h-[120px] rounded-lg" />
-              <Skeleton className="w-full h-[120px] rounded-lg" />
-            </>
-          ) : (
-            <>
-              <SentimentAnalysis />
-              <KeywordInsights />
-              <CallRating />
-            </>
-          )}
+          <ContentLoader 
+            isLoading={transcriptsLoading} 
+            height={sideComponentHeight}
+            skeletonCount={1}
+            preserveHeight={true}
+          >
+            <SentimentAnalysis />
+          </ContentLoader>
+          
+          <ContentLoader 
+            isLoading={transcriptsLoading} 
+            height={sideComponentHeight}
+            skeletonCount={1}
+            preserveHeight={true}
+          >
+            <KeywordInsights />
+          </ContentLoader>
+          
+          <ContentLoader 
+            isLoading={transcriptsLoading} 
+            height={sideComponentHeight}
+            skeletonCount={1}
+            preserveHeight={true}
+          >
+            <CallRating />
+          </ContentLoader>
         </div>
       </div>
     </DashboardLayout>

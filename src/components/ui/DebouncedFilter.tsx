@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
 import { debounce } from 'lodash';
@@ -10,6 +10,7 @@ interface DebouncedFilterProps {
   initialValue?: string;
   debounceMs?: number;
   className?: string;
+  preventSubmit?: boolean; // Prevent form submission on Enter
 }
 
 /**
@@ -20,14 +21,18 @@ export const DebouncedFilter: React.FC<DebouncedFilterProps> = ({
   placeholder = "Search...",
   initialValue = "",
   debounceMs = 300,
-  className = ""
+  className = "",
+  preventSubmit = true
 }) => {
   const [inputValue, setInputValue] = useState(initialValue);
+  const [isTyping, setIsTyping] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedFilter = useCallback(
     debounce((value: string) => {
       onFilterChange(value);
+      setIsTyping(false);
     }, debounceMs),
     [onFilterChange, debounceMs]
   );
@@ -41,18 +46,37 @@ export const DebouncedFilter: React.FC<DebouncedFilterProps> = ({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     setInputValue(newValue);
+    setIsTyping(true);
     debouncedFilter(newValue);
   };
   
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Prevent form submission on Enter
+    if (preventSubmit && e.key === 'Enter') {
+      e.preventDefault();
+      // Force immediate filter application
+      debouncedFilter.flush();
+    }
+  };
+  
+  // If initialValue changes externally, update the input
+  useEffect(() => {
+    if (initialValue !== inputValue && !isTyping) {
+      setInputValue(initialValue);
+    }
+  }, [initialValue, inputValue, isTyping]);
+  
   return (
     <div className={`relative ${className}`}>
-      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+      <Search className={`absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground ${isTyping ? 'text-primary' : ''}`} />
       <Input
+        ref={inputRef}
         type="search"
         placeholder={placeholder}
         value={inputValue}
         onChange={handleChange}
-        className="pl-8"
+        onKeyDown={handleKeyDown}
+        className={`pl-8 transition-all ${isTyping ? 'border-primary' : ''}`}
       />
     </div>
   );

@@ -1,4 +1,3 @@
-
 import { supabase, checkSupabaseConnection, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { useState, useEffect, useCallback } from "react";
 import { DateRange } from "react-day-picker";
@@ -46,20 +45,14 @@ export const useCallTranscriptService = () => {
   const dispatchEvent = useEventsStore.getState().dispatchEvent;
   const { generateDemoTranscripts } = useDemoDataService();
   
-  // Monitor connection status for the service
   useEffect(() => {
-    // Initial connection check
     connectionMonitor.checkConnection().then(setIsConnected);
-    
-    // Subscribe to connection status changes
     const unsubscribe = connectionMonitor.subscribe(setIsConnected);
-    
     return () => {
       unsubscribe();
     };
   }, []);
   
-  // Check connection status on mount
   useEffect(() => {
     const checkConnection = async () => {
       console.log('Checking initial Supabase connection...');
@@ -88,11 +81,9 @@ export const useCallTranscriptService = () => {
     setError(null);
     
     try {
-      // First, check connection to Supabase
       console.log('Checking Supabase connection before fetching transcripts...');
       const isConnectionActive = await connectionMonitor.checkConnection();
       
-      // If we're not connected, use demo data
       if (!isConnectionActive) {
         console.log("Using demo data due to connection issues");
         const demoData = generateDemoTranscripts(15);
@@ -106,7 +97,6 @@ export const useCallTranscriptService = () => {
       
       setIsConnected(true);
       
-      // Get total count first - using a safer approach that won't trigger a 400 error
       try {
         console.log('Fetching transcript count...');
         const countResponse = await withErrorHandling<{ id: string }[]>(
@@ -115,7 +105,6 @@ export const useCallTranscriptService = () => {
               .from('call_transcripts')
               .select('id', { count: 'exact' });
             
-            // Apply filters to count query
             if (filters?.userId && filters.userId.trim() !== '') {
               countQuery.eq('user_id', filters.userId);
             }
@@ -136,7 +125,6 @@ export const useCallTranscriptService = () => {
               countQuery.lte('created_at', toDate.toISOString());
             }
             
-            // Execute the query and return the full response
             return await countQuery;
           },
           { data: [], count: null, error: null as PostgrestError | null, status: 200, statusText: 'OK' } as PostgrestSingleResponse<{ id: string }[]>,
@@ -153,7 +141,6 @@ export const useCallTranscriptService = () => {
         console.error('Exception getting transcript count:', countErr);
       }
       
-      // Then get data with filters
       console.log('Building transcript query with filters:', filters);
       
       const dataResponse = await withErrorHandling<CallTranscript[]>(
@@ -162,7 +149,6 @@ export const useCallTranscriptService = () => {
             .from('call_transcripts')
             .select('*');
           
-          // Apply filters
           if (filters?.userId && filters.userId.trim() !== '') {
             query = query.eq('user_id', filters.userId);
           }
@@ -193,41 +179,34 @@ export const useCallTranscriptService = () => {
         }
       );
       
-      // If we got actual data, use it
       if (dataResponse.data && dataResponse.data.length > 0) {
         console.log(`Setting ${dataResponse.data.length} transcripts to state`);
         setTranscripts(dataResponse.data);
         
-        // Dispatch an event to notify other components that transcripts were refreshed
         dispatchEvent('transcripts-refreshed', {
           count: dataResponse.data.length,
           filters: filters
         });
         
-        // Also update calls table to ensure metrics are fresh
         await refreshCallsTable(dataResponse.data);
       } else if (dataResponse.error) {
-        // Show error and fall back to demo data if we have none
         console.error('Error fetching transcript data:', dataResponse.error);
         if (transcripts.length === 0) {
           const demoData = generateDemoTranscripts(15);
           setTranscripts(demoData);
         }
       } else if (transcripts.length === 0) {
-        // No error but no data either, and we don't have any cached data
         console.log("No data received and no cached data available, generating demo data");
         const demoData = generateDemoTranscripts(15);
         setTranscripts(demoData);
       }
       
-      // Update last fetch time
       setLastFetchTime(Date.now());
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch call transcripts';
       console.error('Error fetching call transcripts:', err);
       setError(errorMessage);
       
-      // Show toast only if we have no data to display
       if (transcripts.length === 0) {
         toast.error("Error loading data", {
           description: "Using cached or demo data. Check your connection."
@@ -245,28 +224,23 @@ export const useCallTranscriptService = () => {
     
     try {
       console.log('Refreshing calls table...');
-      // Check if we need to sync any transcripts to the calls table
       const recentTranscripts = transcriptData.filter(t => {
-        // Filter for transcripts created in the last hour that might need syncing
         if (!t.created_at) return false;
         const createdTime = new Date(t.created_at).getTime();
-        return Date.now() - createdTime < 3600000; // Last hour
+        return Date.now() - createdTime < 3600000;
       });
       
       console.log(`Found ${recentTranscripts.length} recent transcripts to sync`);
       
       for (const transcript of recentTranscripts) {
         try {
-          // Skip if missing critical data
           if (!transcript.created_at) continue;
           
-          // Make sure we have a valid user_id - use the existing one or generate a new anonymous ID
           const userId = transcript.user_id || generateAnonymousUserId();
           
           console.log(`Processing transcript ${transcript.id} for user ${userId}`);
           
           try {
-            // Check if a call record for this transcript already exists
             const { data } = await supabase
               .from('calls')
               .select('id')
@@ -276,7 +250,6 @@ export const useCallTranscriptService = () => {
             if (!data) {
               console.log(`Creating new call record for transcript ${transcript.id}`);
               
-              // Create a new call entry with the same ID as the transcript for consistency
               const { error: insertError } = await supabase
                 .from('calls')
                 .insert({
@@ -285,8 +258,8 @@ export const useCallTranscriptService = () => {
                   duration: transcript.duration || 0,
                   sentiment_agent: transcript.sentiment === 'positive' ? 0.8 : transcript.sentiment === 'negative' ? 0.3 : 0.5,
                   sentiment_customer: transcript.sentiment === 'positive' ? 0.7 : transcript.sentiment === 'negative' ? 0.2 : 0.5,
-                  talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
-                  talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
+                  talk_ratio_agent: 50 + (Math.random() * 20 - 10),
+                  talk_ratio_customer: 50 - (Math.random() * 20 - 10),
                   key_phrases: transcript.keywords || []
                 });
                 
@@ -300,11 +273,9 @@ export const useCallTranscriptService = () => {
             }
           } catch (callError) {
             console.error(`Error checking/creating call record for transcript ${transcript.id}:`, callError);
-            // Continue with next transcript even if one fails
           }
         } catch (trError) {
           console.error('Error processing transcript:', trError);
-          // Continue with next transcript even if one fails
         }
       }
     } catch (err) {
@@ -313,10 +284,8 @@ export const useCallTranscriptService = () => {
   };
 
   const getMetrics = (transcriptData: CallTranscript[] = []) => {
-    // Use provided data or current state
     const dataToUse = transcriptData.length > 0 ? transcriptData : transcripts;
     
-    // If no transcripts, provide reasonable defaults
     if (dataToUse.length === 0) {
       return {
         totalCalls: 0,
@@ -348,10 +317,8 @@ export const useCallTranscriptService = () => {
   };
 
   const getCallDistributionData = (transcriptData: CallTranscript[] = []) => {
-    // Use provided data or current state
     const dataToUse = transcriptData.length > 0 ? transcriptData : transcripts;
     
-    // If no transcripts, return empty array
     if (dataToUse.length === 0) {
       return [];
     }
@@ -359,7 +326,6 @@ export const useCallTranscriptService = () => {
     const userCalls: Record<string, number> = {};
     
     dataToUse.forEach(transcript => {
-      // Use filename as fallback for user name if user_id doesn't map to a name
       const userName = transcript.filename?.split('.')[0] || 'Unknown';
       
       if (!userCalls[userName]) {
@@ -374,15 +340,12 @@ export const useCallTranscriptService = () => {
     }));
   };
 
-  // Setup subscriptions to real-time changes using the extracted service
   useTranscriptRealtimeSubscriptions(isConnected, fetchTranscripts, dispatchEvent);
   
-  // Refresh data automatically every 60 seconds if the component is still mounted
   useEffect(() => {
     const intervalId = setInterval(() => {
       const now = Date.now();
-      // Only attempt to refresh if we're believed to be connected and it's been at least 60 seconds
-      if (isConnected && now - lastFetchTime > 60000) { // 60 seconds
+      if (isConnected && now - lastFetchTime > 60000) {
         fetchTranscripts();
       }
     }, 60000);
@@ -390,7 +353,6 @@ export const useCallTranscriptService = () => {
     return () => clearInterval(intervalId);
   }, [fetchTranscripts, lastFetchTime, isConnected]);
   
-  // Initial fetch on mount
   useEffect(() => {
     fetchTranscripts();
   }, [fetchTranscripts]);

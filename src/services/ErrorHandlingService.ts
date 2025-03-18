@@ -1,4 +1,6 @@
+
 import { toast } from 'sonner';
+import { PostgrestError, PostgrestSingleResponse } from '@supabase/supabase-js';
 
 export type ErrorSeverity = 'info' | 'warning' | 'error' | 'critical';
 
@@ -312,16 +314,17 @@ export const errorHandler = new ErrorHandlingService();
 
 /**
  * Utility function to wrap async operations with consistent error handling
+ * Generic T represents the expected successful response type
  */
 export const withErrorHandling = async <T>(
-  operation: () => Promise<T>,
-  fallback: T,
+  operation: () => Promise<PostgrestSingleResponse<T>>,
+  fallback: PostgrestSingleResponse<T>,
   context: string,
   options?: {
-    retry?: () => Promise<T>,
+    retry?: () => Promise<any>,
     message?: string
   }
-): Promise<T> => {
+): Promise<PostgrestSingleResponse<T>> => {
   try {
     return await operation();
   } catch (error) {

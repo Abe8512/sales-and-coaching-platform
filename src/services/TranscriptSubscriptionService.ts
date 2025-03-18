@@ -1,126 +1,114 @@
 
 import { useEffect } from 'react';
-import { supabase } from "@/integrations/supabase/client";
-import { EventDispatcher } from './events/types';
+import { supabase } from '@/integrations/supabase/client';
+import { CallTranscript, CallTranscriptFilter } from './CallTranscriptService';
+import { EventType } from './events/types';
 
+// Setup real-time subscriptions for transcript changes
 export const useTranscriptRealtimeSubscriptions = (
   isConnected: boolean,
-  fetchTranscripts: () => void,
-  dispatchEvent: EventDispatcher
+  fetchTranscripts: (filters?: CallTranscriptFilter) => Promise<void>,
+  dispatchEvent: (type: EventType, data?: any) => void
 ) => {
   useEffect(() => {
     if (!isConnected) return;
     
-    let retryTimeout: number | null = null;
+    console.log('Setting up realtime subscriptions for call_transcripts table...');
     
-    const setupSubscriptions = () => {
-      try {
-        // Subscribe to real-time changes to the call_transcripts table
-        console.log('Setting up Supabase real-time subscriptions...');
-        
-        const channel = supabase
-          .channel('call_transcripts_changes')
-          .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public',
-            table: 'call_transcripts'
-          }, (payload) => {
-            console.log('Real-time update received:', payload);
-            
-            // Validate the received payload has proper format and valid UUID
-            if (payload && payload.new && typeof payload.new === 'object' && 'id' in payload.new && typeof payload.new.id === 'string') {
-              try {
-                // Simple validation that the ID looks like a UUID
-                if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.new.id)) {
-                  console.error('Received payload with invalid UUID format:', payload.new.id);
-                  return;
-                }
-                
-                // Dispatch appropriate event based on the change type
-                if (payload.eventType === 'INSERT') {
-                  dispatchEvent('transcript-created', payload.new);
-                  // Re-fetch data to ensure all components have the latest data
-                  fetchTranscripts();
-                } else if (payload.eventType === 'UPDATE') {
-                  dispatchEvent('transcript-updated', payload.new);
-                  // Re-fetch data to ensure all components have the latest data
-                  fetchTranscripts();
-                } else if (payload.eventType === 'DELETE' && payload.old && typeof payload.old === 'object' && 'id' in payload.old) {
-                  dispatchEvent('transcript-deleted', payload.old);
-                  // Re-fetch data to ensure all components have the latest data
-                  fetchTranscripts();
-                }
-              } catch (parseError) {
-                console.error('Error processing real-time update:', parseError);
-              }
-            }
-          })
-          .subscribe(status => {
-            console.log('Subscription status for call_transcripts:', status);
-            if (status === 'SUBSCRIBED') {
-              console.log('Successfully subscribed to call_transcripts table');
-            } else if (status === 'CHANNEL_ERROR') {
-              console.error('Error subscribing to call_transcripts table');
-              // Attempt to reconnect after delay
-              if (retryTimeout) clearTimeout(retryTimeout);
-              retryTimeout = window.setTimeout(setupSubscriptions, 5000);
-            }
-          });
+    // Create a subscription channel
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'call_transcripts'
+        },
+        (payload) => {
+          console.log('Received real-time INSERT event for call_transcripts:', payload);
           
-        // Also subscribe to changes in the calls table
-        const callsChannel = supabase
-          .channel('calls_changes')
-          .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public',
-            table: 'calls'
-          }, (payload) => {
-            console.log('Real-time update received for calls:', payload);
+          // Validate payload has the expected structure
+          if (payload && 
+              payload.new && 
+              typeof payload.new === 'object' && 
+              'id' in payload.new) {
             
-            // Validate the received payload has proper format and valid UUID
-            const hasValidNewId = payload && payload.new && typeof payload.new === 'object' && 'id' in payload.new;
-            const hasValidOldId = payload && payload.old && typeof payload.old === 'object' && 'id' in payload.old;
+            const newTranscript = payload.new as CallTranscript;
+            console.log('New transcript:', newTranscript);
             
-            if (hasValidNewId || hasValidOldId) {
-              try {
-                // Dispatch appropriate event based on the change type
-                if (payload.eventType === 'INSERT' && hasValidNewId) {
-                  dispatchEvent('call-created', payload.new);
-                } else if (payload.eventType === 'UPDATE' && hasValidNewId) {
-                  dispatchEvent('call-updated', payload.new);
-                } else if (payload.eventType === 'DELETE' && hasValidOldId) {
-                  dispatchEvent('call-deleted', payload.old);
-                }
-              } catch (parseError) {
-                console.error('Error processing real-time call update:', parseError);
-              }
-            }
-          })
-          .subscribe(status => {
-            console.log('Subscription status for calls:', status);
-            if (status === 'SUBSCRIBED') {
-              console.log('Successfully subscribed to calls table');
-            }
-          });
-        
-        return () => {
-          console.log('Cleaning up Supabase subscriptions...');
-          if (retryTimeout) clearTimeout(retryTimeout);
-          supabase.removeChannel(channel);
-          supabase.removeChannel(callsChannel);
-        };
-      } catch (err) {
-        console.error('Error setting up Supabase subscriptions:', err);
-        // Attempt to reconnect after delay
-        if (retryTimeout) clearTimeout(retryTimeout);
-        retryTimeout = window.setTimeout(setupSubscriptions, 5000);
-        return () => {
-          if (retryTimeout) clearTimeout(retryTimeout);
-        };
-      }
-    };
+            // Dispatch event for new transcript
+            dispatchEvent('transcript-created', newTranscript);
+            
+            // Refresh data to include the new transcript
+            fetchTranscripts();
+          } else {
+            console.warn('Received invalid payload format for call_transcripts INSERT:', payload);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'call_transcripts'
+        },
+        (payload) => {
+          console.log('Received real-time UPDATE event for call_transcripts:', payload);
+          
+          // Validate payload has the expected structure
+          if (payload && 
+              payload.new && 
+              typeof payload.new === 'object' && 
+              'id' in payload.new) {
+            
+            const updatedTranscript = payload.new as CallTranscript;
+            console.log('Updated transcript:', updatedTranscript);
+            
+            // Dispatch event for updated transcript
+            dispatchEvent('transcript-updated', updatedTranscript);
+            
+            // Refresh data if needed
+            fetchTranscripts();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'call_transcripts'
+        },
+        (payload) => {
+          console.log('Received real-time DELETE event for call_transcripts:', payload);
+          
+          // For delete events, the data is in payload.old
+          if (payload && 
+              payload.old && 
+              typeof payload.old === 'object' && 
+              'id' in payload.old) {
+            
+            const deletedTranscriptId = payload.old.id;
+            console.log('Deleted transcript ID:', deletedTranscriptId);
+            
+            // Dispatch event for deleted transcript
+            dispatchEvent('transcript-deleted', { id: deletedTranscriptId });
+            
+            // Refresh data to remove the deleted transcript
+            fetchTranscripts();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Real-time subscription status:', status);
+      });
     
-    const cleanup = setupSubscriptions();
-    return cleanup;
-  }, [fetchTranscripts, dispatchEvent, isConnected]);
+    // Clean up subscription on unmount
+    return () => {
+      console.log('Cleaning up real-time subscriptions...');
+      supabase.removeChannel(channel);
+    };
+  }, [isConnected, fetchTranscripts, dispatchEvent]);
 };

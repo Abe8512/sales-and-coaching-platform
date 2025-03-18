@@ -4,15 +4,20 @@ import { toast } from "sonner";
 import { databaseService } from "./DatabaseService";
 import { UploadStatus } from "@/store/useBulkUploadStore";
 import { WhisperTranscriptionResponse } from "@/services/WhisperService";
+import { throttle } from "lodash";
 
 export class BulkUploadProcessorService {
   private whisperService: any;
   private assignedUserId: string | null = null;
   private dispatchEvent: (type: string, data?: any) => void;
+  private processingFile = false;
   
   constructor(whisperService: any) {
     this.whisperService = whisperService;
     this.dispatchEvent = useEventsStore.getState().dispatchEvent;
+    
+    // Throttled event dispatch to reduce UI jitter
+    this.dispatchEvent = throttle(useEventsStore.getState().dispatchEvent, 300);
   }
   
   // Set the user ID to assign to the uploaded files
@@ -26,6 +31,14 @@ export class BulkUploadProcessorService {
     file: File, 
     updateStatus: (status: UploadStatus, progress: number, result?: string, error?: string, transcriptId?: string) => void
   ): Promise<string | null> {
+    // Prevent concurrent processing of the same file
+    if (this.processingFile) {
+      updateStatus('error', 0, undefined, "Another file is currently being processed");
+      return null;
+    }
+    
+    this.processingFile = true;
+    
     try {
       // Update status to processing
       updateStatus('processing', 10);
@@ -52,6 +65,8 @@ export class BulkUploadProcessorService {
       console.error(`Error processing file ${file.name}:`, error);
       updateStatus('error', 100, undefined, error instanceof Error ? error.message : "Processing failed");
       return null;
+    } finally {
+      this.processingFile = false;
     }
   }
   
@@ -74,9 +89,13 @@ export class BulkUploadProcessorService {
         throw new Error(`Failed to save transcript: ${error.message}`);
       }
       
-      // Update trends data
-      await databaseService.updateKeywordTrends(result);
-      await databaseService.updateSentimentTrends(result, this.assignedUserId);
+      // Update trends data - do this in the background to avoid blocking UI
+      Promise.all([
+        databaseService.updateKeywordTrends(result),
+        databaseService.updateSentimentTrends(result, this.assignedUserId)
+      ]).catch(err => {
+        console.error("Error updating trends:", err);
+      });
       
       // Update status to complete
       updateStatus('complete', 100, result.text, undefined, id);

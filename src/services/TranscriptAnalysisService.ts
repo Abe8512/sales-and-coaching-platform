@@ -1,8 +1,17 @@
 
 // A service for analyzing transcript text and extracting insights
 export class TranscriptAnalysisService {
+  private cachedSentiments = new Map<string, string>();
+  private cachedKeywords = new Map<string, string[]>();
+  private cachedScores = new Map<string, number>();
+  
   // Analyze text and generate a sentiment score
   public analyzeSentiment(text: string): 'positive' | 'neutral' | 'negative' {
+    // Check cache first to avoid recalculating for the same text
+    if (this.cachedSentiments.has(text)) {
+      return this.cachedSentiments.get(text) as 'positive' | 'neutral' | 'negative';
+    }
+    
     const positiveWords = ['great', 'good', 'excellent', 'happy', 'pleased', 'thank', 'appreciate', 'yes', 'perfect', 'love'];
     const negativeWords = ['bad', 'terrible', 'unhappy', 'disappointed', 'issue', 'problem', 'no', 'not', 'cannot', 'wrong'];
     
@@ -22,13 +31,23 @@ export class TranscriptAnalysisService {
       if (matches) negativeScore += matches.length;
     });
     
-    if (positiveScore > negativeScore * 1.5) return 'positive';
-    if (negativeScore > positiveScore * 1.5) return 'negative';
-    return 'neutral';
+    let result: 'positive' | 'neutral' | 'negative';
+    if (positiveScore > negativeScore * 1.5) result = 'positive';
+    else if (negativeScore > positiveScore * 1.5) result = 'negative';
+    else result = 'neutral';
+    
+    // Cache the result
+    this.cachedSentiments.set(text, result);
+    return result;
   }
   
   // Extract keywords from text
   public extractKeywords(text: string): string[] {
+    // Check cache first to avoid recalculating
+    if (this.cachedKeywords.has(text)) {
+      return this.cachedKeywords.get(text) || [];
+    }
+    
     const stopWords = ['a', 'an', 'the', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'about', 'of', 'that', 'this', 'these', 'those'];
     const words = text.toLowerCase().match(/\b(\w+)\b/g) || [];
     const wordFrequency: Record<string, number> = {};
@@ -39,14 +58,24 @@ export class TranscriptAnalysisService {
       }
     });
     
-    return Object.entries(wordFrequency)
+    const result = Object.entries(wordFrequency)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(entry => entry[0]);
+      
+    // Cache the result
+    this.cachedKeywords.set(text, result);
+    return result;
   }
   
   // Generate a call score
   public generateCallScore(text: string, sentiment: string): number {
+    // Use caching to avoid recalculating
+    const cacheKey = `${text}-${sentiment}`;
+    if (this.cachedScores.has(cacheKey)) {
+      return this.cachedScores.get(cacheKey) || 70;
+    }
+    
     // Base score
     let score = 70;
     
@@ -67,11 +96,15 @@ export class TranscriptAnalysisService {
       if (text.toLowerCase().includes(phrase)) score += 2;
     });
     
-    // Add some randomness (within 5 points)
-    score += Math.floor(Math.random() * 10) - 5;
+    // Add subtle randomness (within 3 points) to avoid jitter on recalculations
+    score += Math.floor(Math.random() * 6) - 3;
     
     // Ensure score is between 0-100
-    return Math.max(0, Math.min(100, score));
+    const finalScore = Math.max(0, Math.min(100, score));
+    
+    // Cache the result
+    this.cachedScores.set(cacheKey, finalScore);
+    return finalScore;
   }
   
   // Split transcript into segments by speaker
@@ -103,6 +136,13 @@ export class TranscriptAnalysisService {
         confidence: segment.confidence
       };
     });
+  }
+  
+  // Clear caches to free memory
+  public clearCaches(): void {
+    this.cachedSentiments.clear();
+    this.cachedKeywords.clear();
+    this.cachedScores.clear();
   }
 }
 

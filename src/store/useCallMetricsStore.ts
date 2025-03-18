@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { supabase } from "@/integrations/supabase/client";
 
@@ -26,6 +25,7 @@ interface CallMetricsState {
   checkCoachingAlerts: () => void;
   dismissAlert: (id: string) => void;
   classifyKeywords: () => void;
+  saveSentimentTrend: () => Promise<void>;
 }
 
 interface CallHistoryItem {
@@ -51,34 +51,20 @@ interface KeywordCategories {
   negative: string[];
 }
 
-// For demo purposes, we'll simulate a WebSocket connection with timer updates
 export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
   let durationTimer: NodeJS.Timeout | null = null;
   let speakingSimulationTimer: NodeJS.Timeout | null = null;
   let alertCheckTimer: NodeJS.Timeout | null = null;
   
-  // Mock socket connection for demonstration
-  // In a real implementation, you would connect to your WebSocket server
   const initializeSocketConnection = () => {
-    // We're just simulating connection status
     set({ socketConnected: true });
-    
-    // Here you would typically:
-    // const socket = io("ws://your-server.com/ws");
-    // socket.on("connect", () => set({ socketConnected: true }));
-    // socket.on("disconnect", () => set({ socketConnected: false }));
-    // socket.on("message", (data) => set({ ... }));
-    
     return () => {
-      // Clean up socket when the app unmounts
       if (durationTimer) clearInterval(durationTimer);
       if (speakingSimulationTimer) clearInterval(speakingSimulationTimer);
       if (alertCheckTimer) clearInterval(alertCheckTimer);
-      // socket.disconnect();
     };
   };
   
-  // Initialize socket connection
   initializeSocketConnection();
   
   return {
@@ -105,7 +91,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         keywordsByCategory: { positive: [], neutral: [], negative: [] }
       });
       
-      // Duration update timer
       durationTimer = setInterval(() => {
         const { recordingStartTime } = get();
         if (recordingStartTime) {
@@ -114,9 +99,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         }
       }, 1000);
       
-      // Simulate speakers talking
       speakingSimulationTimer = setInterval(() => {
-        // Randomly toggle who is speaking
         if (Math.random() > 0.7) {
           const agentSpeaking = Math.random() > 0.5;
           const customerSpeaking = Math.random() > 0.5;
@@ -128,16 +111,13 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
             }
           });
           
-          // Update talk ratio over time
           set(state => {
-            // Generate small random changes to talk ratio
             const agentShift = Math.random() * 2 - 1;
             return {
               talkRatio: {
                 agent: Math.max(20, Math.min(80, state.talkRatio.agent + agentShift)),
                 customer: Math.max(20, Math.min(80, state.talkRatio.customer - agentShift))
               },
-              // Also slightly adjust sentiment
               sentiment: {
                 agent: Math.max(0, Math.min(1, state.sentiment.agent + (Math.random() * 0.1 - 0.05))),
                 customer: Math.max(0, Math.min(1, state.sentiment.customer + (Math.random() * 0.1 - 0.05)))
@@ -145,7 +125,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
             };
           });
           
-          // Occasionally add a key phrase
           if (Math.random() > 0.9) {
             const phrases = [
               "pricing options",
@@ -161,12 +140,11 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
             ];
             const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
             get().updateKeyPhrases(randomPhrase);
-            get().classifyKeywords(); // Classify the new keywords
+            get().classifyKeywords();
           }
         }
       }, 2000);
       
-      // Start checking for coaching alerts
       alertCheckTimer = setInterval(() => {
         get().checkCoachingAlerts();
       }, 5000);
@@ -177,7 +155,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       if (speakingSimulationTimer) clearInterval(speakingSimulationTimer);
       if (alertCheckTimer) clearInterval(alertCheckTimer);
       
-      // Save call data before resetting
       if (get().isRecording) {
         get().savePastCall();
       }
@@ -212,7 +189,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     classifyKeywords: () => {
       const { keyPhrases } = get();
       
-      // Define the keyword classification rules
       const positiveKeywords = [
         "satisfied", "great", "excellent", "happy", "interested", 
         "quality", "value", "recommend", "helpful", "support",
@@ -225,7 +201,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         "unhappy", "frustrated", "disconnect", "slow", "confusing"
       ];
       
-      // Classify the key phrases
       const categorizedKeywords: KeywordCategories = {
         positive: [],
         neutral: [], 
@@ -233,16 +208,11 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       };
       
       keyPhrases.forEach(phrase => {
-        // Check if the phrase contains any positive keywords
         if (positiveKeywords.some(keyword => phrase.toLowerCase().includes(keyword))) {
           categorizedKeywords.positive.push(phrase);
-        }
-        // Check if the phrase contains any negative keywords
-        else if (negativeKeywords.some(keyword => phrase.toLowerCase().includes(keyword))) {
+        } else if (negativeKeywords.some(keyword => phrase.toLowerCase().includes(keyword))) {
           categorizedKeywords.negative.push(phrase);
-        }
-        // If it doesn't match either, it's neutral
-        else {
+        } else {
           categorizedKeywords.neutral.push(phrase);
         }
       });
@@ -255,7 +225,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       const timestamp = Date.now();
       const newAlerts: CoachingAlert[] = [];
       
-      // Check for talk ratio imbalance
       if (talkRatio.agent > 70 && Math.random() > 0.5) {
         newAlerts.push({
           id: `talk-ratio-${timestamp}`,
@@ -266,7 +235,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         });
       }
       
-      // Check for negative customer sentiment
       if (sentiment.customer < 0.4 && Math.random() > 0.6) {
         newAlerts.push({
           id: `negative-sentiment-${timestamp}`,
@@ -277,7 +245,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         });
       }
       
-      // Check for potential objections in key phrases
       const objectionKeywords = ['pricing', 'expensive', 'cost', 'price', 'discount', 'competitive'];
       if (keyPhrases.some(phrase => 
           objectionKeywords.some(keyword => phrase.toLowerCase().includes(keyword))
@@ -291,7 +258,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         });
       }
       
-      // Only add alerts if we have new ones
       if (newAlerts.length > 0) {
         set({
           coachingAlerts: [...coachingAlerts, ...newAlerts]
@@ -307,11 +273,31 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       }));
     },
     
+    saveSentimentTrend: async () => {
+      try {
+        const { sentiment } = get();
+        
+        await Promise.all([
+          supabase.from('sentiment_trends').insert([{
+            sentiment_label: sentiment.agent > 0.6 ? 'positive' : sentiment.agent < 0.4 ? 'negative' : 'neutral',
+            confidence: sentiment.agent
+          }]),
+          
+          supabase.from('sentiment_trends').insert([{
+            sentiment_label: sentiment.customer > 0.6 ? 'positive' : sentiment.customer < 0.4 ? 'negative' : 'neutral',
+            confidence: sentiment.customer
+          }])
+        ]);
+      } catch (error) {
+        console.error('Error saving sentiment trend:', error);
+      }
+    },
+    
     savePastCall: async () => {
-      // Create a new call history item based on current metrics
       const { callDuration, talkRatio, sentiment, keyPhrases } = get();
       
-      // Save to Supabase
+      await get().saveSentimentTrend();
+      
       try {
         const { data, error } = await supabase
           .from('calls')
@@ -337,7 +323,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         console.error("Exception saving to Supabase:", error);
       }
       
-      // For immediate UI update, also add to local state
       const newHistoryItem: CallHistoryItem = {
         id: `call-${Date.now()}`,
         date: new Date().toISOString(),
@@ -347,7 +332,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         keyPhrases: [...keyPhrases]
       };
       
-      // Add to history
       set(state => ({
         callHistory: [newHistoryItem, ...state.callHistory]
       }));
@@ -365,7 +349,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           return;
         }
         
-        // Transform Supabase data to our format
         const formattedCalls: CallHistoryItem[] = data.map(call => ({
           id: call.id,
           date: call.created_at,

@@ -1,12 +1,78 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useCallMetricsStore } from '@/store/useCallMetricsStore';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, ThumbsUp, ThumbsDown, Minus } from 'lucide-react';
+import { supabase } from "@/integrations/supabase/client";
 
 const KeywordInsights = () => {
   const { keywordsByCategory, classifyKeywords, isRecording } = useCallMetricsStore();
+  const [isUpdating, setIsUpdating] = useState(false);
+  
+  // Save keywords to Supabase
+  const saveKeywordsTrends = async () => {
+    if (!isRecording || isUpdating) return;
+    
+    setIsUpdating(true);
+    
+    try {
+      // Process each category
+      for (const [category, keywords] of Object.entries(keywordsByCategory)) {
+        // Skip if no keywords
+        if (!keywords.length) continue;
+        
+        // Process each keyword
+        for (const keyword of keywords) {
+          // First check if keyword exists
+          const { data, error } = await supabase
+            .from('keyword_trends')
+            .select('*')
+            .eq('keyword', keyword)
+            .eq('category', category)
+            .single();
+            
+          if (error && error.code !== 'PGRST116') { // Not found is ok
+            console.error(`Error checking keyword ${keyword}:`, error);
+            continue;
+          }
+          
+          if (data) {
+            // Update existing keyword
+            const { error: updateError } = await supabase
+              .from('keyword_trends')
+              .update({
+                count: data.count + 1,
+                last_used: new Date().toISOString()
+              })
+              .eq('id', data.id);
+              
+            if (updateError) {
+              console.error(`Error updating keyword ${keyword}:`, updateError);
+            }
+          } else {
+            // Insert new keyword
+            const { error: insertError } = await supabase
+              .from('keyword_trends')
+              .insert([{
+                keyword,
+                category,
+                count: 1,
+                last_used: new Date().toISOString()
+              }]);
+              
+            if (insertError) {
+              console.error(`Error inserting keyword ${keyword}:`, insertError);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error saving keyword trends:', error);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
   
   useEffect(() => {
     // Initial classification
@@ -14,11 +80,15 @@ const KeywordInsights = () => {
     
     // Reclassify when recording is active
     if (isRecording) {
-      const interval = setInterval(classifyKeywords, 3000);
+      const interval = setInterval(() => {
+        classifyKeywords();
+        saveKeywordsTrends();
+      }, 5000);
       return () => clearInterval(interval);
     }
   }, [classifyKeywords, isRecording]);
   
+  // Skip rendering if no keywords and not recording
   if (!isRecording && 
       keywordsByCategory.positive.length === 0 && 
       keywordsByCategory.neutral.length === 0 && 

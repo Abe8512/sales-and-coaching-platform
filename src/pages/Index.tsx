@@ -1,4 +1,3 @@
-
 import React, { useContext, useState, useEffect } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
@@ -15,6 +14,9 @@ import LiveMetricsDisplay from "../components/CallAnalysis/LiveMetricsDisplay";
 import PastCallsList from "../components/CallAnalysis/PastCallsList";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
+import KeywordInsights from "../components/CallAnalysis/KeywordInsights";
+import KeywordTrendsChart from "../components/CallAnalysis/KeywordTrendsChart";
+import { SentimentTrendsChart } from "../components/CallAnalysis/SentimentTrendsChart";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
@@ -22,7 +24,6 @@ const Index = () => {
   const [showLiveMetrics, setShowLiveMetrics] = useState(false);
   const { startRecording, stopRecording, isRecording } = useCallMetricsStore();
   
-  // Handle cleanup on unmount
   useEffect(() => {
     return () => {
       if (isRecording) {
@@ -76,6 +77,7 @@ const Index = () => {
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="livemetrics">Live Metrics</TabsTrigger>
           <TabsTrigger value="history">Call History</TabsTrigger>
+          <TabsTrigger value="trends">Trends</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard">
           <PerformanceMetrics />
@@ -85,6 +87,12 @@ const Index = () => {
         </TabsContent>
         <TabsContent value="history">
           <PastCallsList />
+        </TabsContent>
+        <TabsContent value="trends">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <KeywordTrendsChart />
+            <SentimentTrendsChart />
+          </div>
         </TabsContent>
       </Tabs>
       
@@ -105,8 +113,9 @@ const Index = () => {
         <div className="col-span-3">
           <CallTranscript />
         </div>
-        <div className="col-span-2 grid grid-rows-2 gap-6">
+        <div className="col-span-2 grid grid-rows-3 gap-6">
           <SentimentAnalysis />
+          <KeywordInsights />
           <CallRating />
         </div>
       </div>

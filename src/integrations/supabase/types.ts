@@ -45,6 +45,54 @@ export type Database = {
         }
         Relationships: []
       }
+      keyword_trends: {
+        Row: {
+          category: string
+          count: number | null
+          id: string
+          keyword: string
+          last_used: string | null
+        }
+        Insert: {
+          category: string
+          count?: number | null
+          id?: string
+          keyword: string
+          last_used?: string | null
+        }
+        Update: {
+          category?: string
+          count?: number | null
+          id?: string
+          keyword?: string
+          last_used?: string | null
+        }
+        Relationships: []
+      }
+      sentiment_trends: {
+        Row: {
+          confidence: number
+          id: string
+          recorded_at: string | null
+          sentiment_label: string
+          user_id: string | null
+        }
+        Insert: {
+          confidence: number
+          id?: string
+          recorded_at?: string | null
+          sentiment_label: string
+          user_id?: string | null
+        }
+        Update: {
+          confidence?: number
+          id?: string
+          recorded_at?: string | null
+          sentiment_label?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

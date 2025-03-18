@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useCallback } from 'react';
 import { useBulkUploadService } from '@/services/BulkUploadService';
 import { useToast } from '@/hooks/use-toast';
@@ -25,9 +24,7 @@ const BulkUploadProcessor = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
   
-  // Throttled progress calculation to reduce UI updates
   useEffect(() => {
-    // Only update progress every 500ms to reduce UI twitching
     const calculateProgress = () => {
       if (files.length > 0) {
         const progress = files.reduce((total, file) => total + file.progress, 0) / files.length;
@@ -43,7 +40,6 @@ const BulkUploadProcessor = () => {
     return () => clearInterval(interval);
   }, [files]);
   
-  // Refresh data when all files are completed
   useEffect(() => {
     const allCompleted = files.length > 0 && files.every(file => 
       file.status === "complete" || file.status === "error"
@@ -52,10 +48,8 @@ const BulkUploadProcessor = () => {
     if (allCompleted && isProcessing) {
       console.log('All files completed, refreshing data');
       
-      // Refresh the transcript data
       fetchTranscripts();
       
-      // Dispatch an event to notify other components about the completed uploads
       dispatchEvent('bulk-upload-completed', { 
         count: files.length,
         fileIds: files.map(file => file.id),
@@ -67,14 +61,12 @@ const BulkUploadProcessor = () => {
         description: "All files have been processed successfully. Data has been refreshed.",
       });
       
-      // Release the processing lock after a small delay to prevent race conditions
       setTimeout(() => {
         releaseProcessingLock();
       }, 1000);
     }
   }, [files, isProcessing, fetchTranscripts, toast, dispatchEvent, releaseProcessingLock]);
   
-  // Dispatch event when processing starts
   useEffect(() => {
     if (isProcessing) {
       dispatchEvent('bulk-upload-started', {
@@ -112,7 +104,6 @@ const BulkUploadProcessor = () => {
     setIsStarting(true);
     setProcessingError(null);
     
-    // Try to acquire the processing lock
     if (!acquireProcessingLock()) {
       toast({
         title: "Processing already in progress",
@@ -140,7 +131,6 @@ const BulkUploadProcessor = () => {
         variant: "destructive",
       });
       
-      // Release the lock in case of error
       releaseProcessingLock();
     } finally {
       setIsStarting(false);

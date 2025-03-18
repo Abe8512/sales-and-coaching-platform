@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Menu, Moon, Search, Sun } from "lucide-react";
 import UserDropdown from "./UserDropdown";
-import { useMobile } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/use-mobile";
 import NotificationCenter from "../NotificationCenter/NotificationCenter";
 
 interface TopBarProps {
@@ -14,7 +14,7 @@ interface TopBarProps {
 
 const TopBar = ({ setSidebarOpen }: TopBarProps) => {
   const { isDarkMode, toggleTheme } = useContext(ThemeContext);
-  const isMobile = useMobile();
+  const isMobile = useIsMobile();
 
   return (
     <div className={`fixed top-0 left-0 w-full border-b z-10 ${isDarkMode ? "bg-black/50 backdrop-blur-xl border-white/10" : "bg-white/50 backdrop-blur-xl border-black/10"}`}>

@@ -2,8 +2,7 @@
 import React, { useContext } from "react";
 import { ThemeContext } from "@/App";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Menu, Moon, Search, Sun } from "lucide-react";
+import { Moon, Sun, Menu } from "lucide-react";
 import UserDropdown from "./UserDropdown";
 import { useIsMobile } from "@/hooks/use-mobile";
 import NotificationCenter from "../NotificationCenter/NotificationCenter";
@@ -25,12 +24,7 @@ const TopBar = ({ setSidebarOpen }: TopBarProps) => {
               <Menu className="h-5 w-5" />
             </Button>
           )}
-          <div className="relative hidden sm:block">
-            <Button variant="ghost" size="sm" className="text-muted-foreground h-8 pl-2 pr-3">
-              <Search className="h-3.5 w-3.5 mr-1" />
-              <span className="text-xs">Search</span>
-            </Button>
-          </div>
+          {/* Search button removed */}
         </div>
         <div className="flex items-center gap-2">
           <Button 

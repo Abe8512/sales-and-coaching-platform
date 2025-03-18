@@ -5,12 +5,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, ThumbsUp, ThumbsDown, Minus } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
+import { useSharedKeywordData } from "@/services/SharedDataService";
+import { useSharedFilters } from "@/contexts/SharedFilterContext";
 
 const KeywordInsights = () => {
   const { keywordsByCategory, classifyKeywords, isRecording } = useCallMetricsStore();
   const [isUpdating, setIsUpdating] = useState(false);
+  const { filters } = useSharedFilters();
+  const { keywords: sharedKeywords } = useSharedKeywordData(filters);
   
-  // Save keywords to Supabase
+  // Merge live and historical keywords
+  const mergedKeywords = {
+    positive: [...new Set([...keywordsByCategory.positive, 
+      ...sharedKeywords.filter(k => k.category === 'positive').map(k => k.keyword)])],
+    neutral: [...new Set([...keywordsByCategory.neutral, 
+      ...sharedKeywords.filter(k => k.category === 'neutral').map(k => k.keyword)])],
+    negative: [...new Set([...keywordsByCategory.negative, 
+      ...sharedKeywords.filter(k => k.category === 'negative').map(k => k.keyword)])]
+  };
+  
+  // Save keywords to Supabase for cross-component consistency
   const saveKeywordsTrends = async () => {
     if (!isRecording || isUpdating) return;
     
@@ -67,6 +81,11 @@ const KeywordInsights = () => {
           }
         }
       }
+      
+      // Log for data validation
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Keywords saved to database for cross-component consistency');
+      }
     } catch (error) {
       console.error('Error saving keyword trends:', error);
     } finally {
@@ -88,11 +107,13 @@ const KeywordInsights = () => {
     }
   }, [classifyKeywords, isRecording]);
   
-  // Skip rendering if no keywords and not recording
-  if (!isRecording && 
-      keywordsByCategory.positive.length === 0 && 
-      keywordsByCategory.neutral.length === 0 && 
-      keywordsByCategory.negative.length === 0) {
+  // Skip rendering if no keywords from any source
+  const hasKeywords = mergedKeywords.positive.length > 0 || 
+                     mergedKeywords.neutral.length > 0 || 
+                     mergedKeywords.negative.length > 0 ||
+                     isRecording;
+                     
+  if (!hasKeywords) {
     return null;
   }
   
@@ -112,8 +133,8 @@ const KeywordInsights = () => {
               <h3 className="font-medium text-green-500">Positive Keywords</h3>
             </div>
             <div className="flex flex-wrap gap-2">
-              {keywordsByCategory.positive.length > 0 ? (
-                keywordsByCategory.positive.map((keyword, index) => (
+              {mergedKeywords.positive.length > 0 ? (
+                mergedKeywords.positive.map((keyword, index) => (
                   <Badge key={index} variant="outline" className="bg-green-50 text-green-600 border-green-200">
                     {keyword}
                   </Badge>
@@ -130,8 +151,8 @@ const KeywordInsights = () => {
               <h3 className="font-medium text-gray-500">Neutral Keywords</h3>
             </div>
             <div className="flex flex-wrap gap-2">
-              {keywordsByCategory.neutral.length > 0 ? (
-                keywordsByCategory.neutral.map((keyword, index) => (
+              {mergedKeywords.neutral.length > 0 ? (
+                mergedKeywords.neutral.map((keyword, index) => (
                   <Badge key={index} variant="outline" className="bg-gray-50 text-gray-600 border-gray-200">
                     {keyword}
                   </Badge>
@@ -148,8 +169,8 @@ const KeywordInsights = () => {
               <h3 className="font-medium text-red-500">Negative Keywords</h3>
             </div>
             <div className="flex flex-wrap gap-2">
-              {keywordsByCategory.negative.length > 0 ? (
-                keywordsByCategory.negative.map((keyword, index) => (
+              {mergedKeywords.negative.length > 0 ? (
+                mergedKeywords.negative.map((keyword, index) => (
                   <Badge key={index} variant="outline" className="bg-red-50 text-red-600 border-red-200">
                     {keyword}
                   </Badge>

@@ -26,7 +26,7 @@ const Index = () => {
   const { filters, updateDateRange } = useSharedFilters();
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [showLiveMetrics, setShowLiveMetrics] = useState(false);
-  const { startRecording, stopRecording, isRecording } = useCallMetricsStore();
+  const { startRecording, stopRecording, isRecording, saveSentimentTrend } = useCallMetricsStore();
   
   useEffect(() => {
     return () => {
@@ -35,6 +35,17 @@ const Index = () => {
       }
     };
   }, [isRecording, stopRecording]);
+  
+  // Save data periodically when recording to update shared state
+  useEffect(() => {
+    if (isRecording) {
+      const interval = setInterval(() => {
+        saveSentimentTrend();
+      }, 15000); // Save every 15 seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [isRecording, saveSentimentTrend]);
   
   const handleLiveMetricsTab = (value: string) => {
     if (value === 'livemetrics') {

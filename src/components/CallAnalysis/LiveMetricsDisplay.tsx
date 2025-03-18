@@ -7,6 +7,8 @@ import AnimatedNumber from "../ui/AnimatedNumber";
 import AIWaveform from "../ui/AIWaveform";
 import GlowingCard from "../ui/GlowingCard";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
+import { useSharedTeamMetrics } from "@/services/SharedDataService";
+import { useSharedFilters } from "@/contexts/SharedFilterContext";
 
 interface LiveMetricsDisplayProps {
   isCallActive?: boolean;
@@ -22,6 +24,10 @@ const LiveMetricsDisplay = ({ isCallActive }: LiveMetricsDisplayProps) => {
     isTalkingMap, 
     keyPhrases 
   } = useCallMetricsStore();
+  
+  // Use shared team metrics for consistent data across components
+  const { filters } = useSharedFilters();
+  const { metrics: sharedMetrics } = useSharedTeamMetrics(filters);
   
   // Check if we should display metrics
   const showMetrics = isCallActive !== undefined ? isCallActive : isRecording;
@@ -198,7 +204,7 @@ const LiveMetricsDisplay = ({ isCallActive }: LiveMetricsDisplayProps) => {
                       <TrendingUp className="h-4 w-4 inline mr-1" /> Engagement Score
                     </span>
                     <span className="font-medium">
-                      <AnimatedNumber value={82} suffix="%" />
+                      <AnimatedNumber value={sharedMetrics ? sharedMetrics.performanceScore : 82} suffix="%" />
                     </span>
                   </div>
                   

@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { supabase, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { validateDataConsistency } from '@/services/SharedDataService';
@@ -116,16 +115,15 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           });
           
           set(state => {
-            // Add small random shifts to create smoother transitions
-            const agentShift = (Math.random() * 2 - 1) * 0.5; // Reduced multiplier for less twitching
+            const agentShift = (Math.random() * 2 - 1) * 0.2;
             return {
               talkRatio: {
-                agent: Math.max(20, Math.min(80, state.talkRatio.agent + agentShift)),
-                customer: Math.max(20, Math.min(80, state.talkRatio.customer - agentShift))
+                agent: Math.max(30, Math.min(70, state.talkRatio.agent + agentShift)),
+                customer: Math.max(30, Math.min(70, 100 - (state.talkRatio.agent + agentShift)))
               },
               sentiment: {
-                agent: Math.max(0, Math.min(1, state.sentiment.agent + (Math.random() * 0.05 - 0.025))), // Reduced randomness
-                customer: Math.max(0, Math.min(1, state.sentiment.customer + (Math.random() * 0.05 - 0.025))) // Reduced randomness
+                agent: Math.max(0.2, Math.min(0.9, state.sentiment.agent + (Math.random() * 0.02 - 0.01))), 
+                customer: Math.max(0.2, Math.min(0.9, state.sentiment.customer + (Math.random() * 0.02 - 0.01)))
               }
             };
           });
@@ -148,11 +146,11 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
             get().classifyKeywords();
           }
         }
-      }, 3000); // Increased interval to reduce twitching
+      }, 5000);
       
       alertCheckTimer = setInterval(() => {
         get().checkCoachingAlerts();
-      }, 5000);
+      }, 10000);
     },
     
     stopRecording: () => {
@@ -171,7 +169,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         coachingAlerts: []
       });
       
-      // Dispatch event that recording completed
       useEventsStore.getState().dispatchEvent('recording-completed', {
         duration: get().callDuration,
         sentiment: get().sentiment
@@ -181,7 +178,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     updateMetrics: (data) => {
       set({ ...data });
       
-      // Validate data consistency
       if (data.talkRatio) {
         validateDataConsistency('useCallMetricsStore', {
           avgTalkRatio: data.talkRatio
@@ -301,36 +297,30 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       try {
         const { sentiment } = get();
         
-        // Validate sentiment data before saving
         validateDataConsistency('saveSentimentTrend', {
           avgSentiment: (sentiment.agent + sentiment.customer) / 2
         });
         
-        // Save sentiment trends to Supabase with proper error handling
-        try {
-          const userId = generateAnonymousUserId();
-          console.log('Using user ID for sentiment trend:', userId);
+        const userId = generateAnonymousUserId();
+        console.log('Using user ID for sentiment trend:', userId);
+        
+        await Promise.all([
+          supabase.from('sentiment_trends').insert({
+            sentiment_label: sentiment.agent > 0.6 ? 'positive' : sentiment.agent < 0.4 ? 'negative' : 'neutral',
+            confidence: sentiment.agent,
+            user_id: userId
+          }),
           
-          await Promise.all([
-            supabase.from('sentiment_trends').insert({
-              sentiment_label: sentiment.agent > 0.6 ? 'positive' : sentiment.agent < 0.4 ? 'negative' : 'neutral',
-              confidence: sentiment.agent,
-              user_id: userId
-            }),
-            
-            supabase.from('sentiment_trends').insert({
-              sentiment_label: sentiment.customer > 0.6 ? 'positive' : sentiment.customer < 0.4 ? 'negative' : 'neutral',
-              confidence: sentiment.customer,
-              user_id: userId
-            })
-          ]);
-          
-          console.log('Successfully saved sentiment trends to Supabase');
-        } catch (error) {
-          console.error('Error saving sentiment trend to Supabase:', error);
-        }
+          supabase.from('sentiment_trends').insert({
+            sentiment_label: sentiment.customer > 0.6 ? 'positive' : sentiment.customer < 0.4 ? 'negative' : 'neutral',
+            confidence: sentiment.customer,
+            user_id: userId
+          })
+        ]);
+        
+        console.log('Successfully saved sentiment trends to Supabase');
       } catch (error) {
-        console.error('Error saving sentiment trend:', error);
+        console.error('Error saving sentiment trend to Supabase:', error);
       }
     },
     
@@ -340,14 +330,12 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
       await get().saveSentimentTrend();
       
       try {
-        // Validate data before saving
         validateDataConsistency('savePastCall', {
           totalCalls: 1,
           avgSentiment: (sentiment.agent + sentiment.customer) / 2,
           avgTalkRatio: talkRatio
         });
         
-        // Generate a proper anonymous user ID with format check
         const userId = generateAnonymousUserId();
         if (!userId.startsWith('anonymous-')) {
           console.error('Invalid user ID format generated:', userId);
@@ -355,11 +343,9 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         }
         console.log('Using user ID for call:', userId);
         
-        // Create a unique ID for the call
         const callId = uuidv4();
         console.log('Generated call ID:', callId);
         
-        // Save to Supabase with proper error handling
         try {
           const { data, error } = await supabase
             .from('calls')
@@ -385,7 +371,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
           console.error("Error saving to Supabase:", supabaseError);
         }
         
-        // Save keywords to keyword_trends table with proper error handling
         if (keyPhrases.length > 0) {
           const keywordPromises = keyPhrases.map(async (phrase) => {
             try {
@@ -396,7 +381,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
                 .maybeSingle();
                 
               if (existingKeyword) {
-                // Update existing keyword count
                 await supabase
                   .from('keyword_trends')
                   .update({ 
@@ -405,7 +389,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
                   })
                   .eq('id', existingKeyword.id);
               } else {
-                // Insert new keyword
                 await supabase
                   .from('keyword_trends')
                   .insert({
@@ -434,7 +417,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         console.error("Exception saving to Supabase:", error);
       }
       
-      // Save to local call history
       const newHistoryItem: CallHistoryItem = {
         id: `call-${Date.now()}`,
         date: new Date().toISOString(),
@@ -451,7 +433,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
     
     loadPastCalls: async () => {
       try {
-        // Fetch calls from Supabase with improved error handling
         try {
           console.log('Fetching past calls from Supabase...');
           const { data, error } = await supabase
@@ -484,7 +465,6 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => {
         } catch (supabaseError) {
           console.error("Error loading from Supabase:", supabaseError);
           
-          // Generate demo data if we have no data
           if (get().callHistory.length === 0) {
             console.log('Generating demo calls data...');
             const demoCalls: CallHistoryItem[] = Array.from({ length: 5 }).map((_, i) => ({

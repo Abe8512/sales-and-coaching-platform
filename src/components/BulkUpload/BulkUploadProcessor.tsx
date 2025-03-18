@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useBulkUploadService } from '@/services/BulkUploadService';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
@@ -14,29 +14,44 @@ const BulkUploadProcessor = () => {
     isProcessing, 
     processQueue, 
     removeFile, 
-    clearCompleted 
+    clearCompleted,
+    acquireProcessingLock,
+    releaseProcessingLock
   } = useBulkUploadService();
   const { toast } = useToast();
   const [totalProgress, setTotalProgress] = useState(0);
   const { fetchTranscripts } = useCallTranscriptService();
   const { dispatchEvent } = useEvents();
   const [isStarting, setIsStarting] = useState(false);
+  const [processingError, setProcessingError] = useState<string | null>(null);
   
+  // Throttled progress calculation to reduce UI updates
   useEffect(() => {
-    // Calculate total progress
-    if (files.length > 0) {
-      const progress = files.reduce((total, file) => total + file.progress, 0) / files.length;
-      setTotalProgress(progress);
-    } else {
-      setTotalProgress(0);
-    }
+    // Only update progress every 500ms to reduce UI twitching
+    const calculateProgress = () => {
+      if (files.length > 0) {
+        const progress = files.reduce((total, file) => total + file.progress, 0) / files.length;
+        setTotalProgress(progress);
+      } else {
+        setTotalProgress(0);
+      }
+    };
+
+    calculateProgress();
+    const interval = setInterval(calculateProgress, 500);
+    
+    return () => clearInterval(interval);
   }, [files]);
   
   // Refresh data when all files are completed
   useEffect(() => {
-    const allCompleted = files.length > 0 && files.every(file => file.status === "complete");
+    const allCompleted = files.length > 0 && files.every(file => 
+      file.status === "complete" || file.status === "error"
+    );
+    
     if (allCompleted && isProcessing) {
       console.log('All files completed, refreshing data');
+      
       // Refresh the transcript data
       fetchTranscripts();
       
@@ -51,8 +66,13 @@ const BulkUploadProcessor = () => {
         title: "Processing Complete",
         description: "All files have been processed successfully. Data has been refreshed.",
       });
+      
+      // Release the processing lock after a small delay to prevent race conditions
+      setTimeout(() => {
+        releaseProcessingLock();
+      }, 1000);
     }
-  }, [files, isProcessing, fetchTranscripts, toast, dispatchEvent]);
+  }, [files, isProcessing, fetchTranscripts, toast, dispatchEvent, releaseProcessingLock]);
   
   // Dispatch event when processing starts
   useEffect(() => {
@@ -79,7 +99,7 @@ const BulkUploadProcessor = () => {
     }
   };
   
-  const startProcessing = async () => {
+  const startProcessing = useCallback(async () => {
     if (files.length === 0) {
       toast({
         title: "No files to process",
@@ -90,6 +110,18 @@ const BulkUploadProcessor = () => {
     }
     
     setIsStarting(true);
+    setProcessingError(null);
+    
+    // Try to acquire the processing lock
+    if (!acquireProcessingLock()) {
+      toast({
+        title: "Processing already in progress",
+        description: "Please wait for the current processing to complete",
+        variant: "destructive",
+      });
+      setIsStarting(false);
+      return;
+    }
     
     toast({
       title: "Processing Started",
@@ -100,15 +132,20 @@ const BulkUploadProcessor = () => {
       await processQueue();
     } catch (error) {
       console.error("Error processing files:", error);
+      setProcessingError(error instanceof Error ? error.message : "Unknown error");
+      
       toast({
         title: "Processing Error",
-        description: "An error occurred while processing files",
+        description: "An error occurred while processing files. Please try again.",
         variant: "destructive",
       });
+      
+      // Release the lock in case of error
+      releaseProcessingLock();
     } finally {
       setIsStarting(false);
     }
-  };
+  }, [files, toast, processQueue, acquireProcessingLock, releaseProcessingLock]);
   
   return (
     <div className="space-y-4">
@@ -179,6 +216,12 @@ const BulkUploadProcessor = () => {
               )}
             </Button>
           </div>
+          
+          {processingError && (
+            <div className="text-sm text-red-500 mt-2">
+              Error: {processingError}
+            </div>
+          )}
         </>
       ) : (
         <div className="text-center py-8 border border-dashed rounded-lg text-muted-foreground">

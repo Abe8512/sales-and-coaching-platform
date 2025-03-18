@@ -77,7 +77,7 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
           <h3 className="text-xl font-bold mb-2">
             Call Transcript
             <Badge className="ml-3" variant={
-              transcript.sentiment === 'positive' ? 'success' : 
+              transcript.sentiment === 'positive' ? 'secondary' : 
               transcript.sentiment === 'negative' ? 'destructive' : 'default'
             }>
               {transcript.sentiment === 'positive' ? 'Positive' : 
@@ -86,7 +86,7 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
             
             {transcript.callScore && (
               <Badge className="ml-2" variant={
-                transcript.callScore >= 80 ? "success" : 
+                transcript.callScore >= 80 ? "secondary" : 
                 transcript.callScore >= 60 ? "default" : "destructive"
               }>
                 Score: {transcript.callScore}
@@ -158,7 +158,7 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
                   <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.greeting ? 'bg-green-500' : 'bg-red-500'}`}></div>
                   <span>Greeting</span>
                 </div>
-                <Badge variant={analysis.keyPhrases.greeting ? "success" : "destructive"}>
+                <Badge variant={analysis.keyPhrases.greeting ? "secondary" : "destructive"}>
                   {analysis.keyPhrases.greeting ? "Present" : "Missing"}
                 </Badge>
               </div>
@@ -168,7 +168,7 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
                   <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.discovery ? 'bg-green-500' : 'bg-red-500'}`}></div>
                   <span>Discovery Questions</span>
                 </div>
-                <Badge variant={analysis.keyPhrases.discovery ? "success" : "destructive"}>
+                <Badge variant={analysis.keyPhrases.discovery ? "secondary" : "destructive"}>
                   {analysis.keyPhrases.discovery ? "Present" : "Missing"}
                 </Badge>
               </div>
@@ -178,7 +178,7 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
                   <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.valueProposition ? 'bg-green-500' : 'bg-red-500'}`}></div>
                   <span>Value Proposition</span>
                 </div>
-                <Badge variant={analysis.keyPhrases.valueProposition ? "success" : "destructive"}>
+                <Badge variant={analysis.keyPhrases.valueProposition ? "secondary" : "destructive"}>
                   {analysis.keyPhrases.valueProposition ? "Present" : "Missing"}
                 </Badge>
               </div>
@@ -188,7 +188,7 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
                   <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.objectionHandling ? 'bg-green-500' : 'bg-red-500'}`}></div>
                   <span>Objection Handling</span>
                 </div>
-                <Badge variant={analysis.keyPhrases.objectionHandling ? "success" : "destructive"}>
+                <Badge variant={analysis.keyPhrases.objectionHandling ? "secondary" : "destructive"}>
                   {analysis.keyPhrases.objectionHandling ? "Present" : "Missing"}
                 </Badge>
               </div>
@@ -198,7 +198,7 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
                   <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.closing ? 'bg-green-500' : 'bg-red-500'}`}></div>
                   <span>Closing/Next Steps</span>
                 </div>
-                <Badge variant={analysis.keyPhrases.closing ? "success" : "destructive"}>
+                <Badge variant={analysis.keyPhrases.closing ? "secondary" : "destructive"}>
                   {analysis.keyPhrases.closing ? "Present" : "Missing"}
                 </Badge>
               </div>

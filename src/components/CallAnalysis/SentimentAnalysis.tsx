@@ -1,4 +1,3 @@
-
 import React, { useContext, useEffect, useState } from "react";
 import { LineChart, Line, ResponsiveContainer, ReferenceLine, CartesianGrid, XAxis, YAxis, Legend, Tooltip } from "recharts";
 import { Info } from "lucide-react";
@@ -8,8 +7,8 @@ import { useChartData } from "@/hooks/useChartData";
 import { Button } from "../ui/button";
 import { ChartContainer, ChartTooltipContent } from "../ui/chart";
 import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
+import { ThemeContext } from "@/App";
 
-// Function to analyze sentiment patterns from a transcript
 const analyzeTranscriptSentiment = (transcript: StoredTranscription | null) => {
   if (!transcript || !transcript.text) {
     return null;
@@ -18,7 +17,6 @@ const analyzeTranscriptSentiment = (transcript: StoredTranscription | null) => {
   const text = transcript.text;
   const duration = transcript.duration || 480; // Default to 8 minutes if no duration
   
-  // Generate sentiment data points based on the transcript text
   const dataPoints = 16; // Number of data points to generate
   const segmentLength = Math.floor(text.length / dataPoints);
   
@@ -27,7 +25,6 @@ const analyzeTranscriptSentiment = (transcript: StoredTranscription | null) => {
   
   const sentimentData = [];
   
-  // For each segment, calculate a sentiment score
   for (let i = 0; i < dataPoints; i++) {
     const startIdx = i * segmentLength;
     const endIdx = Math.min((i + 1) * segmentLength, text.length);
@@ -36,41 +33,34 @@ const analyzeTranscriptSentiment = (transcript: StoredTranscription | null) => {
     let positiveScore = 0;
     let negativeScore = 0;
     
-    // Calculate positive sentiment
     positiveWords.forEach(word => {
       const regex = new RegExp(`\\b${word}\\b`, 'gi');
       const matches = segment.match(regex);
       if (matches) positiveScore += matches.length;
     });
     
-    // Calculate negative sentiment
     negativeWords.forEach(word => {
       const regex = new RegExp(`\\b${word}\\b`, 'gi');
       const matches = segment.match(regex);
       if (matches) negativeScore += matches.length;
     });
     
-    // Normalize to [-1, 1] range
     const netScore = (positiveScore - negativeScore) / Math.max(1, positiveScore + negativeScore);
     
-    // Calculate time based on segment position and duration
     const minutes = Math.floor((i * duration) / dataPoints / 60);
     const seconds = Math.floor((i * duration) / dataPoints % 60);
     const time = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     
-    // For simplicity, generate agent and customer sentiment that generally correlate
-    // In a real implementation, this would be based on speaker diarization
     sentimentData.push({
       time,
-      agent: Math.min(0.8, Math.max(-0.8, netScore * 0.8 + 0.2)), // Bias agent sentiment slightly positive
-      customer: Math.min(0.8, Math.max(-0.8, netScore * 0.7 - 0.1)), // Bias customer sentiment slightly negative
+      agent: Math.min(0.8, Math.max(-0.8, netScore * 0.8 + 0.2)),
+      customer: Math.min(0.8, Math.max(-0.8, netScore * 0.7 - 0.1)),
     });
   }
   
   return sentimentData;
 };
 
-// Function to identify key sentiment moments in a transcript
 const findSentimentKeyMoments = (transcript: StoredTranscription | null, sentimentData: any[]) => {
   if (!transcript || !sentimentData || sentimentData.length === 0) {
     return [];
@@ -78,7 +68,6 @@ const findSentimentKeyMoments = (transcript: StoredTranscription | null, sentime
   
   const keyMoments = [];
   
-  // Find the largest drop in customer sentiment
   let largestDrop = 0;
   let dropIndex = -1;
   
@@ -98,7 +87,6 @@ const findSentimentKeyMoments = (transcript: StoredTranscription | null, sentime
     });
   }
   
-  // Find the largest increase in customer sentiment
   let largestIncrease = 0;
   let increaseIndex = -1;
   
@@ -118,7 +106,6 @@ const findSentimentKeyMoments = (transcript: StoredTranscription | null, sentime
     });
   }
   
-  // Check end of call sentiment
   const endSentiment = sentimentData[sentimentData.length - 1].customer;
   if (endSentiment > 0.3) {
     keyMoments.push({
@@ -144,7 +131,6 @@ const SentimentAnalysis = () => {
   const [sentimentKeyMoments, setSentimentKeyMoments] = useState<any[]>([]);
   
   useEffect(() => {
-    // Get the latest transcript
     const transcriptions = getStoredTranscriptions();
     if (transcriptions.length > 0) {
       const latest = [...transcriptions].sort((a, b) => 
@@ -153,12 +139,10 @@ const SentimentAnalysis = () => {
       
       setLatestTranscript(latest);
       
-      // Generate sentiment data from the transcript
       const sentimentData = analyzeTranscriptSentiment(latest);
       if (sentimentData) {
         setInitialSentimentData(sentimentData);
         
-        // Find key moments in the sentiment data
         const keyMoments = findSentimentKeyMoments(latest, sentimentData);
         setSentimentKeyMoments(keyMoments);
       }
@@ -173,7 +157,6 @@ const SentimentAnalysis = () => {
     simulateDataUpdate
   } = useChartData(initialSentimentData);
 
-  // Expanded chart content
   const expandedSentimentChart = (
     <div className="space-y-4">
       <div className="flex justify-between">

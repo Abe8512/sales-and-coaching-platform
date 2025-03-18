@@ -1,3 +1,4 @@
+
 import { supabase, checkSupabaseConnection, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { useState, useEffect, useCallback } from "react";
 import { DateRange } from "react-day-picker";
@@ -9,6 +10,8 @@ import {
 import { toast } from "sonner";
 import { useEventsStore } from "@/services/events";
 import { v4 as uuidv4 } from 'uuid';
+import { withErrorHandling } from './ErrorHandlingService';
+import { connectionMonitor } from './ConnectionMonitorService';
 
 export interface CallTranscript {
   id: string;
@@ -36,7 +39,7 @@ const generateDemoTranscripts = (count = 10): CallTranscript[] => {
   const demoData: CallTranscript[] = [];
   
   for (let i = 0; i < count; i++) {
-    const id = uuidv4();
+    const id = uuidv4(); // Use proper UUID format for all IDs
     const anonymousId = generateAnonymousUserId();
     const randomSentiment = sentiments[Math.floor(Math.random() * sentiments.length)];
     const randomDate = new Date();
@@ -69,6 +72,19 @@ export const useCallTranscriptService = () => {
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const dispatchEvent = useEventsStore.getState().dispatchEvent;
   
+  // Monitor connection status for the service
+  useEffect(() => {
+    // Initial connection check
+    connectionMonitor.checkConnection().then(setIsConnected);
+    
+    // Subscribe to connection status changes
+    const unsubscribe = connectionMonitor.subscribe(setIsConnected);
+    
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+  
   // Check connection status on mount
   useEffect(() => {
     const checkConnection = async () => {
@@ -100,49 +116,57 @@ export const useCallTranscriptService = () => {
     try {
       // First, check connection to Supabase
       console.log('Checking Supabase connection before fetching transcripts...');
-      const { connected, error: connectionError } = await checkSupabaseConnection();
-      console.log('Connection check result:', { connected, error: connectionError });
+      const isConnectionActive = await connectionMonitor.checkConnection();
       
       // If we're not connected, use demo data
-      if (!connected) {
+      if (!isConnectionActive) {
         console.log("Using demo data due to connection issues");
         const demoData = generateDemoTranscripts(15);
         setTranscripts(demoData);
         setTotalCount(demoData.length);
         setLastFetchTime(Date.now());
         setLoading(false);
+        setIsConnected(false);
         return;
       }
+      
+      setIsConnected(true);
       
       // Get total count first - using a safer approach that won't trigger a 400 error
       try {
         console.log('Fetching transcript count...');
-        const countQuery = supabase
-          .from('call_transcripts')
-          .select('id', { count: 'exact' });
-        
-        // Apply filters to count query
-        if (filters?.userId && filters.userId.trim() !== '') {
-          countQuery.eq('user_id', filters.userId);
-        }
-        
-        if (filters?.userIds && filters.userIds.length > 0) {
-          countQuery.in('user_id', filters.userIds);
-        }
-        
-        if (filters?.dateRange?.from) {
-          const fromDate = new Date(filters.dateRange.from);
-          fromDate.setHours(0, 0, 0, 0);
-          countQuery.gte('created_at', fromDate.toISOString());
-        }
-        
-        if (filters?.dateRange?.to) {
-          const toDate = new Date(filters.dateRange.to);
-          toDate.setHours(23, 59, 59, 999);
-          countQuery.lte('created_at', toDate.toISOString());
-        }
-        
-        const { count, error: countError } = await countQuery;
+        const { count, error: countError } = await withErrorHandling(
+          async () => {
+            const countQuery = supabase
+              .from('call_transcripts')
+              .select('id', { count: 'exact' });
+            
+            // Apply filters to count query
+            if (filters?.userId && filters.userId.trim() !== '') {
+              countQuery.eq('user_id', filters.userId);
+            }
+            
+            if (filters?.userIds && filters.userIds.length > 0) {
+              countQuery.in('user_id', filters.userIds);
+            }
+            
+            if (filters?.dateRange?.from) {
+              const fromDate = new Date(filters.dateRange.from);
+              fromDate.setHours(0, 0, 0, 0);
+              countQuery.gte('created_at', fromDate.toISOString());
+            }
+            
+            if (filters?.dateRange?.to) {
+              const toDate = new Date(filters.dateRange.to);
+              toDate.setHours(23, 59, 59, 999);
+              countQuery.lte('created_at', toDate.toISOString());
+            }
+            
+            return countQuery;
+          },
+          { count: null, error: null },
+          'TranscriptCount'
+        );
           
         if (!countError && count !== null) {
           console.log(`Found ${count} transcripts`);
@@ -156,76 +180,66 @@ export const useCallTranscriptService = () => {
       
       // Then get data with filters
       console.log('Building transcript query with filters:', filters);
-      let query = supabase
-        .from('call_transcripts')
-        .select('*');
       
-      // Apply filters
-      if (filters?.userId && filters.userId.trim() !== '') {
-        query = query.eq('user_id', filters.userId);
-      }
-      
-      if (filters?.userIds && filters.userIds.length > 0) {
-        query = query.in('user_id', filters.userIds);
-      }
-      
-      if (filters?.dateRange?.from) {
-        const fromDate = new Date(filters.dateRange.from);
-        fromDate.setHours(0, 0, 0, 0);
-        query = query.gte('created_at', fromDate.toISOString());
-      }
-      
-      if (filters?.dateRange?.to) {
-        const toDate = new Date(filters.dateRange.to);
-        toDate.setHours(23, 59, 59, 999);
-        query = query.lte('created_at', toDate.toISOString());
-      }
-      
-      // Get data with timeout protection
-      console.log('Executing transcript query...');
-      const dataPromise = new Promise<CallTranscript[]>(async (resolve, reject) => {
-        try {
-          const { data, error: dataError } = await query
-            .order('created_at', { ascending: false });
-            
-          if (dataError) {
-            console.error('Error fetching transcript data:', dataError);
-            reject(dataError);
-          } else {
-            console.log(`Retrieved ${data?.length || 0} transcripts`);
-            resolve(data || []);
+      const { data, error: dataError } = await withErrorHandling(
+        async () => {
+          let query = supabase
+            .from('call_transcripts')
+            .select('*');
+          
+          // Apply filters
+          if (filters?.userId && filters.userId.trim() !== '') {
+            query = query.eq('user_id', filters.userId);
           }
-        } catch (err) {
-          console.error('Exception in transcript data promise:', err);
-          reject(err);
+          
+          if (filters?.userIds && filters.userIds.length > 0) {
+            query = query.in('user_id', filters.userIds);
+          }
+          
+          if (filters?.dateRange?.from) {
+            const fromDate = new Date(filters.dateRange.from);
+            fromDate.setHours(0, 0, 0, 0);
+            query = query.gte('created_at', fromDate.toISOString());
+          }
+          
+          if (filters?.dateRange?.to) {
+            const toDate = new Date(filters.dateRange.to);
+            toDate.setHours(23, 59, 59, 999);
+            query = query.lte('created_at', toDate.toISOString());
+          }
+          
+          return query.order('created_at', { ascending: false });
+        },
+        { data: null, error: 'Failed to fetch data' },
+        'TranscriptFetch',
+        {
+          message: 'Error fetching transcript data',
+          retry: () => fetchTranscripts(filters)
         }
-      });
+      );
       
-      // Set a timeout to avoid hanging
-      const dataTimeout = new Promise<CallTranscript[]>((resolve) => {
-        setTimeout(() => {
-          console.log("Data fetch timed out, using fallback");
-          resolve(transcripts.length ? [...transcripts] : generateDemoTranscripts(15));
-        }, 5000);
-      });
-      
-      // Race the actual data fetch against the timeout
-      const finalData = await Promise.race([dataPromise, dataTimeout]);
-      
-      // Only update state if we got actual data
-      if (finalData && finalData.length > 0) {
-        console.log(`Setting ${finalData.length} transcripts to state`);
-        setTranscripts(finalData);
+      // If we got actual data, use it
+      if (data && data.length > 0) {
+        console.log(`Setting ${data.length} transcripts to state`);
+        setTranscripts(data);
         
         // Dispatch an event to notify other components that transcripts were refreshed
         dispatchEvent('transcripts-refreshed', {
-          count: finalData.length,
+          count: data.length,
           filters: filters
         });
         
         // Also update calls table to ensure metrics are fresh
-        await refreshCallsTable(finalData);
+        await refreshCallsTable(data);
+      } else if (dataError) {
+        // Show error and fall back to demo data if we have none
+        console.error('Error fetching transcript data:', dataError);
+        if (transcripts.length === 0) {
+          const demoData = generateDemoTranscripts(15);
+          setTranscripts(demoData);
+        }
       } else if (transcripts.length === 0) {
+        // No error but no data either, and we don't have any cached data
         console.log("No data received and no cached data available, generating demo data");
         const demoData = generateDemoTranscripts(15);
         setTranscripts(demoData);
@@ -405,19 +419,32 @@ export const useCallTranscriptService = () => {
           }, (payload) => {
             console.log('Real-time update received:', payload);
             
-            // Dispatch appropriate event based on the change type
-            if (payload.eventType === 'INSERT') {
-              dispatchEvent('transcript-created', payload.new);
-              // Re-fetch data to ensure all components have the latest data
-              fetchTranscripts();
-            } else if (payload.eventType === 'UPDATE') {
-              dispatchEvent('transcript-updated', payload.new);
-              // Re-fetch data to ensure all components have the latest data
-              fetchTranscripts();
-            } else if (payload.eventType === 'DELETE') {
-              dispatchEvent('transcript-deleted', payload.old);
-              // Re-fetch data to ensure all components have the latest data
-              fetchTranscripts();
+            // Validate the received payload has proper format and valid UUID
+            if (payload && payload.new && typeof payload.new.id === 'string') {
+              try {
+                // Simple validation that the ID looks like a UUID
+                if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.new.id)) {
+                  console.error('Received payload with invalid UUID format:', payload.new.id);
+                  return;
+                }
+                
+                // Dispatch appropriate event based on the change type
+                if (payload.eventType === 'INSERT') {
+                  dispatchEvent('transcript-created', payload.new);
+                  // Re-fetch data to ensure all components have the latest data
+                  fetchTranscripts();
+                } else if (payload.eventType === 'UPDATE') {
+                  dispatchEvent('transcript-updated', payload.new);
+                  // Re-fetch data to ensure all components have the latest data
+                  fetchTranscripts();
+                } else if (payload.eventType === 'DELETE') {
+                  dispatchEvent('transcript-deleted', payload.old);
+                  // Re-fetch data to ensure all components have the latest data
+                  fetchTranscripts();
+                }
+              } catch (parseError) {
+                console.error('Error processing real-time update:', parseError);
+              }
             }
           })
           .subscribe(status => {
@@ -442,13 +469,20 @@ export const useCallTranscriptService = () => {
           }, (payload) => {
             console.log('Real-time update received for calls:', payload);
             
-            // Dispatch appropriate event based on the change type
-            if (payload.eventType === 'INSERT') {
-              dispatchEvent('call-created', payload.new);
-            } else if (payload.eventType === 'UPDATE') {
-              dispatchEvent('call-updated', payload.new);
-            } else if (payload.eventType === 'DELETE') {
-              dispatchEvent('call-deleted', payload.old);
+            // Validate the received payload has proper format and valid UUID
+            if (payload && (payload.new || payload.old)) {
+              try {
+                // Dispatch appropriate event based on the change type
+                if (payload.eventType === 'INSERT' && payload.new) {
+                  dispatchEvent('call-created', payload.new);
+                } else if (payload.eventType === 'UPDATE' && payload.new) {
+                  dispatchEvent('call-updated', payload.new);
+                } else if (payload.eventType === 'DELETE' && payload.old) {
+                  dispatchEvent('call-deleted', payload.old);
+                }
+              } catch (parseError) {
+                console.error('Error processing real-time call update:', parseError);
+              }
             }
           })
           .subscribe(status => {
@@ -483,13 +517,14 @@ export const useCallTranscriptService = () => {
   useEffect(() => {
     const intervalId = setInterval(() => {
       const now = Date.now();
-      if (now - lastFetchTime > 60000) { // 60 seconds
+      // Only attempt to refresh if we're believed to be connected and it's been at least 60 seconds
+      if (isConnected && now - lastFetchTime > 60000) { // 60 seconds
         fetchTranscripts();
       }
     }, 60000);
     
     return () => clearInterval(intervalId);
-  }, [fetchTranscripts, lastFetchTime]);
+  }, [fetchTranscripts, lastFetchTime, isConnected]);
   
   // Initial fetch on mount
   useEffect(() => {

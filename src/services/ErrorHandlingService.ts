@@ -1,4 +1,3 @@
-
 import { toast } from 'sonner';
 
 export type ErrorSeverity = 'info' | 'warning' | 'error' | 'critical';
@@ -27,7 +26,13 @@ class ErrorHandlingService {
    */
   private _isOffline: boolean = false;
   private _connectionListeners: Set<(online: boolean) => void> = new Set();
-
+  
+  /**
+   * Network latency tracker
+   */
+  private _networkLatency: number = 0;
+  private _latencyChecks: number[] = [];
+  
   constructor() {
     // Monitor online/offline status
     if (typeof window !== 'undefined') {
@@ -36,8 +41,75 @@ class ErrorHandlingService {
       
       // Initial check
       this._isOffline = !navigator.onLine;
+      
+      // Listen for Supabase specific connection events
+      window.addEventListener('supabase-connection-restored', () => {
+        this._isOffline = false;
+        this._connectionListeners.forEach(listener => listener(true));
+      });
+      
+      window.addEventListener('supabase-connection-lost', () => {
+        // Only mark as offline after multiple failures to avoid false positives
+        const detail = (event as CustomEvent).detail;
+        if (detail && detail.retryCount >= 2) {
+          this._isOffline = true;
+          this._connectionListeners.forEach(listener => listener(false));
+        }
+      });
+      
+      // Periodically check network latency
+      this.measureNetworkLatency();
+      setInterval(() => this.measureNetworkLatency(), 30000); // Check every 30 seconds
     }
   }
+  
+  /**
+   * Measure network latency to help diagnose connection issues
+   */
+  private measureNetworkLatency = async () => {
+    if (typeof window === 'undefined' || this._isOffline) return;
+    
+    try {
+      // Use a tiny request to measure latency
+      const start = performance.now();
+      
+      // Request a tiny resource or use the Supabase server
+      await fetch('https://yfufpcxkerovnijhodrr.supabase.co/ping', { 
+        method: 'HEAD',
+        cache: 'no-store'
+      });
+      
+      const end = performance.now();
+      const latency = Math.round(end - start);
+      
+      // Keep a record of recent latency measurements (last 5)
+      this._latencyChecks.push(latency);
+      if (this._latencyChecks.length > 5) {
+        this._latencyChecks.shift();
+      }
+      
+      // Calculate average latency
+      this._networkLatency = Math.round(
+        this._latencyChecks.reduce((sum, val) => sum + val, 0) / 
+        this._latencyChecks.length
+      );
+      
+      console.log(`Network latency: ${this._networkLatency}ms`);
+      
+      // If latency is extremely high, issue a warning
+      if (this._networkLatency > 2000) {
+        this.handleError({
+          message: 'Slow network connection',
+          technical: `High latency: ${this._networkLatency}ms`,
+          severity: 'warning',
+          code: 'HIGH_LATENCY'
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to measure network latency:', error);
+      // Don't trigger an error for this failure
+    }
+  };
 
   /**
    * Handle online/offline status changes
@@ -82,6 +154,13 @@ class ErrorHandlingService {
    */
   public get isOffline(): boolean {
     return this._isOffline;
+  }
+  
+  /**
+   * Get current network latency
+   */
+  public get networkLatency(): number {
+    return this._networkLatency;
   }
 
   /**
@@ -258,4 +337,3 @@ export const withErrorHandling = async <T>(
     return fallback;
   }
 };
-

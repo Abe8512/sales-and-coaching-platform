@@ -1,11 +1,13 @@
+
 import React, { useEffect, useState, useCallback } from 'react';
 import { useBulkUploadService } from '@/services/BulkUploadService';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { Loader2, CheckCircle, AlertCircle, Clock, X, FileAudio } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, Clock, X, FileAudio, WifiOff } from 'lucide-react';
 import { useCallTranscriptService } from '@/services/CallTranscriptService';
 import { useEvents } from '@/services/events';
+import { useConnectionStatus } from '@/services/ConnectionMonitorService';
 
 const BulkUploadProcessor = () => {
   const { 
@@ -23,7 +25,8 @@ const BulkUploadProcessor = () => {
   const { dispatchEvent } = useEvents();
   const [isStarting, setIsStarting] = useState(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
-  
+  const { isConnected } = useConnectionStatus();
+
   useEffect(() => {
     const calculateProgress = () => {
       if (files.length > 0) {
@@ -101,6 +104,16 @@ const BulkUploadProcessor = () => {
       return;
     }
     
+    // Check connection before processing
+    if (!isConnected) {
+      toast({
+        title: "Offline mode",
+        description: "You are currently offline. Processing will be available when connection is restored.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setIsStarting(true);
     setProcessingError(null);
     
@@ -135,7 +148,7 @@ const BulkUploadProcessor = () => {
     } finally {
       setIsStarting(false);
     }
-  }, [files, toast, processQueue, acquireProcessingLock, releaseProcessingLock]);
+  }, [files, toast, processQueue, acquireProcessingLock, releaseProcessingLock, isConnected]);
   
   return (
     <div className="space-y-4">
@@ -147,6 +160,14 @@ const BulkUploadProcessor = () => {
           </Button>
         )}
       </div>
+      
+      {/* Connection warning banner */}
+      {!isConnected && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-md flex items-center space-x-2">
+          <WifiOff className="h-4 w-4" />
+          <span className="text-sm">You're offline. Processing will be available when connection is restored.</span>
+        </div>
+      )}
       
       {files.length > 0 ? (
         <>
@@ -194,7 +215,7 @@ const BulkUploadProcessor = () => {
             </div>
             <Button 
               onClick={startProcessing}
-              disabled={isProcessing || isStarting || files.every(f => f.status === "complete")}
+              disabled={isProcessing || isStarting || files.every(f => f.status === "complete") || !isConnected}
             >
               {isProcessing || isStarting ? (
                 <>

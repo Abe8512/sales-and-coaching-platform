@@ -11,6 +11,8 @@ const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 
 // Store connection status
 let isSupabaseConnected = false;
+let connectionAttempts = 0;
+const MAX_CONNECTION_ATTEMPTS = 5;
 
 // Create a supabase client with auto-refresh and retries
 export const supabase = createClient<Database>(
@@ -46,14 +48,28 @@ export const supabase = createClient<Database>(
                 console.log(`Supabase request successful: ${url}`);
                 if (!isSupabaseConnected) {
                   isSupabaseConnected = true;
+                  connectionAttempts = 0; // Reset connection attempts on success
                   // Dispatch a connection restored event
                   window.dispatchEvent(new CustomEvent('supabase-connection-restored'));
                 }
+                return response;
               } else {
                 console.warn(`Supabase request failed with status ${response.status}: ${url}`);
                 // Only log the first few characters of the response for debugging
                 const responseText = await response.clone().text();
                 console.warn(`Response preview: ${responseText.substring(0, 200)}${responseText.length > 200 ? '...' : ''}`);
+                
+                // Handle invalid UUID format errors specifically
+                if (responseText.includes("invalid input syntax for type uuid")) {
+                  errorHandler.handleError({
+                    message: 'Data format error',
+                    technical: `UUID format error: ${responseText}`,
+                    severity: 'error',
+                    code: 'UUID_FORMAT_ERROR'
+                  });
+                  // Don't retry UUID errors as they require code fixes
+                  throw new Error(`UUID format error: ${responseText}`);
+                }
                 
                 // Handle specific error status codes
                 if (response.status === 401 || response.status === 403) {
@@ -78,9 +94,10 @@ export const supabase = createClient<Database>(
                   retryCount++;
                   continue;
                 }
+                
+                // Return the error response to be handled by the caller
+                return response;
               }
-              
-              return response;
             } catch (error) {
               console.error(`Supabase fetch attempt ${retryCount + 1} failed:`, error);
               lastError = error;
@@ -99,6 +116,23 @@ export const supabase = createClient<Database>(
           }
           
           // If we've exhausted retries, throw the last error
+          connectionAttempts++; // Increment overall connection attempts
+          
+          // If we've exceeded max attempts, show a more permanent error
+          if (connectionAttempts >= MAX_CONNECTION_ATTEMPTS) {
+            errorHandler.handleError({
+              message: 'Unable to connect to the server',
+              technical: lastError instanceof Error ? lastError.message : String(lastError),
+              severity: 'critical',
+              code: 'CONNECTION_FAILED',
+              actionable: true,
+              retry: async () => {
+                connectionAttempts = 0; // Reset counter when user manually retries
+                return checkSupabaseConnection();
+              }
+            });
+          }
+          
           throw lastError;
         } catch (error) {
           console.error(`Supabase request failed after retries: ${url}`, error);
@@ -134,6 +168,14 @@ if (typeof window !== 'undefined') {
       checkSupabaseConnection();
     }
   });
+  
+  // Also listen for visibility changes to retry connection when tab becomes visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !isSupabaseConnected) {
+      console.log('Tab became visible, checking connection...');
+      checkSupabaseConnection();
+    }
+  });
 }
 
 // Improved helper to detect if Supabase is available
@@ -141,7 +183,7 @@ export const checkSupabaseConnection = async () => {
   try {
     console.log('Checking Supabase connection...');
     
-    // First try a simple ping query that should be fast
+    // First try a simple ping query that should be fast and has minimal data transfer
     const { data: pingData, error: pingError } = await supabase
       .from('call_transcripts')
       .select('id')
@@ -160,25 +202,22 @@ export const checkSupabaseConnection = async () => {
       return { connected: false, error: pingError };
     }
     
-    // If ping succeeded, try a more substantial query
-    const { data, error } = await supabase
-      .from('call_transcripts')
-      .select('id')
-      .limit(1);
-    
-    if (error) {
-      console.error('Supabase connection error (call_transcripts):', error);
-      isSupabaseConnected = false;
-      return { connected: false, error };
-    }
-    
-    console.log('Supabase connection successful, found data:', data);
-    
     // Connection is successful
+    console.log('Supabase connection successful, found data:', pingData);
     isSupabaseConnected = true;
+    connectionAttempts = 0; // Reset counter on successful connection
     
     // Notify the UI that connection is restored
     window.dispatchEvent(new CustomEvent('supabase-connection-restored'));
+    
+    // If we've successfully connected, show a success toast but only once
+    if (!sessionStorage.getItem('connection-success-shown')) {
+      toast.success("Connected to database", {
+        description: "Data will now be saved and retrieved from the server.",
+        duration: 3000,
+      });
+      sessionStorage.setItem('connection-success-shown', 'true');
+    }
     
     return { connected: true, error: null };
   } catch (err) {
@@ -204,8 +243,16 @@ export const isConnected = () => isSupabaseConnected;
 
 // Generate a proper anonymous user ID using the uuid library
 export const generateAnonymousUserId = () => {
-  // Generate a unique identifier in the format "anonymous-{uuid}"
+  // Generate a unique identifier using UUID v4
   const anonymousId = `anonymous-${uuidv4()}`;
   console.log('Generated anonymous user ID:', anonymousId);
   return anonymousId;
 };
+
+// Initialize connection check on module load
+if (typeof window !== 'undefined') {
+  // Don't block the app initialization, run connection check asynchronously
+  setTimeout(() => {
+    checkSupabaseConnection();
+  }, 300);
+}

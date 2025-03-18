@@ -1,5 +1,6 @@
 
 import { useToast } from "@/hooks/use-toast";
+import { pipeline } from "@huggingface/transformers";
 
 // OpenAI Whisper API interface
 export interface WhisperTranscriptionResponse {
@@ -28,10 +29,20 @@ export interface StoredTranscription {
 
 // Get API key from localStorage if available
 let OPENAI_API_KEY = localStorage.getItem("openai_api_key") || "";
+let useLocalWhisper = localStorage.getItem("use_local_whisper") === "true";
 
 export const setOpenAIKey = (key: string) => {
   OPENAI_API_KEY = key;
   localStorage.setItem("openai_api_key", key);
+};
+
+export const setUseLocalWhisper = (value: boolean) => {
+  useLocalWhisper = value;
+  localStorage.setItem("use_local_whisper", value.toString());
+};
+
+export const getUseLocalWhisper = (): boolean => {
+  return useLocalWhisper;
 };
 
 // Utility function to get all stored transcriptions
@@ -144,12 +155,31 @@ const calculateAudioDuration = async (audioBlob: Blob): Promise<number> => {
   });
 };
 
+// Cache for the Whisper model to avoid reloading
+let whisperModel: any = null;
+
+// Function to load the local Whisper model
+const loadWhisperModel = async () => {
+  if (!whisperModel) {
+    try {
+      whisperModel = await pipeline(
+        "automatic-speech-recognition",
+        "distil-whisper/distil-small.en", // Smaller model for browser use
+        { quantized: true } // Use quantized model for better performance
+      );
+    } catch (error) {
+      console.error("Error loading Whisper model:", error);
+      throw new Error("Failed to load Whisper model");
+    }
+  }
+  return whisperModel;
+};
+
 export const useWhisperService = () => {
   const { toast } = useToast();
 
-  const transcribeAudio = async (
-    audioBlob: Blob
-  ): Promise<WhisperTranscriptionResponse | null> => {
+  // Transcribe using the OpenAI Whisper API
+  const transcribeWithAPI = async (audioBlob: Blob): Promise<WhisperTranscriptionResponse | null> => {
     if (!OPENAI_API_KEY) {
       toast({
         title: "API Key Missing",
@@ -195,13 +225,100 @@ export const useWhisperService = () => {
       
       return result;
     } catch (error) {
-      console.error("Whisper transcription error:", error);
+      console.error("Whisper API transcription error:", error);
       toast({
         title: "Transcription Failed",
         description: error instanceof Error ? error.message : String(error),
         variant: "destructive",
       });
       return null;
+    }
+  };
+
+  // Transcribe using the local Whisper model
+  const transcribeLocally = async (audioBlob: Blob): Promise<WhisperTranscriptionResponse | null> => {
+    try {
+      toast({
+        title: "Loading Model",
+        description: "Preparing local Whisper model...",
+      });
+      
+      // Load the model
+      const model = await loadWhisperModel();
+      
+      toast({
+        title: "Transcribing",
+        description: "Processing audio locally...",
+      });
+      
+      // Convert blob to a format accepted by the model
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      // Perform transcription
+      const result = await model(audioUrl, {
+        chunk_length_s: 30, // Process in 30-second chunks
+        stride_length_s: 5,  // 5-second overlap between chunks
+        return_timestamps: true,
+      });
+      
+      // Clean up URL
+      URL.revokeObjectURL(audioUrl);
+      
+      toast({
+        title: "Transcription Complete",
+        description: "Audio has been successfully transcribed locally",
+      });
+      
+      // Format to match our expected response format
+      const response: WhisperTranscriptionResponse = {
+        text: result.text,
+        segments: result.chunks?.map((chunk: any, i: number) => ({
+          id: i,
+          start: chunk.timestamp[0],
+          end: chunk.timestamp[1],
+          text: chunk.text,
+          confidence: 0.9, // Local model doesn't provide confidence, use placeholder
+        })) || [],
+        language: 'en', // Assume English for local model
+      };
+      
+      return response;
+    } catch (error) {
+      console.error("Local Whisper transcription error:", error);
+      toast({
+        title: "Local Transcription Failed",
+        description: "Falling back to API transcription...",
+        variant: "destructive",
+      });
+      
+      // Try the API as fallback
+      if (OPENAI_API_KEY) {
+        return transcribeWithAPI(audioBlob);
+      }
+      return null;
+    }
+  };
+
+  const transcribeAudio = async (
+    audioBlob: Blob
+  ): Promise<WhisperTranscriptionResponse | null> => {
+    // Decide whether to use local or API transcription
+    if (useLocalWhisper) {
+      const result = await transcribeLocally(audioBlob);
+      if (result) return result;
+      
+      // If local transcription fails and we have an API key, fall back to API
+      if (OPENAI_API_KEY) {
+        toast({
+          title: "Falling Back to API",
+          description: "Local transcription failed, using OpenAI API instead",
+        });
+        return transcribeWithAPI(audioBlob);
+      }
+      return null;
+    } else {
+      // Use the OpenAI API
+      return transcribeWithAPI(audioBlob);
     }
   };
 
@@ -242,6 +359,8 @@ export const useWhisperService = () => {
     transcribeAudio,
     saveTranscriptionWithAnalysis,
     getStoredTranscriptions,
-    setOpenAIKey
+    setOpenAIKey,
+    setUseLocalWhisper,
+    getUseLocalWhisper
   };
 };

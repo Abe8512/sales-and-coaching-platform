@@ -1,12 +1,14 @@
 
 import React, { useContext, useState, useRef, useEffect } from "react";
-import { X, Upload, CheckCircle, Clock, AlertCircle, FileAudio } from "lucide-react";
+import { X, Upload, CheckCircle, Clock, AlertCircle, FileAudio, ToggleLeft, ToggleRight } from "lucide-react";
 import { ThemeContext } from "@/App";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useWhisperService } from "@/services/WhisperService";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 interface BulkUploadModalProps {
   isOpen: boolean;
@@ -25,18 +27,24 @@ interface UploadFile {
 const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
   const { isDarkMode } = useContext(ThemeContext);
   const { toast } = useToast();
-  const { transcribeAudio, saveTranscriptionWithAnalysis } = useWhisperService();
+  const { transcribeAudio, saveTranscriptionWithAnalysis, getUseLocalWhisper, setUseLocalWhisper } = useWhisperService();
   const [dragActive, setDragActive] = useState(false);
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [openAIKeyMissing, setOpenAIKeyMissing] = useState(false);
+  const [useLocalWhisper, setUseLocalWhisperState] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   useEffect(() => {
-    // Check if OpenAI API key exists
-    const apiKey = localStorage.getItem("openai_api_key");
-    setOpenAIKeyMissing(!apiKey || apiKey.trim() === '');
-  }, [isOpen]);
+    if (isOpen) {
+      // Check if OpenAI API key exists
+      const apiKey = localStorage.getItem("openai_api_key");
+      setOpenAIKeyMissing(!apiKey || apiKey.trim() === '');
+      
+      // Check local Whisper setting
+      setUseLocalWhisperState(getUseLocalWhisper());
+    }
+  }, [isOpen, getUseLocalWhisper]);
   
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -112,13 +120,24 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
     });
   };
   
+  const toggleLocalWhisper = (checked: boolean) => {
+    setUseLocalWhisperState(checked);
+    setUseLocalWhisper(checked);
+    toast({
+      title: checked ? "Local Whisper Enabled" : "OpenAI API Mode",
+      description: checked 
+        ? "Transcription will run locally in your browser" 
+        : "Transcription will use the OpenAI API",
+    });
+  };
+  
   const processFiles = async () => {
     if (files.length === 0 || isUploading) return;
     
-    if (openAIKeyMissing) {
+    if (openAIKeyMissing && !useLocalWhisper) {
       toast({
-        title: "API Key Missing",
-        description: "Please set your OpenAI API key in the Settings page",
+        title: "Configuration Required",
+        description: "Please set your OpenAI API key in Settings or enable local Whisper",
         variant: "destructive",
       });
       return;
@@ -205,10 +224,39 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
           </DialogDescription>
         </DialogHeader>
         
-        {openAIKeyMissing && (
+        <div className="flex items-center space-x-2 my-2">
+          <Switch
+            id="bulk-upload-local-whisper"
+            checked={useLocalWhisper}
+            onCheckedChange={toggleLocalWhisper}
+          />
+          <Label htmlFor="bulk-upload-local-whisper" className="text-sm">
+            {useLocalWhisper ? (
+              <span className="flex items-center">
+                <ToggleRight className="h-4 w-4 mr-1 text-green-500" /> 
+                Use Local Whisper (Browser-Based)
+              </span>
+            ) : (
+              <span className="flex items-center">
+                <ToggleLeft className="h-4 w-4 mr-1 text-gray-500" /> 
+                Use OpenAI API (Requires API Key)
+              </span>
+            )}
+          </Label>
+        </div>
+        
+        {openAIKeyMissing && !useLocalWhisper && (
           <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 mb-4">
             <p className="text-sm text-amber-800 dark:text-amber-200">
-              OpenAI API key is required for transcription. Please set your API key in the Settings page.
+              OpenAI API key is required for API transcription. Please enable local Whisper or set your API key in the Settings page.
+            </p>
+          </div>
+        )}
+        
+        {useLocalWhisper && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 mb-4">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              Using local Whisper model. The first transcription may take longer as the model downloads.
             </p>
           </div>
         )}
@@ -312,10 +360,13 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
           </DialogClose>
           <Button 
             onClick={processFiles}
-            disabled={files.length === 0 || isUploading || files.every(f => f.status === "complete") || openAIKeyMissing}
+            disabled={files.length === 0 || isUploading || files.every(f => f.status === "complete") || (openAIKeyMissing && !useLocalWhisper)}
             className="bg-purple-600 hover:bg-purple-700 text-white"
           >
-            {isUploading ? "Processing..." : "Process with Whisper AI"}
+            {isUploading ? 
+              (useLocalWhisper ? "Processing locally..." : "Processing with API...") : 
+              (useLocalWhisper ? "Process with Local Whisper" : "Process with Whisper API")
+            }
           </Button>
         </div>
       </DialogContent>

@@ -3,13 +3,15 @@ import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, MicOff, MessageSquare, Settings, Zap } from "lucide-react";
+import { Mic, MicOff, MessageSquare, Settings, Zap, ToggleLeft, ToggleRight } from "lucide-react";
 import { useWhisperService } from "@/services/WhisperService";
 import AIWaveform from "../ui/AIWaveform";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 const LiveCallAnalysis = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -24,12 +26,19 @@ const LiveCallAnalysis = () => {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [processingChunk, setProcessingChunk] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [useLocalWhisper, setUseLocalWhisper] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { transcribeAudio, saveTranscriptionWithAnalysis, setOpenAIKey } = useWhisperService();
+  const { 
+    transcribeAudio, 
+    saveTranscriptionWithAnalysis, 
+    setOpenAIKey, 
+    setUseLocalWhisper: saveUseLocalWhisperSetting, 
+    getUseLocalWhisper 
+  } = useWhisperService();
 
   useEffect(() => {
     // Check if API key exists in localStorage
@@ -38,7 +47,10 @@ const LiveCallAnalysis = () => {
       setHasApiKey(true);
       setApiKey(storedKey);
     }
-  }, []);
+    
+    // Check if local Whisper is enabled
+    setUseLocalWhisper(getUseLocalWhisper());
+  }, [getUseLocalWhisper]);
 
   // Generate AI suggestions based on transcript content
   const generateSuggestions = (text: string) => {
@@ -84,10 +96,10 @@ const LiveCallAnalysis = () => {
   };
 
   const startRecording = async () => {
-    if (!hasApiKey) {
+    if (!hasApiKey && !useLocalWhisper) {
       toast({
-        title: "API Key Required",
-        description: "Please set your OpenAI API key in settings first",
+        title: "Configuration Required",
+        description: "Please set your OpenAI API key or enable local Whisper in settings",
         variant: "destructive",
       });
       return;
@@ -143,7 +155,7 @@ const LiveCallAnalysis = () => {
       
       toast({
         title: "Recording Stopped",
-        description: "Analyzing your call...",
+        description: `Analyzing your call${useLocalWhisper ? " using local Whisper model" : ""}...`,
       });
       
       // Process the entire recording
@@ -204,6 +216,17 @@ const LiveCallAnalysis = () => {
     return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
   };
 
+  const toggleLocalWhisper = (checked: boolean) => {
+    setUseLocalWhisper(checked);
+    saveUseLocalWhisperSetting(checked);
+    toast({
+      title: checked ? "Local Whisper Enabled" : "OpenAI API Mode",
+      description: checked 
+        ? "Transcription will run locally in your browser" 
+        : "Transcription will use the OpenAI API",
+    });
+  };
+
   return (
     <Card className="shadow-md">
       <CardHeader>
@@ -240,8 +263,19 @@ const LiveCallAnalysis = () => {
                     Your API key is stored locally and never sent to our servers
                   </p>
                 </div>
+                <div className="flex items-center justify-between space-y-0 pt-2">
+                  <Label htmlFor="local-whisper">Use Local Whisper (No API Key Required)</Label>
+                  <Switch
+                    id="local-whisper"
+                    checked={useLocalWhisper}
+                    onCheckedChange={toggleLocalWhisper}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Local Whisper runs directly in your browser. It's a bit slower but doesn't require an API key.
+                </p>
                 <DialogFooter>
-                  <Button onClick={saveApiKey} className="flex-1">Save API Key</Button>
+                  <Button onClick={saveApiKey} className="flex-1" disabled={useLocalWhisper && !apiKey.trim()}>Save API Key</Button>
                   <Button onClick={goToSettings} variant="outline" className="flex-1">Go to Settings</Button>
                 </DialogFooter>
               </div>
@@ -251,21 +285,59 @@ const LiveCallAnalysis = () => {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {!hasApiKey && (
+          {!hasApiKey && !useLocalWhisper && (
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 mb-4">
               <p className="text-sm text-amber-800 dark:text-amber-200">
-                To use Live Call Analysis, please set your OpenAI API key in settings first.
+                To use Live Call Analysis, please set your OpenAI API key in settings or enable local Whisper transcription.
               </p>
-              <Button variant="outline" size="sm" className="mt-2" onClick={goToSettings}>
-                Go to Settings
-              </Button>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <Button variant="outline" size="sm" onClick={goToSettings}>
+                  Go to Settings
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    toggleLocalWhisper(true);
+                    toast({
+                      title: "Local Whisper Enabled",
+                      description: "You can now record without an API key"
+                    });
+                  }}
+                >
+                  Enable Local Whisper
+                </Button>
+              </div>
             </div>
           )}
         
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="use-local-whisper"
+                checked={useLocalWhisper}
+                onCheckedChange={toggleLocalWhisper}
+              />
+              <Label htmlFor="use-local-whisper" className="text-sm">
+                {useLocalWhisper ? (
+                  <span className="flex items-center">
+                    <ToggleRight className="h-4 w-4 mr-1 text-green-500" /> 
+                    Local Whisper Enabled
+                  </span>
+                ) : (
+                  <span className="flex items-center">
+                    <ToggleLeft className="h-4 w-4 mr-1 text-gray-500" /> 
+                    Using OpenAI API
+                  </span>
+                )}
+              </Label>
+            </div>
+          </div>
+          
           <div className="flex justify-center items-center flex-col gap-2">
             <Button
               onClick={isRecording ? stopRecording : startRecording}
-              disabled={!hasApiKey || processingChunk}
+              disabled={(!hasApiKey && !useLocalWhisper) || processingChunk}
               className={`${isRecording ? "bg-red-500 hover:bg-red-600" : "bg-blue-500 hover:bg-blue-600"} text-white px-6 py-6 rounded-full h-auto`}
             >
               {isRecording ? (

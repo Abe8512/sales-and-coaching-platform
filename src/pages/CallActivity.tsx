@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,6 +15,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useCallTranscriptService } from "@/services/CallTranscriptService";
 import { useEventListener } from "@/services/events";
 import { toast } from "sonner";
+import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
+import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
+import RecentCallsTable from "@/components/CallActivity/RecentCallsTable";
+import CallOutcomeStats from "@/components/CallActivity/CallOutcomeStats";
 
 interface Call {
   id: string;

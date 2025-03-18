@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { EventType, EventListener } from './types';
+import { EventType, EventListener, EventPayload } from './types';
 import { useEventsStore } from './store';
 
 // Simple hook to use the events service
@@ -32,11 +32,11 @@ export const useEventListener = (type: EventType, callback: (data?: any) => void
     };
     
     // Use the correct type for the addEventListener call
-    window.addEventListener(`app:${type}`, handleWindowEvent);
+    window.addEventListener(`app:${type}`, handleWindowEvent as EventListener);
     
     return () => {
       unsubscribe();
-      window.removeEventListener(`app:${type}`, handleWindowEvent);
+      window.removeEventListener(`app:${type}`, handleWindowEvent as EventListener);
     };
   }, [type, callback]);
 };

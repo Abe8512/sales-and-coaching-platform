@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
@@ -13,7 +12,7 @@ import { DateRange } from "react-day-picker";
 import CoachingAlerts from "@/components/CallAnalysis/CoachingAlerts";
 import KeywordInsights from "@/components/CallAnalysis/KeywordInsights";
 import DateRangeFilter from "@/components/CallAnalysis/DateRangeFilter";
-import TeamFilter from "@/components/Performance/TeamFilter";
+import TeamFilterWrapper from "@/components/Performance/TeamFilterWrapper";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
 import { useBulkUploadStore } from "@/store/useBulkUploadStore";
 import { useRealTimeTeamMetrics, useRealTimeRepMetrics, TeamMetrics, RepMetrics } from "@/services/RealTimeMetricsService";
@@ -212,7 +211,7 @@ const CallActivity = () => {
         </div>
         
         {(isAdmin || isManager) && (
-          <TeamFilter onFilterChange={handleFilterChange} />
+          <TeamFilterWrapper onFilterChange={handleFilterChange} />
         )}
       </div>
       

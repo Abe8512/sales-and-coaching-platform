@@ -60,14 +60,46 @@ function App() {
               <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route path="/signup" element={<Signup />} />
-                <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-                <Route path="/transcripts" element={<ProtectedRoute><Transcripts /></ProtectedRoute>} />
-                <Route path="/ai-coaching" element={<ProtectedRoute><AICoaching /></ProtectedRoute>} />
-                <Route path="/team" element={<ProtectedRoute><Team /></ProtectedRoute>} />
-                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-                <Route path="/call-comparison" element={<ProtectedRoute><CallComparison /></ProtectedRoute>} />
-                <Route path="/call-activity" element={<ProtectedRoute><CallActivity /></ProtectedRoute>} />
-                <Route path="/performance" element={<ProtectedRoute><Performance /></ProtectedRoute>} />
+                <Route path="/" element={
+                  <ProtectedRoute>
+                    <Index />
+                  </ProtectedRoute>
+                } />
+                <Route path="/transcripts" element={
+                  <ProtectedRoute>
+                    <Transcripts />
+                  </ProtectedRoute>
+                } />
+                <Route path="/ai-coaching" element={
+                  <ProtectedRoute>
+                    <AICoaching />
+                  </ProtectedRoute>
+                } />
+                <Route path="/team" element={
+                  <ProtectedRoute>
+                    <Team />
+                  </ProtectedRoute>
+                } />
+                <Route path="/settings" element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                } />
+                <Route path="/call-comparison" element={
+                  <ProtectedRoute>
+                    <CallComparison />
+                  </ProtectedRoute>
+                } />
+                <Route path="/call-activity" element={
+                  <ProtectedRoute>
+                    <CallActivity />
+                  </ProtectedRoute>
+                } />
+                <Route path="/performance" element={
+                  <ProtectedRoute>
+                    <Performance />
+                  </ProtectedRoute>
+                } />
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <Toaster />

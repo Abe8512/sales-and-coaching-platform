@@ -17,8 +17,7 @@ const AIInsights = () => {
     setTranscriptCount(transcriptions.length);
   }, []);
   
-  // AI insights based on real data - these could be generated based on actual analysis
-  // For now, we'll show them if there's data, and adjust the text based on transcript count
+  // AI insights based on real data - only show actual insights if there is data
   const insights = [
     {
       id: 1,

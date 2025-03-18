@@ -159,7 +159,7 @@ const CallsOverview = () => {
               customer={getSpeakerName(call)}
               time={formatTime(call.date)}
               duration={formatDuration(call.duration)}
-              score={call.callScore || 50}
+              score={call.callScore || 0}
               flagged={call.sentiment === 'negative'}
               isDarkMode={isDarkMode}
               onClick={() => handleCallClick(call.id)}

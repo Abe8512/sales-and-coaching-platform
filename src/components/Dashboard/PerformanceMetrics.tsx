@@ -1,5 +1,5 @@
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { LineChart, Line, ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { ArrowUpRight, TrendingUp, TrendingDown } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
@@ -8,37 +8,23 @@ import ExpandableChart from "../ui/ExpandableChart";
 import { useChartData } from "@/hooks/useChartData";
 import { Button } from "../ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "../ui/chart";
+import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
 
-// Mock data
-const initialPerformanceData = [
-  { name: "Mon", score: 82 },
-  { name: "Tue", score: 75 },
-  { name: "Wed", score: 88 },
-  { name: "Thu", score: 84 },
-  { name: "Fri", score: 91 },
-  { name: "Sat", score: 87 },
-  { name: "Sun", score: 94 },
-];
+// Generate empty data for initial state
+const generateEmptyData = () => {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  return days.map(day => ({ name: day, score: 0 }));
+};
 
-const initialCallVolumeData = [
-  { name: "Mon", calls: 24 },
-  { name: "Tue", calls: 18 },
-  { name: "Wed", calls: 32 },
-  { name: "Thu", calls: 27 },
-  { name: "Fri", calls: 35 },
-  { name: "Sat", calls: 22 },
-  { name: "Sun", calls: 15 },
-];
+const generateEmptyCallData = () => {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  return days.map(day => ({ name: day, calls: 0 }));
+};
 
-const initialConversionData = [
-  { name: "Mon", rate: 22 },
-  { name: "Tue", rate: 18 },
-  { name: "Wed", rate: 25 },
-  { name: "Thu", rate: 30 },
-  { name: "Fri", rate: 35 },
-  { name: "Sat", rate: 28 },
-  { name: "Sun", rate: 32 },
-];
+const generateEmptyConversionData = () => {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  return days.map(day => ({ name: day, rate: 0 }));
+};
 
 interface MetricCardProps {
   title: string;
@@ -78,30 +64,144 @@ const MetricCard = ({ title, value, change, gradient = "blue", suffix = "", chil
 };
 
 const PerformanceMetrics = () => {
-  // Use our custom hooks for real-time data
+  // Track actual metrics from transcriptions
+  const [performanceScore, setPerformanceScore] = useState(0);
+  const [totalCalls, setTotalCalls] = useState(0);
+  const [conversionRate, setConversionRate] = useState(0);
+  const [performanceChange, setPerformanceChange] = useState(0);
+  const [callsChange, setCallsChange] = useState(0);
+  const [conversionChange, setConversionChange] = useState(0);
+
+  // Use our custom hooks for data visualization
   const {
     data: performanceData,
     isLoading: isPerformanceLoading,
     refresh: refreshPerformance,
     lastUpdated: performanceLastUpdated,
-    simulateDataUpdate: simulatePerformanceUpdate
-  } = useChartData(initialPerformanceData);
+    simulateDataUpdate: simulatePerformanceUpdate,
+    setData: setPerformanceData
+  } = useChartData(generateEmptyData());
 
   const {
     data: callVolumeData,
     isLoading: isCallVolumeLoading,
     refresh: refreshCallVolume,
     lastUpdated: callVolumeLastUpdated,
-    simulateDataUpdate: simulateCallVolumeUpdate
-  } = useChartData(initialCallVolumeData);
+    simulateDataUpdate: simulateCallVolumeUpdate,
+    setData: setCallVolumeData
+  } = useChartData(generateEmptyCallData());
 
   const {
     data: conversionData,
     isLoading: isConversionLoading,
     refresh: refreshConversion,
     lastUpdated: conversionLastUpdated,
-    simulateDataUpdate: simulateConversionUpdate
-  } = useChartData(initialConversionData);
+    simulateDataUpdate: simulateConversionUpdate,
+    setData: setConversionData
+  } = useChartData(generateEmptyConversionData());
+
+  // Load actual data from stored transcriptions
+  useEffect(() => {
+    const transcriptions = getStoredTranscriptions();
+    
+    if (transcriptions.length === 0) {
+      // Reset to zeros if no transcriptions
+      setPerformanceScore(0);
+      setTotalCalls(0);
+      setConversionRate(0);
+      setPerformanceChange(0);
+      setCallsChange(0);
+      setConversionChange(0);
+      setPerformanceData(generateEmptyData());
+      setCallVolumeData(generateEmptyCallData());
+      setConversionData(generateEmptyConversionData());
+      return;
+    }
+    
+    // Calculate performance score (average of call scores)
+    const avgScore = transcriptions.reduce((sum, t) => sum + (t.callScore || 0), 0) / transcriptions.length;
+    setPerformanceScore(Math.round(avgScore));
+    
+    // Set total calls
+    setTotalCalls(transcriptions.length);
+    
+    // Calculate a conversion rate based on positive sentiment transcriptions
+    const positiveTranscriptions = transcriptions.filter(t => t.sentiment === 'positive');
+    const calculatedRate = (positiveTranscriptions.length / transcriptions.length) * 100;
+    setConversionRate(parseFloat(calculatedRate.toFixed(1)));
+    
+    // Simulate changes (in a real app, you'd compare to previous periods)
+    setPerformanceChange(transcriptions.length > 2 ? 7 : 0);
+    setCallsChange(transcriptions.length > 3 ? -3 : 0);
+    setConversionChange(transcriptions.length > 5 ? 12 : 0);
+    
+    // Generate data for charts based on actual transcriptions
+    generateChartData(transcriptions);
+  }, [setPerformanceData, setCallVolumeData, setConversionData]);
+  
+  // Generate meaningful chart data from transcriptions
+  const generateChartData = (transcriptions: StoredTranscription[]) => {
+    // Sort transcriptions by date
+    const sortedTranscriptions = [...transcriptions].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    
+    // Group by day of week
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dayScores: Record<string, number[]> = {};
+    const dayCounts: Record<string, number> = {};
+    const dayConversions: Record<string, number[]> = {};
+    
+    // Initialize empty arrays for each day
+    dayNames.forEach(day => {
+      dayScores[day] = [];
+      dayCounts[day] = 0;
+      dayConversions[day] = [];
+    });
+    
+    // Populate data
+    sortedTranscriptions.forEach(t => {
+      const date = new Date(t.date);
+      const dayName = dayNames[date.getDay()];
+      
+      if (t.callScore) {
+        dayScores[dayName].push(t.callScore);
+      }
+      
+      dayCounts[dayName]++;
+      
+      // Consider a call "converted" if sentiment is positive
+      const isConverted = t.sentiment === 'positive' ? 1 : 0;
+      dayConversions[dayName].push(isConverted);
+    });
+    
+    // Calculate averages for performance scores
+    const newPerformanceData = dayNames.map(day => ({
+      name: day,
+      score: dayScores[day].length > 0 
+        ? Math.round(dayScores[day].reduce((sum, score) => sum + score, 0) / dayScores[day].length)
+        : 0
+    }));
+    
+    // Create call volume data
+    const newCallVolumeData = dayNames.map(day => ({
+      name: day,
+      calls: dayCounts[day]
+    }));
+    
+    // Calculate conversion rates
+    const newConversionData = dayNames.map(day => ({
+      name: day,
+      rate: dayConversions[day].length > 0
+        ? Math.round((dayConversions[day].reduce((sum, val) => sum + val, 0) / dayConversions[day].length) * 100)
+        : 0
+    }));
+    
+    // Update chart data
+    setPerformanceData(newPerformanceData);
+    setCallVolumeData(newCallVolumeData);
+    setConversionData(newConversionData);
+  };
 
   // Expanded chart content for Performance Score
   const expandedPerformanceChart = (
@@ -167,7 +267,9 @@ const PerformanceMetrics = () => {
         <div className="p-4 border rounded-lg">
           <div className="text-sm text-muted-foreground">Average Score</div>
           <div className="text-2xl font-bold">
-            {Math.round(performanceData.reduce((acc, item) => acc + item.score, 0) / performanceData.length)}
+            {performanceData.length > 0 && performanceData.some(item => item.score > 0)
+              ? Math.round(performanceData.reduce((acc, item) => acc + item.score, 0) / performanceData.filter(item => item.score > 0).length)
+              : 0}
           </div>
         </div>
         <div className="p-4 border rounded-lg">
@@ -179,7 +281,9 @@ const PerformanceMetrics = () => {
         <div className="p-4 border rounded-lg">
           <div className="text-sm text-muted-foreground">Lowest Score</div>
           <div className="text-2xl font-bold">
-            {Math.min(...performanceData.map(item => item.score))}
+            {performanceData.some(item => item.score > 0)
+              ? Math.min(...performanceData.filter(item => item.score > 0).map(item => item.score))
+              : 0}
           </div>
         </div>
       </div>
@@ -235,7 +339,10 @@ const PerformanceMetrics = () => {
             <Line
               name="7-day Average"
               type="monotone"
-              dataKey={() => Math.round(callVolumeData.reduce((acc, item) => acc + item.calls, 0) / callVolumeData.length)}
+              dataKey={() => {
+                const total = callVolumeData.reduce((acc, item) => acc + item.calls, 0);
+                return total > 0 ? Math.round(total / 7) : 0;
+              }}
               stroke="var(--color-average)"
               strokeWidth={2}
             />
@@ -253,13 +360,13 @@ const PerformanceMetrics = () => {
         <div className="p-4 border rounded-lg">
           <div className="text-sm text-muted-foreground">Daily Average</div>
           <div className="text-2xl font-bold">
-            {Math.round(callVolumeData.reduce((acc, item) => acc + item.calls, 0) / callVolumeData.length)}
+            {Math.round(callVolumeData.reduce((acc, item) => acc + item.calls, 0) / 7)}
           </div>
         </div>
         <div className="p-4 border rounded-lg">
           <div className="text-sm text-muted-foreground">Peak Day</div>
           <div className="text-2xl font-bold">
-            {callVolumeData.reduce((max, item) => max.calls > item.calls ? max : item, { name: '', calls: 0 }).name}
+            {callVolumeData.reduce((max, item) => max.calls > item.calls ? max : item, { name: '-', calls: 0 }).name}
           </div>
         </div>
       </div>
@@ -305,7 +412,7 @@ const PerformanceMetrics = () => {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis dataKey="name" />
-            <YAxis domain={[0, 50]} />
+            <YAxis domain={[0, 100]} />
             <ChartTooltip
               content={
                 <ChartTooltipContent />
@@ -337,7 +444,10 @@ const PerformanceMetrics = () => {
         <div className="p-4 border rounded-lg">
           <div className="text-sm text-muted-foreground">Average Rate</div>
           <div className="text-2xl font-bold">
-            {Math.round(conversionData.reduce((acc, item) => acc + item.rate, 0) / conversionData.length)}%
+            {conversionData.some(item => item.rate > 0)
+              ? Math.round(conversionData.reduce((acc, item) => acc + item.rate, 0) / 
+                  conversionData.filter(item => item.rate > 0).length)
+              : 0}%
           </div>
         </div>
         <div className="p-4 border rounded-lg">
@@ -360,8 +470,8 @@ const PerformanceMetrics = () => {
     <div className="grid grid-cols-3 gap-6">
       <MetricCard 
         title="Performance Score" 
-        value={94} 
-        change={7}
+        value={performanceScore} 
+        change={performanceChange}
         gradient="blue"
       >
         <ExpandableChart 
@@ -387,8 +497,8 @@ const PerformanceMetrics = () => {
       
       <MetricCard 
         title="Total Calls" 
-        value={173} 
-        change={-3}
+        value={totalCalls} 
+        change={callsChange}
         gradient="purple"
       >
         <ExpandableChart 
@@ -412,8 +522,8 @@ const PerformanceMetrics = () => {
       
       <MetricCard 
         title="Conversion Rate" 
-        value={35.8} 
-        change={12}
+        value={conversionRate} 
+        change={conversionChange}
         gradient="green"
         suffix="%"
       >

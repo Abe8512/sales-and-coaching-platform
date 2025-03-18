@@ -41,24 +41,24 @@ export const realtimeService = {
   },
   
   /**
-   * Check if a table has realtime enabled
+   * Check if a table has realtime enabled - this uses a direct SQL query
+   * which requires higher privileges than the typical app user has
    */
   checkRealtimeEnabled: async (tableName: string) => {
     try {
-      // This query checks if the table exists in the publication
-      const { data, error } = await supabase
-        .from('pg_publication_tables')
-        .select('*')
-        .eq('tablename', tableName)
-        .eq('pubname', 'supabase_realtime');
+      // This is an administrative function that requires elevated permissions
+      // It will only work if called with admin privileges
+      const { data, error } = await supabase.rpc('check_table_in_publication', {
+        table_name: tableName,
+        publication_name: 'supabase_realtime'
+      });
       
       if (error) {
         console.error(`Error checking realtime status for ${tableName}:`, error);
         return { enabled: false, error };
       }
       
-      const isEnabled = data && data.length > 0;
-      return { enabled: isEnabled };
+      return { enabled: !!data };
     } catch (error) {
       console.error(`Failed to check realtime status for ${tableName}:`, error);
       return { enabled: false, error };

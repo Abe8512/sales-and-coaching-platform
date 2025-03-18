@@ -1,6 +1,6 @@
 
-import { useState, useEffect } from 'react';
-import { isConnected as checkSupabaseConnected } from '@/integrations/supabase/client';
+import { useState, useEffect, useCallback } from 'react';
+import { checkSupabaseConnection, isConnected as checkSupabaseConnected } from '@/integrations/supabase/client';
 import { useEventsStore } from '@/services/events';
 import { errorHandler } from './ErrorHandlingService';
 
@@ -8,6 +8,20 @@ export const useConnectionStatus = () => {
   const [isConnected, setIsConnected] = useState<boolean>(checkSupabaseConnected());
   const [lastChecked, setLastChecked] = useState<number | null>(null);
   const dispatchEvent = useEventsStore.getState().dispatchEvent;
+
+  const checkConnection = useCallback(async () => {
+    try {
+      const result = await checkSupabaseConnection();
+      setIsConnected(result.connected);
+      setLastChecked(Date.now());
+      return result;
+    } catch (err) {
+      console.error('Error checking connection status:', err);
+      setIsConnected(false);
+      setLastChecked(Date.now());
+      return { connected: false, error: err };
+    }
+  }, []);
 
   useEffect(() => {
     // Initial connection check
@@ -69,5 +83,5 @@ export const useConnectionStatus = () => {
     };
   }, [dispatchEvent, isConnected]);
 
-  return { isConnected, lastChecked };
+  return { isConnected, lastChecked, checkConnection };
 };

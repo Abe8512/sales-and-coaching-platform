@@ -1,17 +1,19 @@
-
 // Event types
 export type EventType = 
   | 'transcript-created'
   | 'transcript-updated'
   | 'transcript-deleted'
-  | 'transcripts-refreshed'
-  | 'call-created'
-  | 'call-updated'
-  | 'call-deleted'
-  | 'calls-refreshed'
-  | 'bulk-upload-completed'
-  | 'bulk-upload-started'
-  | 'recording-completed';
+  | 'transcript-progress'
+  | 'upload-started'
+  | 'upload-progress'
+  | 'upload-completed'
+  | 'upload-error'
+  | 'processing-started'
+  | 'processing-progress'
+  | 'processing-completed' 
+  | 'processing-error'
+  | 'connection-restored'
+  | 'connection-lost';
 
 // Event dispatcher type
 export type EventDispatcher = (type: EventType, data?: any) => void;

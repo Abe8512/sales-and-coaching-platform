@@ -1,370 +1,231 @@
-import { supabase, checkSupabaseConnection, generateAnonymousUserId } from "@/integrations/supabase/client";
-import { useState, useEffect, useCallback } from "react";
-import { DateRange } from "react-day-picker";
-import { 
-  calculateTotalCalls, 
-  calculateAvgSentiment, 
-  calculateOutcomeDistribution 
-} from "@/utils/metricCalculations";
-import { toast } from "sonner";
-import { useEventsStore } from "@/services/events";
-import { v4 as uuidv4 } from 'uuid';
-import { withErrorHandling } from './ErrorHandlingService';
-import { connectionMonitor } from './ConnectionMonitorService';
-import { PostgrestError, PostgrestSingleResponse } from '@supabase/supabase-js';
-import { useDemoDataService } from "./DemoDataService";
-import { useTranscriptRealtimeSubscriptions } from "./TranscriptSubscriptionService";
+import { supabase } from '@/integrations/supabase/client';
+import { useConnectionStatus } from './ConnectionMonitorService';
+import { useEventsStore } from '@/services/events';
+import { useEffect, useState, useCallback } from 'react';
+import { errorHandler } from './ErrorHandlingService';
+import { useDebounce } from '@/hooks/useDebounce';
 
 export interface CallTranscript {
   id: string;
-  user_id: string | null;
-  filename: string | null;
+  created_at?: string;
+  filename?: string;
   text: string;
-  duration: number | null;
-  call_score: number | null;
-  sentiment: string | null;
-  keywords: string[] | null;
-  transcript_segments: any | null;
-  created_at: string | null;
+  keywords?: string[];
+  sentiment?: string;
+  call_score?: number;
+  duration?: number;
+  user_id?: string;
+  transcript_segments?: any;
 }
 
 export interface CallTranscriptFilter {
-  dateRange?: DateRange;
-  userId?: string;
-  userIds?: string[];
-  teamId?: string;
+  startDate?: Date;
+  endDate?: Date;
+  searchTerm?: string;
+  sentimentFilter?: string[];
+  limit?: number;
+  sortBy?: 'created_at' | 'sentiment' | 'call_score';
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  force?: boolean; // Add force property to trigger refresh
 }
 
-export const useCallTranscriptService = () => {
+const PAGE_SIZE = 10;
+
+export const useCallTranscripts = (filters?: CallTranscriptFilter) => {
   const [transcripts, setTranscripts] = useState<CallTranscript[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [totalCount, setTotalCount] = useState<number>(0);
-  const [lastFetchTime, setLastFetchTime] = useState<number>(0);
-  const [isConnected, setIsConnected] = useState<boolean>(true);
-  const dispatchEvent = useEventsStore.getState().dispatchEvent;
-  const { generateDemoTranscripts } = useDemoDataService();
-  
-  useEffect(() => {
-    connectionMonitor.checkConnection().then(setIsConnected);
-    const unsubscribe = connectionMonitor.subscribe(setIsConnected);
-    return () => {
-      unsubscribe();
-    };
-  }, []);
-  
-  useEffect(() => {
-    const checkConnection = async () => {
-      console.log('Checking initial Supabase connection...');
-      const { connected, error } = await checkSupabaseConnection();
-      console.log('Initial connection check result:', { connected, error });
-      setIsConnected(connected);
-      if (!connected) {
-        console.log("Using demo data due to connection issues");
-        const demoData = generateDemoTranscripts(15);
-        setTranscripts(demoData);
-        toast.warning("Using demo data", {
-          description: "Could not connect to the database. Using sample data instead."
-        });
-      } else {
-        toast.success("Connected to database", {
-          description: "Successfully connected to the Supabase database"
-        });
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const dispatchEvent = useEventsStore((state) => state.dispatchEvent);
+  const { isConnected } = useConnectionStatus();
+  const debouncedFilters = useDebounce(filters, 300);
+
+  const fetchTranscripts = useCallback(
+    async (newFilters?: CallTranscriptFilter) => {
+      setLoading(true);
+      setError(null);
+
+      const startDate = newFilters?.startDate;
+      const endDate = newFilters?.endDate;
+      const searchTerm = newFilters?.searchTerm;
+      const sentimentFilter = newFilters?.sentimentFilter;
+      const limit = newFilters?.limit || PAGE_SIZE;
+      const sortBy = newFilters?.sortBy || 'created_at';
+      const sortOrder = newFilters?.sortOrder || 'desc';
+      const page = newFilters?.page || 1;
+      setCurrentPage(page);
+
+      let query = supabase
+        .from('call_transcripts')
+        .select('*', { count: 'exact' })
+        .range((page - 1) * limit, page * limit - 1)
+        .order(sortBy, { ascending: sortOrder === 'asc' });
+
+      if (searchTerm) {
+        query = query.ilike('text', `%${searchTerm}%`);
       }
-    };
-    
-    checkConnection();
-  }, [generateDemoTranscripts]);
-  
-  const fetchTranscripts = useCallback(async (filters?: CallTranscriptFilter) => {
+
+      if (startDate) {
+        query = query.gte('created_at', startDate.toISOString());
+      }
+
+      if (endDate) {
+        query = query.lte('created_at', endDate.toISOString());
+      }
+
+      if (sentimentFilter && sentimentFilter.length > 0) {
+        query = query.in('sentiment', sentimentFilter);
+      }
+
+      try {
+        const { data, error, count } = await query;
+
+        if (error) {
+          console.error('Error fetching transcripts:', error);
+          setError(error.message);
+          errorHandler.handleError(error, 'CallTranscriptService.fetchTranscripts');
+        } else {
+          setTranscripts(data || []);
+          setTotalCount(count || 0);
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching transcripts:', err);
+        setError('An unexpected error occurred.');
+        errorHandler.handleError(err, 'CallTranscriptService.fetchTranscripts');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [supabase, errorHandler]
+  );
+
+  useEffect(() => {
+    if (!isConnected && !filters?.force) {
+      console.log('Skipping fetchTranscripts - not connected to Supabase');
+      return;
+    }
+
+    console.log('Fetching transcripts with filters:', filters);
+    fetchTranscripts(filters);
+  }, [debouncedFilters, isConnected, fetchTranscripts, filters?.force]);
+
+  const goToPage = (page: number) => {
+    setCurrentPage(page);
+    fetchTranscripts({ ...filters, page });
+  };
+
+  const createTranscript = async (transcriptData: Omit<CallTranscript, 'id'>) => {
     setLoading(true);
     setError(null);
-    
+
     try {
-      console.log('Checking Supabase connection before fetching transcripts...');
-      const isConnectionActive = await connectionMonitor.checkConnection();
-      
-      if (!isConnectionActive) {
-        console.log("Using demo data due to connection issues");
-        const demoData = generateDemoTranscripts(15);
-        setTranscripts(demoData);
-        setTotalCount(demoData.length);
-        setLastFetchTime(Date.now());
-        setLoading(false);
-        setIsConnected(false);
-        return;
+      const { data, error } = await supabase
+        .from('call_transcripts')
+        .insert([transcriptData])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating transcript:', error);
+        setError(error.message);
+        errorHandler.handleError(error, 'CallTranscriptService.createTranscript');
+        return null;
+      } else {
+        setTranscripts((prevTranscripts) => [data, ...prevTranscripts]);
+        setTotalCount((prevCount) => prevCount + 1);
+        dispatchEvent('transcript-created', data);
+        return data as CallTranscript;
       }
-      
-      setIsConnected(true);
-      
-      try {
-        console.log('Fetching transcript count...');
-        const countResponse = await withErrorHandling<{ id: string }[]>(
-          async () => {
-            const countQuery = supabase
-              .from('call_transcripts')
-              .select('id', { count: 'exact' });
-            
-            if (filters?.userId && filters.userId.trim() !== '') {
-              countQuery.eq('user_id', filters.userId);
-            }
-            
-            if (filters?.userIds && filters.userIds.length > 0) {
-              countQuery.in('user_id', filters.userIds);
-            }
-            
-            if (filters?.dateRange?.from) {
-              const fromDate = new Date(filters.dateRange.from);
-              fromDate.setHours(0, 0, 0, 0);
-              countQuery.gte('created_at', fromDate.toISOString());
-            }
-            
-            if (filters?.dateRange?.to) {
-              const toDate = new Date(filters.dateRange.to);
-              toDate.setHours(23, 59, 59, 999);
-              countQuery.lte('created_at', toDate.toISOString());
-            }
-            
-            return await countQuery;
-          },
-          { data: [], count: null, error: null as PostgrestError | null, status: 200, statusText: 'OK' } as PostgrestSingleResponse<{ id: string }[]>,
-          'TranscriptCount'
-        );
-          
-        if (!countResponse.error && countResponse.count !== null) {
-          console.log(`Found ${countResponse.count} transcripts`);
-          setTotalCount(countResponse.count);
-        } else if (countResponse.error) {
-          console.error('Error getting transcript count:', countResponse.error);
-        }
-      } catch (countErr) {
-        console.error('Exception getting transcript count:', countErr);
-      }
-      
-      console.log('Building transcript query with filters:', filters);
-      
-      const dataResponse = await withErrorHandling<CallTranscript[]>(
-        async () => {
-          let query = supabase
-            .from('call_transcripts')
-            .select('*');
-          
-          if (filters?.userId && filters.userId.trim() !== '') {
-            query = query.eq('user_id', filters.userId);
-          }
-          
-          if (filters?.userIds && filters.userIds.length > 0) {
-            query = query.in('user_id', filters.userIds);
-          }
-          
-          if (filters?.dateRange?.from) {
-            const fromDate = new Date(filters.dateRange.from);
-            fromDate.setHours(0, 0, 0, 0);
-            query = query.gte('created_at', fromDate.toISOString());
-          }
-          
-          if (filters?.dateRange?.to) {
-            const toDate = new Date(filters.dateRange.to);
-            toDate.setHours(23, 59, 59, 999);
-            query = query.lte('created_at', toDate.toISOString());
-          }
-          
-          return await query.order('created_at', { ascending: false });
-        },
-        { data: null, error: null as PostgrestError | null, count: null, status: 200, statusText: 'OK' } as PostgrestSingleResponse<CallTranscript[]>,
-        'TranscriptFetch',
-        {
-          message: 'Error fetching transcript data',
-          retry: () => fetchTranscripts(filters)
-        }
-      );
-      
-      if (dataResponse.data && dataResponse.data.length > 0) {
-        console.log(`Setting ${dataResponse.data.length} transcripts to state`);
-        setTranscripts(dataResponse.data);
-        
-        dispatchEvent('transcripts-refreshed', {
-          count: dataResponse.data.length,
-          filters: filters
-        });
-        
-        await refreshCallsTable(dataResponse.data);
-      } else if (dataResponse.error) {
-        console.error('Error fetching transcript data:', dataResponse.error);
-        if (transcripts.length === 0) {
-          const demoData = generateDemoTranscripts(15);
-          setTranscripts(demoData);
-        }
-      } else if (transcripts.length === 0) {
-        console.log("No data received and no cached data available, generating demo data");
-        const demoData = generateDemoTranscripts(15);
-        setTranscripts(demoData);
-      }
-      
-      setLastFetchTime(Date.now());
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch call transcripts';
-      console.error('Error fetching call transcripts:', err);
-      setError(errorMessage);
-      
-      if (transcripts.length === 0) {
-        toast.error("Error loading data", {
-          description: "Using cached or demo data. Check your connection."
-        });
-        const demoData = generateDemoTranscripts(15);
-        setTranscripts(demoData);
-      }
+      console.error('Unexpected error creating transcript:', err);
+      setError('An unexpected error occurred.');
+      errorHandler.handleError(err, 'CallTranscriptService.createTranscript');
+      return null;
     } finally {
       setLoading(false);
     }
-  }, [transcripts, dispatchEvent, isConnected, generateDemoTranscripts]);
+  };
 
-  const refreshCallsTable = async (transcriptData: CallTranscript[]) => {
-    if (!isConnected) return;
-    
+  const updateTranscript = async (id: string, updates: Partial<CallTranscript>) => {
+    setLoading(true);
+    setError(null);
+
     try {
-      console.log('Refreshing calls table...');
-      const recentTranscripts = transcriptData.filter(t => {
-        if (!t.created_at) return false;
-        const createdTime = new Date(t.created_at).getTime();
-        return Date.now() - createdTime < 3600000;
-      });
-      
-      console.log(`Found ${recentTranscripts.length} recent transcripts to sync`);
-      
-      for (const transcript of recentTranscripts) {
-        try {
-          if (!transcript.created_at) continue;
-          
-          const userId = transcript.user_id || generateAnonymousUserId();
-          
-          console.log(`Processing transcript ${transcript.id} for user ${userId}`);
-          
-          try {
-            const { data } = await supabase
-              .from('calls')
-              .select('id')
-              .eq('id', transcript.id)
-              .maybeSingle();
-              
-            if (!data) {
-              console.log(`Creating new call record for transcript ${transcript.id}`);
-              
-              const { error: insertError } = await supabase
-                .from('calls')
-                .insert({
-                  id: transcript.id,
-                  user_id: userId,
-                  duration: transcript.duration || 0,
-                  sentiment_agent: transcript.sentiment === 'positive' ? 0.8 : transcript.sentiment === 'negative' ? 0.3 : 0.5,
-                  sentiment_customer: transcript.sentiment === 'positive' ? 0.7 : transcript.sentiment === 'negative' ? 0.2 : 0.5,
-                  talk_ratio_agent: 50 + (Math.random() * 20 - 10),
-                  talk_ratio_customer: 50 - (Math.random() * 20 - 10),
-                  key_phrases: transcript.keywords || []
-                });
-                
-              if (insertError) {
-                console.error(`Error creating call record for transcript ${transcript.id}:`, insertError);
-              } else {
-                console.log(`Successfully created call record for transcript ${transcript.id}`);
-              }
-            } else {
-              console.log(`Call record already exists for transcript ${transcript.id}`);
-            }
-          } catch (callError) {
-            console.error(`Error checking/creating call record for transcript ${transcript.id}:`, callError);
-          }
-        } catch (trError) {
-          console.error('Error processing transcript:', trError);
-        }
+      const { data, error } = await supabase
+        .from('call_transcripts')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating transcript:', error);
+        setError(error.message);
+        errorHandler.handleError(error, 'CallTranscriptService.updateTranscript');
+        return null;
+      } else {
+        setTranscripts((prevTranscripts) =>
+          prevTranscripts.map((transcript) => (transcript.id === id ? data : transcript))
+        );
+        dispatchEvent('transcript-updated', data);
+        return data as CallTranscript;
       }
     } catch (err) {
-      console.error('Error syncing calls table:', err);
+      console.error('Unexpected error updating transcript:', err);
+      setError('An unexpected error occurred.');
+      errorHandler.handleError(err, 'CallTranscriptService.updateTranscript');
+      return null;
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getMetrics = (transcriptData: CallTranscript[] = []) => {
-    const dataToUse = transcriptData.length > 0 ? transcriptData : transcripts;
-    
-    if (dataToUse.length === 0) {
-      return {
-        totalCalls: 0,
-        avgSentiment: 0.5,
-        outcomeStats: [],
-        conversionRate: 0
-      };
-    }
-    
-    const totalCalls = calculateTotalCalls(dataToUse);
-    const avgSentiment = calculateAvgSentiment(dataToUse);
-    const outcomeStats = calculateOutcomeDistribution(dataToUse);
-    
-    const positiveOutcomes = outcomeStats.filter(o => 
-      o.outcome === 'Qualified Lead' || 
-      o.outcome === 'Meeting Scheduled' || 
-      o.outcome === 'Demo Scheduled'
-    );
-    
-    const successfulCalls = positiveOutcomes.reduce((sum, o) => sum + (o.count || 0), 0);
-    const conversionRate = totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 0;
-    
-    return {
-      totalCalls,
-      avgSentiment,
-      outcomeStats,
-      conversionRate
-    };
-  };
+  const deleteTranscript = async (id: string) => {
+    setLoading(true);
+    setError(null);
 
-  const getCallDistributionData = (transcriptData: CallTranscript[] = []) => {
-    const dataToUse = transcriptData.length > 0 ? transcriptData : transcripts;
-    
-    if (dataToUse.length === 0) {
-      return [];
-    }
-    
-    const userCalls: Record<string, number> = {};
-    
-    dataToUse.forEach(transcript => {
-      const userName = transcript.filename?.split('.')[0] || 'Unknown';
-      
-      if (!userCalls[userName]) {
-        userCalls[userName] = 0;
+    try {
+      const { error } = await supabase
+        .from('call_transcripts')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Error deleting transcript:', error);
+        setError(error.message);
+        errorHandler.handleError(error, 'CallTranscriptService.deleteTranscript');
+        return false;
+      } else {
+        setTranscripts((prevTranscripts) =>
+          prevTranscripts.filter((transcript) => transcript.id !== id)
+        );
+        setTotalCount((prevCount) => prevCount - 1);
+        dispatchEvent('transcript-deleted', { id });
+        return true;
       }
-      userCalls[userName] += 1;
-    });
-    
-    return Object.entries(userCalls).map(([name, calls]) => ({
-      name,
-      calls: calls as number
-    }));
+    } catch (err) {
+      console.error('Unexpected error deleting transcript:', err);
+      setError('An unexpected error occurred.');
+      errorHandler.handleError(err, 'CallTranscriptService.deleteTranscript');
+      return false;
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useTranscriptRealtimeSubscriptions(isConnected, fetchTranscripts, dispatchEvent);
-  
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      const now = Date.now();
-      if (isConnected && now - lastFetchTime > 60000) {
-        fetchTranscripts();
-      }
-    }, 60000);
-    
-    return () => clearInterval(intervalId);
-  }, [fetchTranscripts, lastFetchTime, isConnected]);
-  
-  useEffect(() => {
-    fetchTranscripts();
-  }, [fetchTranscripts]);
-  
   return {
     transcripts,
     loading,
     error,
     totalCount,
+    currentPage,
+    pageSize: PAGE_SIZE,
     fetchTranscripts,
-    getMetrics,
-    getCallDistributionData,
-    isConnected
+    goToPage,
+    createTranscript,
+    updateTranscript,
+    deleteTranscript,
   };
 };

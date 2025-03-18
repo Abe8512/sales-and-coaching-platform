@@ -1,3 +1,4 @@
+
 import { useEffect, useRef } from 'react';
 import { supabase, isConnected } from '@/integrations/supabase/client';
 import { CallTranscript, CallTranscriptFilter } from './CallTranscriptService';
@@ -152,7 +153,7 @@ export const useTranscriptRealtimeSubscriptions = (
             
             // On connection issues, try to reconnect after a delay
             // But only if still connected to Supabase overall
-            if (isConnected()) {
+            if (isConnected) {
               console.log('Will attempt to reconnect in 3 seconds...');
               setTimeout(() => {
                 console.log('Attempting to reestablish real-time connection...');

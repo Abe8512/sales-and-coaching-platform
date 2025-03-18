@@ -9,7 +9,7 @@ export const enableRealtimeForTable = async (tableName: string) => {
   try {
     console.log(`Enabling realtime for table: ${tableName}`);
 
-    // Set the table to track all field changes
+    // Set the table to track all field changes using an RPC function
     const { error: replicaError } = await supabase.rpc('enable_replica_identity', {
       table_name: tableName,
     });
@@ -19,7 +19,7 @@ export const enableRealtimeForTable = async (tableName: string) => {
       return { success: false, error: replicaError };
     }
 
-    // Add the table to the realtime publication
+    // Add the table to the realtime publication using an RPC function
     const { error: pubError } = await supabase.rpc('add_table_to_publication', {
       table_name: tableName,
     });

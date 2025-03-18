@@ -7,7 +7,7 @@ import {
   calculateOutcomeDistribution 
 } from "@/utils/metricCalculations";
 import { toast } from "sonner";
-import { useEventsStore } from "@/services/EventsService";
+import { useEventsStore } from "@/services/events";
 
 export interface CallTranscript {
   id: string;

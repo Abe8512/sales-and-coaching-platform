@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Mic, MicOff, Loader2 } from 'lucide-react';
@@ -35,7 +34,6 @@ const SpeechToTextRecorder = ({
   } = useWhisperService();
   
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
@@ -69,7 +67,6 @@ const SpeechToTextRecorder = ({
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           
           try {
-            // Convert Blob to File for compatibility
             const audioFile = new File([audioBlob], "recording.webm", { 
               type: 'audio/webm',
               lastModified: Date.now()
@@ -97,12 +94,10 @@ const SpeechToTextRecorder = ({
         }
       };
       
-      // Start recording
       mediaRecorderRef.current.start();
       setIsRecording(true);
       setRecordingDuration(0);
       
-      // Start a timer to track recording duration
       recordingTimerRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);

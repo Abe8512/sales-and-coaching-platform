@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,16 +12,9 @@ import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCallTranscriptService } from "@/services/CallTranscriptService";
-import { useEventListener } from "@/services/EventsService";
+import { useEventListener } from "@/services/events";
 import { toast } from "sonner";
 
-// Import the components
-import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
-import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
-import RecentCallsTable from "@/components/CallActivity/RecentCallsTable";
-import CallOutcomeStats from "@/components/CallActivity/CallOutcomeStats";
-
-// Define call interface for strong typing
 interface Call {
   id: string;
   userId: string;
@@ -55,7 +47,6 @@ const CallActivity = () => {
   
   const [calls, setCalls] = useState<Call[]>([]);
   
-  // Use the CallTranscriptService to fetch real data
   const { 
     transcripts, 
     loading: transcriptsLoading, 
@@ -64,21 +55,17 @@ const CallActivity = () => {
     getCallDistributionData
   } = useCallTranscriptService();
   
-  // Create a memoized function for fetching transcripts
   const refreshData = useCallback(() => {
-    // Set up filter for transcripts
     const transcriptFilter = {
       dateRange,
       userId: selectedUser || undefined,
       userIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
     };
     
-    // Fetch transcripts from Supabase
     fetchTranscripts(transcriptFilter);
     setRefreshTrigger(prev => prev + 1);
   }, [selectedUser, filters, dateRange, fetchTranscripts]);
   
-  // Listen for bulk upload completed events
   useEventListener('bulk-upload-completed', (data) => {
     console.log('Bulk upload completed event received', data);
     toast.success(`${data?.count || 'Multiple'} files processed`, {
@@ -87,7 +74,6 @@ const CallActivity = () => {
     refreshData();
   });
   
-  // Listen for recording completed events
   useEventListener('recording-completed', (data) => {
     console.log('Recording completed event received', data);
     toast.success('New recording added', {
@@ -96,36 +82,29 @@ const CallActivity = () => {
     refreshData();
   });
   
-  // Listen for transcript changes
   useEventListener('transcripts-refreshed', () => {
     console.log('Transcripts refreshed event received');
     refreshData();
   });
   
-  // Initial data fetch
   useEffect(() => {
     refreshData();
   }, [refreshData]);
   
-  // Convert transcripts to calls format
   useEffect(() => {
     if (transcripts.length > 0) {
       const convertedCalls: Call[] = transcripts.map(transcript => {
-        // Generate a customer name from the filename if available
         const filenameBase = transcript.filename?.split('.')[0] || '';
         const customerName = filenameBase.includes('_') 
           ? filenameBase.split('_')[1] 
           : `Customer ${transcript.id.substring(0, 5)}`;
         
-        // Determine outcome based on sentiment
         const outcome = transcript.sentiment === 'positive' ? "Qualified Lead" : 
                       transcript.sentiment === 'negative' ? "No Interest" : "Follow-up Required";
         
-        // Convert sentiment string to number
         const sentimentValue = transcript.sentiment === 'positive' ? 0.8 : 
                               transcript.sentiment === 'negative' ? 0.3 : 0.6;
         
-        // Set next steps based on outcome
         const nextSteps = outcome === "Qualified Lead" ? "Schedule demo" : 
                         outcome === "No Interest" ? "No action required" : "Send additional information";
         

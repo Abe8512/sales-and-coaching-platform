@@ -75,7 +75,7 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
     if (error) {
       errorHandler.handleError({
         message: "Couldn't load team metrics",
-        technical: error instanceof Error ? error.message : String(error),
+        technical: typeof error === 'string' ? error : JSON.stringify(error),
         severity: "warning",
         code: "TEAM_METRICS_ERROR"
       }, "TeamMetrics");
@@ -118,7 +118,7 @@ export const useRealTimeRepMetrics = (repIds?: string[]): [RepMetrics[], boolean
     if (error) {
       errorHandler.handleError({
         message: "Couldn't load rep metrics",
-        technical: typeof error === 'object' ? String(error) : error,
+        technical: error ? (typeof error === 'string' ? error : JSON.stringify(error)) : 'Unknown error',
         severity: "warning",
         code: "REP_METRICS_ERROR"
       }, "RepMetrics");

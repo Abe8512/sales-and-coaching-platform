@@ -17,6 +17,7 @@ export const supabase = createClient<Database>(
     },
     global: {
       fetch: (url, options) => {
+        console.log(`Supabase request to: ${url}`);
         return fetch(url, options);
       }
     },
@@ -29,10 +30,27 @@ export const supabase = createClient<Database>(
 // Helper to detect if Supabase is available
 export const checkSupabaseConnection = async () => {
   try {
+    console.log('Checking Supabase connection...');
     const { data, error } = await supabase.from('call_transcripts').select('id').limit(1);
-    return { connected: !error, error };
+    
+    if (error) {
+      console.error('Supabase connection error (call_transcripts):', error);
+      return { connected: false, error };
+    }
+    
+    console.log('Supabase connection successful, found data:', data);
+    return { connected: true, error: null };
   } catch (err) {
-    console.error('Supabase connection error:', err);
+    console.error('Supabase connection error (exception):', err);
     return { connected: false, error: err };
   }
+};
+
+// Generate a proper anonymous user ID
+export const generateAnonymousUserId = () => {
+  // Generate a unique identifier in the format "anonymous-{uuid}"
+  const uuid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+  const anonymousId = `anonymous-${uuid}`;
+  console.log('Generated anonymous user ID:', anonymousId);
+  return anonymousId;
 };

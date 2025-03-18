@@ -1,5 +1,5 @@
 
-import { supabase, checkSupabaseConnection } from "@/integrations/supabase/client";
+import { supabase, checkSupabaseConnection, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { useState, useEffect, useCallback } from "react";
 import { DateRange } from "react-day-picker";
 import { 
@@ -37,13 +37,14 @@ const generateDemoTranscripts = (count = 10): CallTranscript[] => {
   const demoData: CallTranscript[] = [];
   
   for (let i = 0; i < count; i++) {
+    const anonymousId = generateAnonymousUserId();
     const randomSentiment = sentiments[Math.floor(Math.random() * sentiments.length)];
     const randomDate = new Date();
     randomDate.setDate(randomDate.getDate() - Math.floor(Math.random() * 30));
     
     demoData.push({
       id: `demo-${i}-${Date.now()}`,
-      user_id: `demo-user-${uuidv4().substring(0, 8)}`,
+      user_id: anonymousId,
       filename: `call-${i}.wav`,
       text: `This is a demo transcript for call ${i}. It contains sample conversation text that would typically be generated from a real call recording.`,
       duration: Math.floor(Math.random() * 600) + 120, // 2-12 minutes
@@ -55,6 +56,7 @@ const generateDemoTranscripts = (count = 10): CallTranscript[] => {
     });
   }
   
+  console.log('Generated demo transcripts with proper anonymous IDs:', demoData);
   return demoData;
 };
 
@@ -70,11 +72,14 @@ export const useCallTranscriptService = () => {
   // Check connection status on mount
   useEffect(() => {
     const checkConnection = async () => {
-      const { connected } = await checkSupabaseConnection();
+      console.log('Checking initial Supabase connection...');
+      const { connected, error } = await checkSupabaseConnection();
+      console.log('Initial connection check result:', { connected, error });
       setIsConnected(connected);
       if (!connected) {
         console.log("Using demo data due to connection issues");
-        setTranscripts(generateDemoTranscripts(15));
+        const demoData = generateDemoTranscripts(15);
+        setTranscripts(demoData);
       }
     };
     
@@ -86,8 +91,13 @@ export const useCallTranscriptService = () => {
     setError(null);
     
     try {
+      // First, check connection to Supabase
+      console.log('Checking Supabase connection before fetching transcripts...');
+      const { connected, error: connectionError } = await checkSupabaseConnection();
+      console.log('Connection check result:', { connected, error: connectionError });
+      
       // If we're not connected, use demo data
-      if (!isConnected) {
+      if (!connected) {
         console.log("Using demo data due to connection issues");
         const demoData = generateDemoTranscripts(15);
         setTranscripts(demoData);
@@ -97,35 +107,9 @@ export const useCallTranscriptService = () => {
         return;
       }
       
-      // First, check connection to Supabase
-      try {
-        const { connected, error } = await checkSupabaseConnection();
-        
-        if (!connected) {
-          console.log("Connection error:", error);
-          // Use demo data if we can't connect
-          if (transcripts.length === 0) {
-            const demoData = generateDemoTranscripts(15);
-            setTranscripts(demoData);
-            setTotalCount(demoData.length);
-          }
-          setLoading(false);
-          return;
-        }
-      } catch (connErr) {
-        console.log("Connection test failed:", connErr);
-        // Use demo data if we can't connect
-        if (transcripts.length === 0) {
-          const demoData = generateDemoTranscripts(15);
-          setTranscripts(demoData);
-          setTotalCount(demoData.length);
-        }
-        setLoading(false);
-        return;
-      }
-      
       // Get total count first - using a safer approach that won't trigger a 400 error
       try {
+        console.log('Fetching transcript count...');
         const countQuery = supabase
           .from('call_transcripts')
           .select('id', { count: 'exact' });
@@ -133,13 +117,17 @@ export const useCallTranscriptService = () => {
         const { count, error: countError } = await countQuery;
           
         if (!countError && count !== null) {
+          console.log(`Found ${count} transcripts`);
           setTotalCount(count);
+        } else if (countError) {
+          console.error('Error getting transcript count:', countError);
         }
       } catch (countErr) {
-        console.error('Error getting count:', countErr);
+        console.error('Exception getting transcript count:', countErr);
       }
       
       // Then get data with filters
+      console.log('Building transcript query with filters:', filters);
       let query = supabase
         .from('call_transcripts')
         .select('*');
@@ -166,19 +154,21 @@ export const useCallTranscriptService = () => {
       }
       
       // Get data with timeout protection
+      console.log('Executing transcript query...');
       const dataPromise = new Promise<CallTranscript[]>(async (resolve, reject) => {
         try {
           const { data, error: dataError } = await query
             .order('created_at', { ascending: false });
             
           if (dataError) {
-            console.error('Error fetching data:', dataError);
+            console.error('Error fetching transcript data:', dataError);
             reject(dataError);
           } else {
+            console.log(`Retrieved ${data?.length || 0} transcripts`);
             resolve(data || []);
           }
         } catch (err) {
-          console.error('Error in data promise:', err);
+          console.error('Exception in transcript data promise:', err);
           reject(err);
         }
       });
@@ -196,6 +186,7 @@ export const useCallTranscriptService = () => {
       
       // Only update state if we got actual data
       if (finalData && finalData.length > 0) {
+        console.log(`Setting ${finalData.length} transcripts to state`);
         setTranscripts(finalData);
         
         // Dispatch an event to notify other components that transcripts were refreshed
@@ -207,9 +198,9 @@ export const useCallTranscriptService = () => {
         // Also update calls table to ensure metrics are fresh
         await refreshCallsTable(finalData);
       } else if (transcripts.length === 0) {
-        console.log("No data received and no cached data available");
-        // We can generate some placeholder data here if needed
-        setTranscripts(generateDemoTranscripts(15));
+        console.log("No data received and no cached data available, generating demo data");
+        const demoData = generateDemoTranscripts(15);
+        setTranscripts(demoData);
       }
       
       // Update last fetch time
@@ -224,7 +215,8 @@ export const useCallTranscriptService = () => {
         toast.error("Error loading data", {
           description: "Using cached or demo data. Check your connection."
         });
-        setTranscripts(generateDemoTranscripts(15));
+        const demoData = generateDemoTranscripts(15);
+        setTranscripts(demoData);
       }
     } finally {
       setLoading(false);
@@ -235,6 +227,7 @@ export const useCallTranscriptService = () => {
     if (!isConnected) return;
     
     try {
+      console.log('Refreshing calls table...');
       // Check if we need to sync any transcripts to the calls table
       const recentTranscripts = transcriptData.filter(t => {
         // Filter for transcripts created in the last hour that might need syncing
@@ -243,13 +236,17 @@ export const useCallTranscriptService = () => {
         return Date.now() - createdTime < 3600000; // Last hour
       });
       
+      console.log(`Found ${recentTranscripts.length} recent transcripts to sync`);
+      
       for (const transcript of recentTranscripts) {
         try {
           // Skip if missing critical data
           if (!transcript.created_at) continue;
           
-          // Make sure we have a valid user_id
-          const userId = transcript.user_id || `anonymous-${uuidv4().substring(0, 8)}`;
+          // Make sure we have a valid user_id - use the existing one or generate a new anonymous ID
+          const userId = transcript.user_id || generateAnonymousUserId();
+          
+          console.log(`Processing transcript ${transcript.id} for user ${userId}`);
           
           try {
             // Check if a call record for this transcript already exists
@@ -260,8 +257,10 @@ export const useCallTranscriptService = () => {
               .maybeSingle();
               
             if (!data) {
+              console.log(`Creating new call record for transcript ${transcript.id}`);
+              
               // Create a new call entry with the same ID as the transcript for consistency
-              await supabase
+              const { error: insertError } = await supabase
                 .from('calls')
                 .insert({
                   id: transcript.id,
@@ -273,9 +272,17 @@ export const useCallTranscriptService = () => {
                   talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
                   key_phrases: transcript.keywords || []
                 });
+                
+              if (insertError) {
+                console.error(`Error creating call record for transcript ${transcript.id}:`, insertError);
+              } else {
+                console.log(`Successfully created call record for transcript ${transcript.id}`);
+              }
+            } else {
+              console.log(`Call record already exists for transcript ${transcript.id}`);
             }
           } catch (callError) {
-            console.error('Error checking/creating call record:', callError);
+            console.error(`Error checking/creating call record for transcript ${transcript.id}:`, callError);
             // Continue with next transcript even if one fails
           }
         } catch (trError) {

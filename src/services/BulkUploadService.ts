@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { useBulkUploadStore, UploadStatus } from "@/store/useBulkUploadStore";
 import { useWhisperService, WhisperTranscriptionResponse } from "@/services/WhisperService";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ export class BulkUploadService {
   
   // Set the user ID to assign to the uploaded files
   public setAssignedUserId(userId: string | null) {
+    console.log('Setting assigned user ID:', userId);
     this.assignedUserId = userId;
   }
   
@@ -55,7 +56,7 @@ export class BulkUploadService {
       
       updateStatus('complete', 100, result.text, undefined, id);
       
-      // Force a refresh of the local storage transcripts to ensure UI updates
+      // Force a refresh of the local storage transcriptions to ensure UI updates
       this.whisperService.forceRefreshTranscriptions();
       
       // Dispatch event to notify components that a new transcript has been created
@@ -101,7 +102,7 @@ export class BulkUploadService {
       // If no assigned userId, try to get current user from auth
       if (!userId) {
         const { data: { user } } = await supabase.auth.getUser();
-        userId = user?.id || `anonymous-${uuidv4().substring(0, 8)}`;
+        userId = user?.id || generateAnonymousUserId();
       }
       
       console.log(`Saving transcript with user_id: ${userId}`);
@@ -111,6 +112,7 @@ export class BulkUploadService {
       
       // Create a unique ID for the transcript
       const transcriptId = uuidv4();
+      console.log(`Generated transcript ID: ${transcriptId}`);
       
       // Insert into database
       const { data, error } = await supabase
@@ -130,23 +132,28 @@ export class BulkUploadService {
         .select('id')
         .single();
       
-      // Also update the calls table with similar data for real-time metrics
-      if (!error) {
-        const callId = uuidv4(); // Generate a unique ID for the call
-        await this.updateCallsTable({
-          id: callId,
-          user_id: userId,
-          duration: duration || 0,
-          sentiment_agent: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.3 : 0.5,
-          sentiment_customer: sentiment === 'positive' ? 0.7 : sentiment === 'negative' ? 0.2 : 0.5,
-          talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
-          talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
-          key_phrases: keywords || [],
-          created_at: timestamp // Use the same timestamp for consistency
-        });
+      if (error) {
+        console.error('Error inserting transcript into database:', error);
+        return { id: transcriptId, error };
       }
       
-      return { id: data?.id || transcriptId, error };
+      console.log('Successfully inserted transcript:', data);
+      
+      // Also update the calls table with similar data for real-time metrics
+      const callId = transcriptId; // Use the same ID for both records for consistency
+      await this.updateCallsTable({
+        id: callId,
+        user_id: userId,
+        duration: duration || 0,
+        sentiment_agent: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.3 : 0.5,
+        sentiment_customer: sentiment === 'positive' ? 0.7 : sentiment === 'negative' ? 0.2 : 0.5,
+        talk_ratio_agent: 50 + (Math.random() * 20 - 10), // Random value between 40-60
+        talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
+        key_phrases: keywords || [],
+        created_at: timestamp // Use the same timestamp for consistency
+      });
+      
+      return { id: data?.id || transcriptId, error: null };
     } catch (error) {
       console.error('Error saving transcript:', error);
       return { id: '', error };
@@ -166,15 +173,18 @@ export class BulkUploadService {
     created_at?: string;
   }): Promise<void> {
     try {
+      console.log('Updating calls table with data:', callData);
       const { error } = await supabase
         .from('calls')
         .insert(callData);
       
       if (error) {
         console.error('Error updating calls table:', error);
+      } else {
+        console.log('Successfully updated calls table');
       }
     } catch (error) {
-      console.error('Error updating calls table:', error);
+      console.error('Exception updating calls table:', error);
     }
   }
   

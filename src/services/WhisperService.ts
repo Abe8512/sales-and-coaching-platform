@@ -165,7 +165,10 @@ const loadWhisperModel = async () => {
       whisperModel = await pipeline(
         "automatic-speech-recognition",
         "distil-whisper/distil-small.en", // Smaller model for browser use
-        { quantized: true } // Use quantized model for better performance
+        { 
+          // Remove the quantized property as it's not supported
+          device: "cpu"  // Use CPU as default device
+        }
       );
     } catch (error) {
       console.error("Error loading Whisper model:", error);

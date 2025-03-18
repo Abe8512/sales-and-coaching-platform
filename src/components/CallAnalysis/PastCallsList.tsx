@@ -31,18 +31,27 @@ const PastCallsList = () => {
   
   const handleRefresh = () => {
     setRefreshing(true);
-    loadPastCalls();
+    try {
+      loadPastCalls();
+    } catch (error) {
+      console.error("Error refreshing calls:", error);
+    }
     setTimeout(() => setRefreshing(false), 1000);
   };
   
   useEffect(() => {
-    loadPastCalls();
+    try {
+      loadPastCalls();
+    } catch (error) {
+      console.error("Error loading past calls:", error);
+    }
   }, [loadPastCalls]);
   
   // Format duration from seconds to mm:ss
   const formatDuration = (seconds: number) => {
+    if (!seconds || isNaN(seconds)) return "0:00";
     const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
   
@@ -51,7 +60,7 @@ const PastCallsList = () => {
     try {
       return format(new Date(dateString), 'MMM d, yyyy h:mm a');
     } catch (error) {
-      return dateString;
+      return dateString || "Unknown date";
     }
   };
   
@@ -103,10 +112,12 @@ const PastCallsList = () => {
                         <h4 className="font-medium">Call {typeof call.id === 'string' ? call.id.substring(0, 8) : call.id}</h4>
                         <p className="text-sm text-muted-foreground">{formatDate(call.date)}</p>
                       </div>
-                      <Badge className={getSentimentColor(getAverageSentiment(call.sentiment))}>
-                        {getAverageSentiment(call.sentiment) > 0.66 ? 'Positive' : 
-                         getAverageSentiment(call.sentiment) > 0.33 ? 'Neutral' : 'Negative'}
-                      </Badge>
+                      {call.sentiment && (
+                        <Badge className={getSentimentColor(getAverageSentiment(call.sentiment))}>
+                          {getAverageSentiment(call.sentiment) > 0.66 ? 'Positive' : 
+                           getAverageSentiment(call.sentiment) > 0.33 ? 'Neutral' : 'Negative'}
+                        </Badge>
+                      )}
                     </div>
                     
                     <div className="grid grid-cols-2 gap-4 mt-3">
@@ -117,12 +128,14 @@ const PastCallsList = () => {
                         </span>
                       </div>
                       
-                      <div className="flex items-center">
-                        <Mic className="h-4 w-4 mr-2 text-muted-foreground" />
-                        <span className="text-sm">
-                          Talk ratio: {Math.round(call.talkRatio.agent)}% / {Math.round(call.talkRatio.customer)}%
-                        </span>
-                      </div>
+                      {call.talkRatio && (
+                        <div className="flex items-center">
+                          <Mic className="h-4 w-4 mr-2 text-muted-foreground" />
+                          <span className="text-sm">
+                            Talk ratio: {Math.round(call.talkRatio.agent)}% / {Math.round(call.talkRatio.customer)}%
+                          </span>
+                        </div>
+                      )}
                     </div>
                     
                     {call.keyPhrases && call.keyPhrases.length > 0 && (

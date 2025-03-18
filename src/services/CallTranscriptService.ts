@@ -98,12 +98,9 @@ export const useCallTranscriptService = () => {
       
       // First, check connection to Supabase
       try {
-        const { data, error } = await supabase
-          .from('call_transcripts')
-          .select('id')
-          .limit(1);
-          
-        if (error) {
+        const { connected, error } = await checkSupabaseConnection();
+        
+        if (!connected) {
           console.log("Connection error:", error);
           // Use demo data if we can't connect
           if (transcripts.length === 0) {
@@ -126,11 +123,13 @@ export const useCallTranscriptService = () => {
         return;
       }
       
-      // Get total count first
+      // Get total count first - using a safer approach that won't trigger a 400 error
       try {
-        const { count, error: countError } = await supabase
+        const countQuery = supabase
           .from('call_transcripts')
-          .select('*', { count: 'exact', head: true });
+          .select('id', { count: 'exact' });
+        
+        const { count, error: countError } = await countQuery;
           
         if (!countError && count !== null) {
           setTotalCount(count);
@@ -145,7 +144,7 @@ export const useCallTranscriptService = () => {
         .select('*');
       
       // Apply filters
-      if (filters?.userId) {
+      if (filters?.userId && filters.userId.trim() !== '') {
         query = query.eq('user_id', filters.userId);
       }
       
@@ -245,26 +244,27 @@ export const useCallTranscriptService = () => {
       
       for (const transcript of recentTranscripts) {
         try {
-          // Only check for transcripts with valid created_at
+          // Skip if missing critical data
           if (!transcript.created_at) continue;
           
           // Use a default user_id for calls if it's null
           const userId = transcript.user_id || 'anonymous';
           
           try {
-            // Check if this transcript has a corresponding entry in the calls table
+            // Use a unique ID instead of relying on user_id + created_at combination
+            // which can cause 400 errors if null values are involved
             const { data } = await supabase
               .from('calls')
               .select('id')
-              .eq('user_id', userId)
-              .eq('created_at', transcript.created_at)
+              .eq('id', transcript.id)
               .maybeSingle();
               
             if (!data) {
-              // Create a new call entry for this transcript
+              // Create a new call entry for this transcript with the same ID
               await supabase
                 .from('calls')
                 .insert({
+                  id: transcript.id, // Use the same ID as the transcript
                   user_id: userId,
                   duration: transcript.duration || 0,
                   sentiment_agent: transcript.sentiment === 'positive' ? 0.8 : transcript.sentiment === 'negative' ? 0.3 : 0.5,

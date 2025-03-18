@@ -7,20 +7,24 @@ const SUPABASE_URL = "https://yfufpcxkerovnijhodrr.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdWZwY3hrZXJvdm5pamhvZHJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNjI3ODYsImV4cCI6MjA1NzgzODc4Nn0.1x7WAfVIvlm-KPy2q4eFylaVtdc5_ZJmlis5AMJ-Izc";
 
 // Create a supabase client with auto-refresh and retries
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-  },
-  global: {
-    fetch: (...args) => {
-      return fetch(...args);
-    }
-  },
-  db: {
-    schema: 'public',
-  },
-});
+export const supabase = createClient<Database>(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+    },
+    global: {
+      fetch: (url, options) => {
+        return fetch(url, options);
+      }
+    },
+    db: {
+      schema: 'public',
+    },
+  }
+);
 
 // Helper to detect if Supabase is available
 export const checkSupabaseConnection = async () => {

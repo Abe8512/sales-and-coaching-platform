@@ -1,52 +1,30 @@
 
-import React, { useContext, useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import React, { useContext } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Activity, Clock, MessageSquare, TrendingUp, Volume2 } from "lucide-react";
 import { ThemeContext } from "@/App";
 import AnimatedNumber from "../ui/AnimatedNumber";
 import AIWaveform from "../ui/AIWaveform";
 import GlowingCard from "../ui/GlowingCard";
+import { useCallMetricsStore } from "@/store/useCallMetricsStore";
 
 interface LiveMetricsDisplayProps {
-  isCallActive: boolean;
-  duration: number;
-  talkRatio?: { agent: number; customer: number };
-  sentiment?: { agent: number; customer: number };
-  keyPhrases?: string[];
+  isCallActive?: boolean;
 }
 
-const LiveMetricsDisplay = ({
-  isCallActive,
-  duration,
-  talkRatio = { agent: 50, customer: 50 },
-  sentiment = { agent: 0.7, customer: 0.5 },
-  keyPhrases = [],
-}: LiveMetricsDisplayProps) => {
+const LiveMetricsDisplay = ({ isCallActive }: LiveMetricsDisplayProps) => {
   const { isDarkMode } = useContext(ThemeContext);
-  const [localSentiment, setLocalSentiment] = useState(sentiment);
-  const [localTalkRatio, setLocalTalkRatio] = useState(talkRatio);
+  const { 
+    isRecording, 
+    callDuration, 
+    talkRatio, 
+    sentiment, 
+    isTalkingMap, 
+    keyPhrases 
+  } = useCallMetricsStore();
   
-  // Simulate changing values slightly for the demo
-  useEffect(() => {
-    if (isCallActive) {
-      const interval = setInterval(() => {
-        setLocalSentiment({
-          agent: Math.max(0, Math.min(1, sentiment.agent + (Math.random() * 0.1 - 0.05))),
-          customer: Math.max(0, Math.min(1, sentiment.customer + (Math.random() * 0.1 - 0.05))),
-        });
-        
-        // Gradually shift talk ratio
-        const agentShift = Math.random() * 2 - 1;
-        setLocalTalkRatio({
-          agent: Math.max(20, Math.min(80, localTalkRatio.agent + agentShift)),
-          customer: Math.max(20, Math.min(80, localTalkRatio.customer - agentShift)),
-        });
-      }, 2000);
-      
-      return () => clearInterval(interval);
-    }
-  }, [isCallActive, sentiment]);
+  // Check if we should display metrics
+  const showMetrics = isCallActive !== undefined ? isCallActive : isRecording;
   
   // Format duration into minutes:seconds
   const formatDuration = (seconds: number) => {
@@ -67,12 +45,12 @@ const LiveMetricsDisplay = ({
                 <div className="text-2xl font-bold mt-1 flex items-center">
                   <Clock className={`h-5 w-5 mr-2 ${isDarkMode ? "text-neon-blue" : "text-blue-500"}`} />
                   <AnimatedNumber 
-                    value={duration} 
+                    value={callDuration} 
                     formatter={formatDuration}
                   />
                 </div>
               </div>
-              {isCallActive && <AIWaveform color="blue" barCount={3} className="h-6" />}
+              {showMetrics && <AIWaveform color="blue" barCount={3} className="h-6" />}
             </div>
           </CardContent>
         </Card>
@@ -87,11 +65,11 @@ const LiveMetricsDisplay = ({
                 <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-neon-blue rounded-full" 
-                    style={{ width: `${localTalkRatio.agent}%` }}
+                    style={{ width: `${talkRatio.agent}%` }}
                   ></div>
                 </div>
                 <span className="text-xs font-semibold w-8 text-end">
-                  {Math.round(localTalkRatio.agent)}%
+                  {Math.round(talkRatio.agent)}%
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -99,11 +77,11 @@ const LiveMetricsDisplay = ({
                 <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-neon-pink rounded-full" 
-                    style={{ width: `${localTalkRatio.customer}%` }}
+                    style={{ width: `${talkRatio.customer}%` }}
                   ></div>
                 </div>
                 <span className="text-xs font-semibold w-8 text-end">
-                  {Math.round(localTalkRatio.customer)}%
+                  {Math.round(talkRatio.customer)}%
                 </span>
               </div>
             </div>
@@ -119,24 +97,24 @@ const LiveMetricsDisplay = ({
                 <span className={`text-xs ${isDarkMode ? "text-neon-blue" : "text-blue-500"}`}>Agent</span>
                 <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                   <div 
-                    className={`h-full ${localSentiment.agent > 0.7 ? "bg-green-500" : localSentiment.agent > 0.4 ? "bg-yellow-500" : "bg-red-500"} rounded-full`}
-                    style={{ width: `${localSentiment.agent * 100}%` }}
+                    className={`h-full ${sentiment.agent > 0.7 ? "bg-green-500" : sentiment.agent > 0.4 ? "bg-yellow-500" : "bg-red-500"} rounded-full`}
+                    style={{ width: `${sentiment.agent * 100}%` }}
                   ></div>
                 </div>
                 <span className="text-xs font-semibold w-8 text-end">
-                  {Math.round(localSentiment.agent * 100)}%
+                  {Math.round(sentiment.agent * 100)}%
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className={`text-xs ${isDarkMode ? "text-neon-pink" : "text-pink-500"}`}>Customer</span>
                 <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                   <div 
-                    className={`h-full ${localSentiment.customer > 0.7 ? "bg-green-500" : localSentiment.customer > 0.4 ? "bg-yellow-500" : "bg-red-500"} rounded-full`}
-                    style={{ width: `${localSentiment.customer * 100}%` }}
+                    className={`h-full ${sentiment.customer > 0.7 ? "bg-green-500" : sentiment.customer > 0.4 ? "bg-yellow-500" : "bg-red-500"} rounded-full`}
+                    style={{ width: `${sentiment.customer * 100}%` }}
                   ></div>
                 </div>
                 <span className="text-xs font-semibold w-8 text-end">
-                  {Math.round(localSentiment.customer * 100)}%
+                  {Math.round(sentiment.customer * 100)}%
                 </span>
               </div>
             </div>
@@ -152,20 +130,20 @@ const LiveMetricsDisplay = ({
                 <div className="text-2xl font-bold mt-1 flex items-center">
                   <Volume2 className={`h-5 w-5 mr-2 ${isDarkMode ? "text-amber-400" : "text-amber-500"}`} />
                   <AnimatedNumber 
-                    value={isCallActive ? 140 + Math.random() * 30 : 0} 
+                    value={showMetrics ? 140 + Math.random() * 30 : 0} 
                     formatter={(val) => val.toFixed(0)}
                     suffix=" wpm"
                   />
                 </div>
               </div>
-              {isCallActive && <Activity className={`h-6 w-6 ${isDarkMode ? "text-amber-400" : "text-amber-500"}`} />}
+              {showMetrics && <Activity className={`h-6 w-6 ${isDarkMode ? "text-amber-400" : "text-amber-500"}`} />}
             </div>
           </CardContent>
         </Card>
       </div>
       
       {/* Key Phrases and Stats */}
-      {isCallActive && (
+      {showMetrics && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <GlowingCard gradient="purple" className="col-span-1 md:col-span-2">
             <h3 className="text-white text-lg font-semibold mb-2">Real-time Keywords</h3>

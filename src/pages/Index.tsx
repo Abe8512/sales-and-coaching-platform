@@ -1,5 +1,5 @@
 
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
 import CallsOverview from "../components/Dashboard/CallsOverview";
@@ -13,11 +13,36 @@ import BulkUploadModal from "../components/BulkUpload/BulkUploadModal";
 import WhisperButton from "../components/Whisper/WhisperButton";
 import LiveMetricsDisplay from "../components/CallAnalysis/LiveMetricsDisplay";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCallMetricsStore } from "@/store/useCallMetricsStore";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [showLiveMetrics, setShowLiveMetrics] = useState(false);
+  const { startRecording, stopRecording, isRecording } = useCallMetricsStore();
+  
+  // Handle cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (isRecording) {
+        stopRecording();
+      }
+    };
+  }, [isRecording, stopRecording]);
+  
+  const handleLiveMetricsTab = (value: string) => {
+    if (value === 'livemetrics') {
+      setShowLiveMetrics(true);
+      if (!isRecording) {
+        startRecording();
+      }
+    } else {
+      setShowLiveMetrics(false);
+      if (isRecording) {
+        stopRecording();
+      }
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -41,22 +66,20 @@ const Index = () => {
         </div>
       </div>
 
-      <Tabs defaultValue="dashboard" className="w-full mb-8">
+      <Tabs 
+        defaultValue="dashboard" 
+        className="w-full mb-8"
+        onValueChange={handleLiveMetricsTab}
+      >
         <TabsList className="mb-4">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="livemetrics" onClick={() => setShowLiveMetrics(true)}>Live Metrics</TabsTrigger>
+          <TabsTrigger value="livemetrics">Live Metrics</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard">
           <PerformanceMetrics />
         </TabsContent>
         <TabsContent value="livemetrics">
-          <LiveMetricsDisplay 
-            isCallActive={showLiveMetrics}
-            duration={120}
-            talkRatio={{ agent: 65, customer: 35 }}
-            sentiment={{ agent: 0.82, customer: 0.65 }}
-            keyPhrases={["pricing", "timeline", "competitors", "features"]}
-          />
+          <LiveMetricsDisplay isCallActive={showLiveMetrics} />
         </TabsContent>
       </Tabs>
       

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -12,11 +12,10 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
 import LiveMetricsDisplay from "../CallAnalysis/LiveMetricsDisplay";
+import { useCallMetricsStore } from "@/store/useCallMetricsStore";
 
 const LiveCallAnalysis = () => {
-  const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState<string>("");
   const [suggestions, setSuggestions] = useState<string[]>([
     "Ask more open-ended questions about their specific needs",
@@ -27,19 +26,19 @@ const LiveCallAnalysis = () => {
   const [openAPIKeyDialog, setOpenAPIKeyDialog] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [processingChunk, setProcessingChunk] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
   const [useLocalWhisper, setUseLocalWhisper] = useState(false);
   const [numSpeakers, setNumSpeakers] = useState(2);
-  const [isTalkingMap, setIsTalkingMap] = useState<Record<string, boolean>>({
-    agent: false,
-    customer: false
-  });
-  const [detectedKeywords, setDetectedKeywords] = useState<string[]>([]);
   
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const realtimeTranscriptionRef = useRef<{ stop: () => void } | null>(null);
+  const { 
+    isRecording, 
+    callDuration, 
+    isTalkingMap, 
+    startRecording: startRecordingStore, 
+    stopRecording: stopRecordingStore,
+    updateKeyPhrases
+  } = useCallMetricsStore();
+  
+  const realtimeTranscriptionRef = React.useRef<{ stop: () => void } | null>(null);
   
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -62,13 +61,9 @@ const LiveCallAnalysis = () => {
     }
     
     setUseLocalWhisper(getUseLocalWhisper());
-    
     setNumSpeakers(getNumSpeakers());
     
     return () => {
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
       if (realtimeTranscriptionRef.current) {
         realtimeTranscriptionRef.current.stop();
       }
@@ -77,35 +72,30 @@ const LiveCallAnalysis = () => {
 
   const generateSuggestions = (text: string) => {
     const newSuggestions = [];
-    const detectedKeywords = [];
     
     if (text.toLowerCase().includes('price') || text.toLowerCase().includes('cost')) {
       newSuggestions.push("Focus on value proposition rather than price");
-      detectedKeywords.push("pricing");
+      updateKeyPhrases("pricing");
     }
     
     if (text.toLowerCase().includes('competitor') || text.toLowerCase().includes('alternative')) {
       newSuggestions.push("Highlight our unique features like [feature] that competitors don't have");
-      detectedKeywords.push("competitors");
+      updateKeyPhrases("competitors");
     }
     
     if (text.toLowerCase().includes('think') || text.toLowerCase().includes('consider')) {
       newSuggestions.push("Ask 'What would make this decision easier for you?'");
-      detectedKeywords.push("consideration");
+      updateKeyPhrases("consideration");
     }
     
     if (text.toLowerCase().includes('not sure') || text.toLowerCase().includes('uncertain')) {
       newSuggestions.push("Share a relevant case study to build confidence");
-      detectedKeywords.push("uncertainty");
+      updateKeyPhrases("uncertainty");
     }
 
     if (text.toLowerCase().includes('timeline') || text.toLowerCase().includes('when')) {
       newSuggestions.push("Suggest a concrete next step with a specific date");
-      detectedKeywords.push("timeline");
-    }
-    
-    if (detectedKeywords.length > 0) {
-      setDetectedKeywords(prev => [...new Set([...prev, ...detectedKeywords])]);
+      updateKeyPhrases("timeline");
     }
     
     if (newSuggestions.length < 3) {
@@ -136,21 +126,9 @@ const LiveCallAnalysis = () => {
     }
 
     try {
-      setIsRecording(true);
-      setRecordingDuration(0);
-      setTranscript("");
-      setDetectedKeywords([]);
+      startRecordingStore();
       
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingDuration(prev => prev + 1);
-        
-        if (Math.random() > 0.7) {
-          setIsTalkingMap(prev => ({
-            agent: Math.random() > 0.5,
-            customer: Math.random() > 0.5
-          }));
-        }
-      }, 1000);
+      setTranscript("");
       
       toast({
         title: "Recording Started",
@@ -178,27 +156,22 @@ const LiveCallAnalysis = () => {
         description: "Could not access microphone",
         variant: "destructive",
       });
-      setIsRecording(false);
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
+      stopRecordingStore();
+      if (realtimeTranscriptionRef.current) {
+        realtimeTranscriptionRef.current.stop();
+        realtimeTranscriptionRef.current = null;
       }
     }
   };
 
   const stopRecording = async () => {
     if (isRecording) {
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
-      
       if (realtimeTranscriptionRef.current) {
         realtimeTranscriptionRef.current.stop();
         realtimeTranscriptionRef.current = null;
       }
       
-      setIsRecording(false);
-      setIsTalkingMap({ agent: false, customer: false });
+      stopRecordingStore();
       
       toast({
         title: "Recording Stopped",
@@ -399,19 +372,7 @@ const LiveCallAnalysis = () => {
           </div>
           
           {isRecording && (
-            <LiveMetricsDisplay 
-              isCallActive={isRecording}
-              duration={recordingDuration}
-              talkRatio={{
-                agent: isTalkingMap.agent ? 65 : 45,
-                customer: isTalkingMap.customer ? 55 : 35,
-              }}
-              sentiment={{
-                agent: 0.75,
-                customer: 0.62,
-              }}
-              keyPhrases={detectedKeywords}
-            />
+            <LiveMetricsDisplay />
           )}
           
           <div className="flex justify-center items-center flex-col gap-2 mt-4">
@@ -429,7 +390,7 @@ const LiveCallAnalysis = () => {
             
             {isRecording && (
               <div className="text-sm font-medium mt-2">
-                Recording: {formatTime(recordingDuration)}
+                Recording: {formatTime(callDuration)}
               </div>
             )}
             

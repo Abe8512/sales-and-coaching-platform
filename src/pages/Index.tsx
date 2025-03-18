@@ -1,12 +1,9 @@
 
-import React, { useContext, useState, useEffect, useRef } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import PerformanceMetrics from "../components/Dashboard/PerformanceMetrics";
 import CallsOverview from "../components/Dashboard/CallsOverview";
 import AIInsights from "../components/Dashboard/AIInsights";
-import CallTranscript from "../components/CallAnalysis/CallTranscript";
-import SentimentAnalysis from "../components/CallAnalysis/SentimentAnalysis";
-import CallRating from "../components/CallAnalysis/CallRating";
 import { ThemeContext } from "@/App";
 import BulkUploadButton from "../components/BulkUpload/BulkUploadButton";
 import BulkUploadModal from "../components/BulkUpload/BulkUploadModal";
@@ -15,16 +12,15 @@ import LiveMetricsDisplay from "../components/CallAnalysis/LiveMetricsDisplay";
 import PastCallsList from "../components/CallAnalysis/PastCallsList";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
-import KeywordInsights from "../components/CallAnalysis/KeywordInsights";
 import KeywordTrendsChart from "../components/CallAnalysis/KeywordTrendsChart";
 import { SentimentTrendsChart } from "../components/CallAnalysis/SentimentTrendsChart";
 import { DateRangeFilter } from "../components/CallAnalysis/DateRangeFilter";
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
 import { useCallTranscriptService } from "@/services/CallTranscriptService";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useEventListener } from "@/services/EventsService";
 import ContentLoader from "@/components/ui/ContentLoader";
+import { useEventListener } from "@/services/EventsService";
 import { animationUtils } from "@/utils/animationUtils";
+import CallAnalysisSection from "@/components/Dashboard/CallAnalysisSection";
 
 const Index = () => {
   const { isDarkMode } = useContext(ThemeContext);
@@ -32,7 +28,6 @@ const Index = () => {
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [showLiveMetrics, setShowLiveMetrics] = useState(false);
   const { startRecording, stopRecording, isRecording, saveSentimentTrend } = useCallMetricsStore();
-  const callAnalysisSectionRef = useRef<HTMLDivElement>(null);
   
   const { 
     fetchTranscripts,
@@ -67,13 +62,13 @@ const Index = () => {
     }
   }, [isRecording, saveSentimentTrend]);
   
-  useEventListener('transcript-created', (data) => {
-    console.log('New transcript created, refreshing data...', data);
+  useEventListener('transcript-created', () => {
+    console.log('New transcript created, refreshing data...');
     throttledFetchTranscripts();
   });
   
-  useEventListener('bulk-upload-completed', (data) => {
-    console.log('Bulk upload completed, refreshing data...', data);
+  useEventListener('bulk-upload-completed', () => {
+    console.log('Bulk upload completed, refreshing data...');
     throttledFetchTranscripts();
   });
   
@@ -108,10 +103,6 @@ const Index = () => {
       }
     }
   };
-
-  // Calculate fixed heights for components to prevent layout shifts
-  const callTranscriptHeight = 400;
-  const sideComponentHeight = 120;
 
   return (
     <DashboardLayout>
@@ -190,53 +181,7 @@ const Index = () => {
         </div>
       </div>
       
-      <h2 
-        ref={callAnalysisSectionRef}
-        className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mt-8 mb-6`}
-      >
-        Call Analysis
-      </h2>
-      
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-        <div className="col-span-1 md:col-span-3">
-          <ContentLoader 
-            isLoading={transcriptsLoading} 
-            height={callTranscriptHeight}
-            skeletonCount={1}
-            preserveHeight={true}
-          >
-            <CallTranscript />
-          </ContentLoader>
-        </div>
-        <div className="col-span-1 md:col-span-2 grid grid-rows-3 gap-6">
-          <ContentLoader 
-            isLoading={transcriptsLoading} 
-            height={sideComponentHeight}
-            skeletonCount={1}
-            preserveHeight={true}
-          >
-            <SentimentAnalysis />
-          </ContentLoader>
-          
-          <ContentLoader 
-            isLoading={transcriptsLoading} 
-            height={sideComponentHeight}
-            skeletonCount={1}
-            preserveHeight={true}
-          >
-            <KeywordInsights />
-          </ContentLoader>
-          
-          <ContentLoader 
-            isLoading={transcriptsLoading} 
-            height={sideComponentHeight}
-            skeletonCount={1}
-            preserveHeight={true}
-          >
-            <CallRating />
-          </ContentLoader>
-        </div>
-      </div>
+      <CallAnalysisSection isLoading={transcriptsLoading} />
     </DashboardLayout>
   );
 };

@@ -1,3 +1,4 @@
+
 import { supabase, checkSupabaseConnection, generateAnonymousUserId } from "@/integrations/supabase/client";
 import { useState, useEffect, useCallback } from "react";
 import { DateRange } from "react-day-picker";
@@ -12,6 +13,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { withErrorHandling } from './ErrorHandlingService';
 import { connectionMonitor } from './ConnectionMonitorService';
 import { PostgrestError, PostgrestSingleResponse } from '@supabase/supabase-js';
+import { useDemoDataService } from "./DemoDataService";
+import { useTranscriptRealtimeSubscriptions } from "./TranscriptSubscriptionService";
 
 export interface CallTranscript {
   id: string;
@@ -33,36 +36,6 @@ export interface CallTranscriptFilter {
   teamId?: string;
 }
 
-// Generate demo data for when the database connection fails
-const generateDemoTranscripts = (count = 10): CallTranscript[] => {
-  const sentiments = ['positive', 'neutral', 'negative'];
-  const demoData: CallTranscript[] = [];
-  
-  for (let i = 0; i < count; i++) {
-    const id = uuidv4(); // Use proper UUID format for all IDs
-    const anonymousId = generateAnonymousUserId();
-    const randomSentiment = sentiments[Math.floor(Math.random() * sentiments.length)];
-    const randomDate = new Date();
-    randomDate.setDate(randomDate.getDate() - Math.floor(Math.random() * 30));
-    
-    demoData.push({
-      id,
-      user_id: anonymousId,
-      filename: `call-${i}.wav`,
-      text: `This is a demo transcript for call ${i}. It contains sample conversation text that would typically be generated from a real call recording.`,
-      duration: Math.floor(Math.random() * 600) + 120, // 2-12 minutes
-      call_score: Math.floor(Math.random() * 50) + 50, // 50-100
-      sentiment: randomSentiment,
-      keywords: ["product", "pricing", "follow-up", "meeting"],
-      transcript_segments: null,
-      created_at: randomDate.toISOString()
-    });
-  }
-  
-  console.log('Generated demo transcripts with proper UUIDs:', demoData);
-  return demoData;
-};
-
 export const useCallTranscriptService = () => {
   const [transcripts, setTranscripts] = useState<CallTranscript[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -71,6 +44,7 @@ export const useCallTranscriptService = () => {
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const dispatchEvent = useEventsStore.getState().dispatchEvent;
+  const { generateDemoTranscripts } = useDemoDataService();
   
   // Monitor connection status for the service
   useEffect(() => {
@@ -107,7 +81,7 @@ export const useCallTranscriptService = () => {
     };
     
     checkConnection();
-  }, []);
+  }, [generateDemoTranscripts]);
   
   const fetchTranscripts = useCallback(async (filters?: CallTranscriptFilter) => {
     setLoading(true);
@@ -182,7 +156,7 @@ export const useCallTranscriptService = () => {
       // Then get data with filters
       console.log('Building transcript query with filters:', filters);
       
-      const { data, error: dataError } = await withErrorHandling(
+      const { data, error: dataError } = await withErrorHandling<CallTranscript[]>(
         async () => {
           let query = supabase
             .from('call_transcripts')
@@ -209,7 +183,7 @@ export const useCallTranscriptService = () => {
             query = query.lte('created_at', toDate.toISOString());
           }
           
-          return query.order('created_at', { ascending: false });
+          return await query.order('created_at', { ascending: false });
         },
         { data: null, error: null as PostgrestError | null, count: null, status: 200, statusText: 'OK' } as PostgrestSingleResponse<CallTranscript[]>,
         'TranscriptFetch',
@@ -264,7 +238,7 @@ export const useCallTranscriptService = () => {
     } finally {
       setLoading(false);
     }
-  }, [transcripts, dispatchEvent, isConnected]);
+  }, [transcripts, dispatchEvent, isConnected, generateDemoTranscripts]);
 
   const refreshCallsTable = async (transcriptData: CallTranscript[]) => {
     if (!isConnected) return;
@@ -400,122 +374,8 @@ export const useCallTranscriptService = () => {
     }));
   };
 
-  // Subscribe to real-time changes from Supabase with improved error handling
-  useEffect(() => {
-    if (!isConnected) return;
-    
-    let retryTimeout: number | null = null;
-    
-    const setupSubscriptions = () => {
-      try {
-        // Subscribe to real-time changes to the call_transcripts table
-        console.log('Setting up Supabase real-time subscriptions...');
-        
-        const channel = supabase
-          .channel('call_transcripts_changes')
-          .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public',
-            table: 'call_transcripts'
-          }, (payload) => {
-            console.log('Real-time update received:', payload);
-            
-            // Validate the received payload has proper format and valid UUID
-            if (payload && payload.new && typeof payload.new === 'object' && 'id' in payload.new && typeof payload.new.id === 'string') {
-              try {
-                // Simple validation that the ID looks like a UUID
-                if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.new.id)) {
-                  console.error('Received payload with invalid UUID format:', payload.new.id);
-                  return;
-                }
-                
-                // Dispatch appropriate event based on the change type
-                if (payload.eventType === 'INSERT') {
-                  dispatchEvent('transcript-created', payload.new);
-                  // Re-fetch data to ensure all components have the latest data
-                  fetchTranscripts();
-                } else if (payload.eventType === 'UPDATE') {
-                  dispatchEvent('transcript-updated', payload.new);
-                  // Re-fetch data to ensure all components have the latest data
-                  fetchTranscripts();
-                } else if (payload.eventType === 'DELETE' && payload.old && typeof payload.old === 'object' && 'id' in payload.old) {
-                  dispatchEvent('transcript-deleted', payload.old);
-                  // Re-fetch data to ensure all components have the latest data
-                  fetchTranscripts();
-                }
-              } catch (parseError) {
-                console.error('Error processing real-time update:', parseError);
-              }
-            }
-          })
-          .subscribe(status => {
-            console.log('Subscription status for call_transcripts:', status);
-            if (status === 'SUBSCRIBED') {
-              console.log('Successfully subscribed to call_transcripts table');
-            } else if (status === 'CHANNEL_ERROR') {
-              console.error('Error subscribing to call_transcripts table');
-              // Attempt to reconnect after delay
-              if (retryTimeout) clearTimeout(retryTimeout);
-              retryTimeout = window.setTimeout(setupSubscriptions, 5000);
-            }
-          });
-          
-        // Also subscribe to changes in the calls table
-        const callsChannel = supabase
-          .channel('calls_changes')
-          .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public',
-            table: 'calls'
-          }, (payload) => {
-            console.log('Real-time update received for calls:', payload);
-            
-            // Validate the received payload has proper format and valid UUID
-            const hasValidNewId = payload && payload.new && typeof payload.new === 'object' && 'id' in payload.new;
-            const hasValidOldId = payload && payload.old && typeof payload.old === 'object' && 'id' in payload.old;
-            
-            if (hasValidNewId || hasValidOldId) {
-              try {
-                // Dispatch appropriate event based on the change type
-                if (payload.eventType === 'INSERT' && hasValidNewId) {
-                  dispatchEvent('call-created', payload.new);
-                } else if (payload.eventType === 'UPDATE' && hasValidNewId) {
-                  dispatchEvent('call-updated', payload.new);
-                } else if (payload.eventType === 'DELETE' && hasValidOldId) {
-                  dispatchEvent('call-deleted', payload.old);
-                }
-              } catch (parseError) {
-                console.error('Error processing real-time call update:', parseError);
-              }
-            }
-          })
-          .subscribe(status => {
-            console.log('Subscription status for calls:', status);
-            if (status === 'SUBSCRIBED') {
-              console.log('Successfully subscribed to calls table');
-            }
-          });
-        
-        return () => {
-          console.log('Cleaning up Supabase subscriptions...');
-          if (retryTimeout) clearTimeout(retryTimeout);
-          supabase.removeChannel(channel);
-          supabase.removeChannel(callsChannel);
-        };
-      } catch (err) {
-        console.error('Error setting up Supabase subscriptions:', err);
-        // Attempt to reconnect after delay
-        if (retryTimeout) clearTimeout(retryTimeout);
-        retryTimeout = window.setTimeout(setupSubscriptions, 5000);
-        return () => {
-          if (retryTimeout) clearTimeout(retryTimeout);
-        };
-      }
-    };
-    
-    const cleanup = setupSubscriptions();
-    return cleanup;
-  }, [fetchTranscripts, dispatchEvent, isConnected]);
+  // Setup subscriptions to real-time changes using the extracted service
+  useTranscriptRealtimeSubscriptions(isConnected, fetchTranscripts, dispatchEvent);
   
   // Refresh data automatically every 60 seconds if the component is still mounted
   useEffect(() => {

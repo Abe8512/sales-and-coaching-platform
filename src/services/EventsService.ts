@@ -1,5 +1,6 @@
 
 import { create } from 'zustand';
+import React from 'react';
 
 // Event types
 export type EventType = 
@@ -126,11 +127,11 @@ export const useEventListener = (type: EventType, callback: (data?: any) => void
       callback(event.detail);
     };
     
-    window.addEventListener(`app:${type}` as any, handleWindowEvent as EventListener);
+    window.addEventListener(`app:${type}`, handleWindowEvent as unknown as EventListener);
     
     return () => {
       unsubscribe();
-      window.removeEventListener(`app:${type}` as any, handleWindowEvent as EventListener);
+      window.removeEventListener(`app:${type}`, handleWindowEvent as unknown as EventListener);
     };
   }, [type, callback]);
 };
@@ -151,6 +152,3 @@ const initEvents = () => {
 
 // Call initEvents to ensure the event system is initialized
 initEvents();
-
-// Export the needed imports
-import React from 'react';

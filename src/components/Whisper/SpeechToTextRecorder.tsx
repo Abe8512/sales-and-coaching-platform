@@ -29,7 +29,10 @@ const SpeechToTextRecorder = ({
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   const { toast } = useToast();
-  const { transcribeAudio, getUseLocalWhisper } = useWhisperService();
+  const { 
+    transcribeAudio, 
+    getUseLocalWhisper 
+  } = useWhisperService();
   
   useEffect(() => {
     // Cleanup on unmount
@@ -66,7 +69,13 @@ const SpeechToTextRecorder = ({
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           
           try {
-            const result = await transcribeAudio(audioBlob);
+            // Convert Blob to File for compatibility
+            const audioFile = new File([audioBlob], "recording.webm", { 
+              type: 'audio/webm',
+              lastModified: Date.now()
+            });
+            
+            const result = await transcribeAudio(audioFile);
             
             if (result) {
               setTranscript(result.text);

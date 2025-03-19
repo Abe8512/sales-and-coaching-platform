@@ -54,21 +54,23 @@ const KeywordTrendsChart = () => {
           negative: []
         };
         
-        data.forEach(item => {
-          // Ensure we're working with validated data
-          if (item && typeof item === 'object' && 'category' in item) {
-            const category = item.category as KeywordCategory;
-            if (category === 'positive' || category === 'neutral' || category === 'negative') {
-              grouped[category].push({
-                id: item.id,
-                keyword: item.keyword,
-                category,
-                count: item.count || 1,
-                last_used: item.last_used || new Date().toISOString()
-              });
+        if (data) {
+          data.forEach(item => {
+            // Ensure we're working with validated data
+            if (item && typeof item === 'object') {
+              const category = item.category as KeywordCategory;
+              if (category === 'positive' || category === 'neutral' || category === 'negative') {
+                grouped[category].push({
+                  id: item.id,
+                  keyword: item.keyword,
+                  category,
+                  count: item.count || 1,
+                  last_used: item.last_used || new Date().toISOString()
+                });
+              }
             }
-          }
-        });
+          });
+        }
         
         setKeywordTrends(grouped);
       } catch (error) {
@@ -85,17 +87,17 @@ const KeywordTrendsChart = () => {
     return () => clearInterval(interval);
   }, []);
   
-  // Save a keyword to the database - Fixed type error in this function
+  // Save a keyword to the database with proper typing
   const saveKeyword = async (keyword: string, category: KeywordCategory) => {
     try {
-      const insertData: Database['public']['Tables']['keyword_trends']['Insert'] = {
+      const insertData = {
         keyword,
         category,
         count: 1,
         last_used: new Date().toISOString()
       };
       
-      // Fixed: Using proper format for onConflict parameter as a string, not an array
+      // Use proper typing for upsert options
       const { error } = await supabase
         .from('keyword_trends')
         .upsert(insertData, { onConflict: 'keyword,category' });

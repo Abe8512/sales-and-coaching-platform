@@ -10,12 +10,12 @@ import { EventType, useEventsStore } from '@/services/events';
 const getAuthUser = () => {
   let user = null;
   try {
-    if (typeof useAuth === 'function') {
-      // Handle both function and object cases
-      const authState = typeof useAuth.getState === 'function' 
-        ? useAuth.getState() 
-        : useAuth();
-      user = authState.user;
+    // Try to access auth context directly
+    if (typeof window !== 'undefined') {
+      const authContext = useAuth();
+      if (authContext && authContext.user) {
+        user = authContext.user;
+      }
     }
   } catch (error) {
     console.error('Error getting auth user:', error);

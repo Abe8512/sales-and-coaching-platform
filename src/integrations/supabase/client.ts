@@ -14,6 +14,9 @@ let isSupabaseConnected = false;
 let connectionAttempts = 0;
 const MAX_CONNECTION_ATTEMPTS = 5;
 
+// Queue for storing operations when offline
+const offlineQueue: { operation: string; callback: Function }[] = [];
+
 // Create a supabase client with auto-refresh and retries
 export const supabase = createClient<Database>(
   SUPABASE_URL,
@@ -30,7 +33,23 @@ export const supabase = createClient<Database>(
         // Check if we're offline before attempting the request
         if (errorHandler.isOffline) {
           console.warn(`Offline: Skipping request to ${url}`);
-          throw new Error('You are currently offline');
+          
+          // Store operation in queue for later execution
+          return new Promise((resolve, reject) => {
+            offlineQueue.push({
+              operation: `${options?.method || 'GET'} ${url}`,
+              callback: async () => {
+                try {
+                  const response = await fetch(url, options);
+                  resolve(response);
+                } catch (error) {
+                  reject(error);
+                }
+              }
+            });
+            
+            throw new Error('You are currently offline - operation queued');
+          });
         }
         
         try {
@@ -159,13 +178,56 @@ export const supabase = createClient<Database>(
   }
 );
 
+// Process queued operations when we're back online
+const processOfflineQueue = async () => {
+  if (offlineQueue.length === 0) return;
+  
+  console.log(`Processing ${offlineQueue.length} queued operations`);
+  toast.info(`Syncing ${offlineQueue.length} offline changes...`);
+  
+  // Take a copy of the queue and clear it
+  const queueToProcess = [...offlineQueue];
+  offlineQueue.length = 0;
+  
+  let successCount = 0;
+  let failureCount = 0;
+  
+  for (const item of queueToProcess) {
+    try {
+      console.log(`Processing queued operation: ${item.operation}`);
+      await item.callback();
+      successCount++;
+    } catch (error) {
+      console.error(`Failed to process queued operation: ${item.operation}`, error);
+      failureCount++;
+      // Re-queue for next time if it's a temporary failure
+      if (!(error instanceof Error) || !error.message.includes('UUID format error')) {
+        offlineQueue.push(item);
+      }
+    }
+  }
+  
+  if (successCount > 0) {
+    toast.success(`${successCount} offline changes synced successfully.`);
+  }
+  
+  if (failureCount > 0) {
+    toast.error(`Failed to sync ${failureCount} changes. Will retry later.`);
+  }
+};
+
 // Listen for online/offline events
 if (typeof window !== 'undefined') {
   // Subscribe to connection status changes from the error handler
   errorHandler.onConnectionChange((online) => {
     if (online && !isSupabaseConnected) {
       // Try reconnecting when coming back online
-      checkSupabaseConnection();
+      checkSupabaseConnection().then(() => {
+        // Process any queued operations after successfully reconnecting
+        if (isSupabaseConnected) {
+          processOfflineQueue();
+        }
+      });
     }
   });
   
@@ -173,9 +235,22 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !isSupabaseConnected) {
       console.log('Tab became visible, checking connection...');
-      checkSupabaseConnection();
+      checkSupabaseConnection().then(() => {
+        // Process any queued operations after successfully reconnecting
+        if (isSupabaseConnected) {
+          processOfflineQueue();
+        }
+      });
     }
   });
+  
+  // Add automated retries
+  setInterval(() => {
+    if (!isSupabaseConnected) {
+      console.log('Automatic reconnection attempt...');
+      checkSupabaseConnection();
+    }
+  }, 30000); // Every 30 seconds
 }
 
 // Improved helper to detect if Supabase is available
@@ -209,6 +284,11 @@ export const checkSupabaseConnection = async () => {
     
     // Notify the UI that connection is restored
     window.dispatchEvent(new CustomEvent('supabase-connection-restored'));
+    
+    // Process any queued operations
+    if (offlineQueue.length > 0) {
+      processOfflineQueue();
+    }
     
     // If we've successfully connected, show a success toast but only once
     if (!sessionStorage.getItem('connection-success-shown')) {

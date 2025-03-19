@@ -135,14 +135,23 @@ export class BulkUploadProcessorService {
       // Update status to indicate processing trends
       updateStatus('processing', 90, result.text, undefined, id);
       
-      // Update trends data - do this in the background to avoid blocking UI
-      Promise.all([
+      // Update trends data - use Promise.allSettled to ensure both operations run
+      // even if one of them fails, and we capture any errors
+      const [keywordResults, sentimentResults] = await Promise.allSettled([
         databaseService.updateKeywordTrends(result),
         databaseService.updateSentimentTrends(result, this.assignedUserId)
-      ]).catch(err => {
-        console.error("Error updating trends:", err);
-        errorHandler.handleError(err, 'BulkUploadProcessorService.updateTrends');
-      });
+      ]);
+
+      // Log any errors in the background processes
+      if (keywordResults.status === 'rejected') {
+        console.error("Error updating keyword trends:", keywordResults.reason);
+        errorHandler.handleError(keywordResults.reason, 'BulkUploadProcessorService.updateKeywordTrends');
+      }
+
+      if (sentimentResults.status === 'rejected') {
+        console.error("Error updating sentiment trends:", sentimentResults.reason);
+        errorHandler.handleError(sentimentResults.reason, 'BulkUploadProcessorService.updateSentimentTrends');
+      }
       
       // Update status to complete
       updateStatus('complete', 100, result.text, undefined, id);

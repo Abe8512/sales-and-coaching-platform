@@ -49,6 +49,27 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
     }
   }, [isOpen, getUseLocalWhisper, user, selectedRepId]);
   
+  // Listen for upload errors and display toast
+  useEffect(() => {
+    const handleUploadError = (event: CustomEvent) => {
+      if (event.detail?.error) {
+        toast({
+          variant: "destructive",
+          title: "Upload Error",
+          description: event.detail.error.message || "Failed to upload audio file.",
+        });
+      }
+    };
+    
+    // Add event listener for upload errors
+    window.addEventListener('upload-error' as any, handleUploadError as EventListener);
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('upload-error' as any, handleUploadError as EventListener);
+    };
+  }, [toast]);
+  
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -76,6 +97,16 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
   };
 
   const handleFiles = (fileList: FileList) => {
+    // Handle API key check for non-local Whisper
+    if (!useLocalWhisper && openAIKeyMissing) {
+      toast({
+        title: "API Key Required",
+        description: "Please add your OpenAI API key in Settings or enable local Whisper",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     const audioFiles = Array.from(fileList).filter(file => 
       file.type.includes('audio') || 
       file.name.toLowerCase().endsWith('.wav') ||

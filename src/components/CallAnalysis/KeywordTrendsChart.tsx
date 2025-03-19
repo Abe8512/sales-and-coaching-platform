@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Database } from '@/integrations/supabase/types';
 
 type KeywordCategory = 'positive' | 'neutral' | 'negative';
 
@@ -54,13 +55,18 @@ const KeywordTrendsChart = () => {
         };
         
         data.forEach(item => {
-          const category = item.category as KeywordCategory;
-          if (category === 'positive' || category === 'neutral' || category === 'negative') {
-            grouped[category].push({
-              ...item,
-              category,
-              count: item.count || 1
-            });
+          // Ensure we're working with validated data
+          if (item && typeof item === 'object' && 'category' in item) {
+            const category = item.category as KeywordCategory;
+            if (category === 'positive' || category === 'neutral' || category === 'negative') {
+              grouped[category].push({
+                id: item.id,
+                keyword: item.keyword,
+                category,
+                count: item.count || 1,
+                last_used: item.last_used || new Date().toISOString()
+              });
+            }
           }
         });
         
@@ -82,18 +88,17 @@ const KeywordTrendsChart = () => {
   // Save a keyword to the database - Fixed type error in this function
   const saveKeyword = async (keyword: string, category: KeywordCategory) => {
     try {
+      const insertData: Database['public']['Tables']['keyword_trends']['Insert'] = {
+        keyword,
+        category,
+        count: 1,
+        last_used: new Date().toISOString()
+      };
+      
       // Fixed: Using proper format for onConflict parameter as a string, not an array
       const { error } = await supabase
         .from('keyword_trends')
-        .upsert(
-          { 
-            keyword, 
-            category, 
-            count: 1, 
-            last_used: new Date().toISOString() 
-          },
-          { onConflict: 'keyword,category' }
-        );
+        .upsert(insertData, { onConflict: 'keyword,category' });
         
       if (error) {
         console.error('Error saving keyword trend:', error);

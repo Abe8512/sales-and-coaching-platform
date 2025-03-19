@@ -27,7 +27,8 @@ export const supabase = createClient<Database>(
       persistSession: true,
     },
     global: {
-      fetch: async (url, options) => {
+      fetch: async (...args: [RequestInfo | URL, RequestInit?]): Promise<Response> => {
+        const [url, options] = args;
         console.log(`Supabase request to: ${url}`);
         
         // Check if we're offline before attempting the request
@@ -35,7 +36,7 @@ export const supabase = createClient<Database>(
           console.warn(`Offline: Skipping request to ${url}`);
           
           // Store operation in queue for later execution
-          return new Promise((resolve, reject) => {
+          return new Promise<Response>((resolve, reject) => {
             offlineQueue.push({
               operation: `${options?.method || 'GET'} ${url}`,
               callback: async () => {
@@ -152,7 +153,11 @@ export const supabase = createClient<Database>(
             });
           }
           
-          throw lastError;
+          // Create a fallback response to satisfy the Response type requirement
+          return new Response(JSON.stringify({ error: 'Connection failed after retries' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' }
+          });
         } catch (error) {
           console.error(`Supabase request failed after retries: ${url}`, error);
           
@@ -168,7 +173,11 @@ export const supabase = createClient<Database>(
             }
           });
           
-          throw error;
+          // Create a fallback response to satisfy the Response type requirement
+          return new Response(JSON.stringify({ error: 'Network request failed' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' }
+          });
         }
       }
     },

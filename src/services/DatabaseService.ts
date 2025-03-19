@@ -3,6 +3,7 @@ import { supabase, generateAnonymousUserId } from "@/integrations/supabase/clien
 import { transcriptAnalysisService } from "./TranscriptAnalysisService";
 import { WhisperTranscriptionResponse } from "@/services/WhisperService";
 import { v4 as uuidv4 } from 'uuid';
+import type { Database } from '@/integrations/supabase/types';
 
 export class DatabaseService {
   // Save transcript to call_transcripts table
@@ -43,21 +44,23 @@ export class DatabaseService {
       const transcriptId = uuidv4();
       console.log(`Generated transcript ID: ${transcriptId}`);
       
+      // Prepare data with proper typing
+      const transcriptData: Database['public']['Tables']['call_transcripts']['Insert'] = {
+        user_id: finalUserId,
+        filename: file.name,
+        text: result.text,
+        duration,
+        call_score: callScore,
+        sentiment,
+        keywords,
+        transcript_segments: transcriptSegments ? JSON.stringify(transcriptSegments) : null,
+        created_at: timestamp
+      };
+      
       // Insert into database
       const { data, error } = await supabase
         .from('call_transcripts')
-        .insert({
-          id: transcriptId,
-          user_id: finalUserId,
-          filename: file.name,
-          text: result.text,
-          duration,
-          call_score: callScore,
-          sentiment,
-          keywords,
-          transcript_segments: transcriptSegments ? JSON.stringify(transcriptSegments) : null,
-          created_at: timestamp
-        })
+        .insert(transcriptData)
         .select('id')
         .single();
       
@@ -69,9 +72,7 @@ export class DatabaseService {
       console.log('Successfully inserted transcript:', data);
       
       // Also update the calls table with similar data for real-time metrics
-      const callId = transcriptId; // Use the same ID for both records for consistency
-      await this.updateCallsTable({
-        id: callId,
+      const callData: Database['public']['Tables']['calls']['Insert'] = {
         user_id: finalUserId,
         duration: duration || 0,
         sentiment_agent: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.3 : 0.5,
@@ -80,7 +81,9 @@ export class DatabaseService {
         talk_ratio_customer: 50 - (Math.random() * 20 - 10), // Random value between 40-60
         key_phrases: keywords || [],
         created_at: timestamp // Use the same timestamp for consistency
-      });
+      };
+      
+      await this.updateCallsTable(callData);
       
       return { id: data?.id || transcriptId, error: null };
     } catch (error) {
@@ -90,17 +93,7 @@ export class DatabaseService {
   }
   
   // Update calls table for real-time metrics
-  private async updateCallsTable(callData: {
-    id: string;
-    user_id: string;
-    duration: number;
-    sentiment_agent: number;
-    sentiment_customer: number;
-    talk_ratio_agent: number;
-    talk_ratio_customer: number;
-    key_phrases: string[];
-    created_at?: string;
-  }): Promise<void> {
+  private async updateCallsTable(callData: Database['public']['Tables']['calls']['Insert']): Promise<void> {
     try {
       console.log('Updating calls table with data:', callData);
       const { error } = await supabase
@@ -133,29 +126,31 @@ export class DatabaseService {
         const { data } = await supabase
           .from('keyword_trends')
           .select('*')
-          .eq('keyword', keyword)
-          .eq('category', category);
+          .eq('keyword', keyword as string)
+          .eq('category', category)
+          .maybeSingle();
         
-        if (data && data.length > 0) {
+        if (data) {
           // Update existing keyword
           await supabase
             .from('keyword_trends')
             .update({ 
-              count: data[0].count + 1,
+              count: (data.count || 1) + 1,
               last_used: new Date().toISOString()
-            })
-            .eq('id', data[0].id);
+            } as Database['public']['Tables']['keyword_trends']['Update'])
+            .eq('id', data.id);
         } else {
           // Insert new keyword with proper UUID
+          const trendData: Database['public']['Tables']['keyword_trends']['Insert'] = {
+            keyword: keyword as string,
+            category,
+            count: 1,
+            last_used: new Date().toISOString()
+          };
+          
           await supabase
             .from('keyword_trends')
-            .insert({
-              id: uuidv4(), // Ensure UUID format for new entries
-              keyword,
-              category,
-              count: 1,
-              last_used: new Date().toISOString()
-            });
+            .insert(trendData);
         }
       } catch (error) {
         console.error(`Error updating keyword trend for ${keyword}:`, error);
@@ -171,15 +166,16 @@ export class DatabaseService {
     const sentiment = transcriptAnalysisService.analyzeSentiment(result.text);
     
     try {
+      const trendData: Database['public']['Tables']['sentiment_trends']['Insert'] = {
+        sentiment_label: sentiment,
+        confidence: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.7 : 0.6,
+        user_id: userId,
+        recorded_at: new Date().toISOString()
+      };
+      
       await supabase
         .from('sentiment_trends')
-        .insert({
-          id: uuidv4(), // Ensure UUID format
-          sentiment_label: sentiment,
-          confidence: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.7 : 0.6,
-          user_id: userId,
-          recorded_at: new Date().toISOString()
-        });
+        .insert(trendData);
     } catch (error) {
       console.error('Error updating sentiment trend:', error);
     }

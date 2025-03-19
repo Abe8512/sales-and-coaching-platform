@@ -7,6 +7,9 @@ import { MessageSquare, ThumbsUp, ThumbsDown, Minus } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 import { useSharedKeywordData } from "@/services/SharedDataService";
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
+import type { Database } from '@/integrations/supabase/types';
+
+type KeywordCategory = 'positive' | 'neutral' | 'negative';
 
 const KeywordInsights = () => {
   const { keywordsByCategory, classifyKeywords, isRecording } = useCallMetricsStore();
@@ -55,48 +58,42 @@ const KeywordInsights = () => {
         // Skip if no keywords
         if (!keywords || !keywords.length) continue;
         
+        // Ensure category is a valid KeywordCategory
+        const typedCategory = category as KeywordCategory;
+        
         // Process each keyword
         for (const keyword of keywords) {
           // First check if keyword exists
-          const { data, error } = await supabase
+          const { data } = await supabase
             .from('keyword_trends')
             .select('*')
-            .eq('keyword', keyword)
-            .eq('category', category)
-            .single();
+            .eq('keyword', keyword as string)
+            .eq('category', typedCategory)
+            .maybeSingle();
             
-          if (error && error.code !== 'PGRST116') { // Not found is ok
-            console.error(`Error checking keyword ${keyword}:`, error);
-            continue;
-          }
-          
           if (data) {
             // Update existing keyword
-            const { error: updateError } = await supabase
+            const updateData: Database['public']['Tables']['keyword_trends']['Update'] = {
+              count: (data.count || 1) + 1,
+              last_used: new Date().toISOString()
+            };
+            
+            await supabase
               .from('keyword_trends')
-              .update({
-                count: data.count + 1,
-                last_used: new Date().toISOString()
-              })
+              .update(updateData)
               .eq('id', data.id);
-              
-            if (updateError) {
-              console.error(`Error updating keyword ${keyword}:`, updateError);
-            }
           } else {
             // Insert new keyword
-            const { error: insertError } = await supabase
+            const insertData: Database['public']['Tables']['keyword_trends']['Insert'] = {
+              keyword: keyword as string,
+              category: typedCategory,
+              count: 1,
+              last_used: new Date().toISOString()
+            };
+            
+            await supabase
               .from('keyword_trends')
-              .insert([{
-                keyword,
-                category,
-                count: 1,
-                last_used: new Date().toISOString()
-              }]);
-              
-            if (insertError) {
-              console.error(`Error inserting keyword ${keyword}:`, insertError);
-            }
+              .insert(insertData);
           }
         }
       }

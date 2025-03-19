@@ -55,15 +55,29 @@ export const getStoredTranscriptions = (): StoredTranscription[] => {
 export const useWhisperService = () => {
   const transcribeAudio = async (audioFile: File): Promise<WhisperTranscriptionResponse | null> => {
     try {
-      const arrayBuffer = await audioFile.arrayBuffer();
-      const base64Audio = Buffer.from(arrayBuffer).toString('base64');
+      // Get the OpenAI API key from localStorage
+      const apiKey = localStorage.getItem("openai_api_key");
+      if (!apiKey && !useLocalWhisperSetting) {
+        console.error('OpenAI API key not found');
+        return null;
+      }
       
+      // Format data for OpenAI API
+      const formData = new FormData();
+      formData.append('file', audioFile);
+      formData.append('model', 'whisper-1');
+      formData.append('response_format', 'json');
+      if (numSpeakers > 1) {
+        formData.append('speakers', numSpeakers.toString());
+      }
+      
+      // Make request to OpenAI API through our proxy
       const response = await fetch('/api/transcribe', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ audio: base64Audio, numSpeakers }),
+        body: formData,
       });
       
       if (!response.ok) {
@@ -78,12 +92,13 @@ export const useWhisperService = () => {
         return null;
       }
       
+      // Create our response format
       const transcription: WhisperTranscriptionResponse = {
         id: uuidv4(),
         text: data.text,
-        segments: data.segments,
-        language: data.language,
-        duration: data.duration
+        segments: data.segments || [],
+        language: data.language || 'en',
+        duration: audioFile.size / 16000 // Rough estimate of duration based on file size
       };
       
       // Store the transcription in local storage

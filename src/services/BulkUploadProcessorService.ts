@@ -71,10 +71,15 @@ export class BulkUploadProcessorService {
       // Phase 1: Transcribe the audio file
       console.log('Transcribing audio...');
       updateStatus('processing', 20, 'Transcribing audio...');
-      const result = await this.whisperService.transcribeAudio(file);
       
+      // Check if we're using local Whisper or API
+      const useLocalWhisper = this.whisperService.getUseLocalWhisper();
+      console.log(`Using ${useLocalWhisper ? 'local' : 'API'} Whisper for transcription`);
+
+      const result = await this.whisperService.transcribeAudio(file);
+
       if (!result) {
-        throw new Error("Transcription failed");
+        throw new Error("Transcription failed. Please check your API key.");
       }
       
       // Phase 2: Process transcription

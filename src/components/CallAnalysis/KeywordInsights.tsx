@@ -14,27 +14,46 @@ const KeywordInsights = () => {
   const { filters } = useSharedFilters();
   const { keywords: sharedKeywords } = useSharedKeywordData(filters);
   
+  // Default empty arrays for categories to avoid undefined errors
+  const defaultCategories = {
+    positive: [] as string[],
+    neutral: [] as string[],
+    negative: [] as string[]
+  };
+  
+  // Ensure keywordsByCategory has default values
+  const safeKeywordsByCategory = keywordsByCategory || defaultCategories;
+  
+  // Ensure sharedKeywords is an array
+  const safeSharedKeywords = Array.isArray(sharedKeywords) ? sharedKeywords : [];
+  
   // Merge live and historical keywords
   const mergedKeywords = {
-    positive: [...new Set([...keywordsByCategory.positive, 
-      ...sharedKeywords.filter(k => k.category === 'positive').map(k => k.keyword)])],
-    neutral: [...new Set([...keywordsByCategory.neutral, 
-      ...sharedKeywords.filter(k => k.category === 'neutral').map(k => k.keyword)])],
-    negative: [...new Set([...keywordsByCategory.negative, 
-      ...sharedKeywords.filter(k => k.category === 'negative').map(k => k.keyword)])]
+    positive: [...new Set([
+      ...safeKeywordsByCategory.positive || [], 
+      ...safeSharedKeywords.filter(k => k.category === 'positive').map(k => k.keyword)
+    ])],
+    neutral: [...new Set([
+      ...safeKeywordsByCategory.neutral || [], 
+      ...safeSharedKeywords.filter(k => k.category === 'neutral').map(k => k.keyword)
+    ])],
+    negative: [...new Set([
+      ...safeKeywordsByCategory.negative || [], 
+      ...safeSharedKeywords.filter(k => k.category === 'negative').map(k => k.keyword)
+    ])]
   };
   
   // Save keywords to Supabase for cross-component consistency
   const saveKeywordsTrends = async () => {
-    if (!isRecording || isUpdating) return;
+    if (!isRecording || isUpdating || !keywordsByCategory) return;
     
     setIsUpdating(true);
     
     try {
       // Process each category
-      for (const [category, keywords] of Object.entries(keywordsByCategory)) {
+      for (const [category, keywords] of Object.entries(safeKeywordsByCategory)) {
         // Skip if no keywords
-        if (!keywords.length) continue;
+        if (!keywords || !keywords.length) continue;
         
         // Process each keyword
         for (const keyword of keywords) {
@@ -94,11 +113,13 @@ const KeywordInsights = () => {
   };
   
   useEffect(() => {
-    // Initial classification
-    classifyKeywords();
+    // Initial classification if available
+    if (classifyKeywords) {
+      classifyKeywords();
+    }
     
     // Reclassify when recording is active
-    if (isRecording) {
+    if (isRecording && classifyKeywords) {
       const interval = setInterval(() => {
         classifyKeywords();
         saveKeywordsTrends();

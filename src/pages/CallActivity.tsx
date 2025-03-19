@@ -11,13 +11,14 @@ import KeywordInsights from "@/components/CallAnalysis/KeywordInsights";
 import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useCallTranscripts } from "@/services/CallTranscriptService";
+import { useCallTranscripts, CallTranscriptFilter } from "@/services/CallTranscriptService";
 import { useEventListener } from '@/services/events';
 import { toast } from "sonner";
 import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
 import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
 import RecentCallsTable from "@/components/CallActivity/RecentCallsTable";
 import CallOutcomeStats from "@/components/CallActivity/CallOutcomeStats";
+import { getMetrics, getCallDistributionData } from "@/services/CallTranscriptMetricsService";
 
 interface Call {
   id: string;
@@ -54,17 +55,22 @@ const CallActivity = () => {
   const { 
     transcripts, 
     loading: transcriptsLoading, 
-    fetchTranscripts,
-    getMetrics,
-    getCallDistributionData
+    fetchTranscripts
   } = useCallTranscripts();
   
   const refreshData = useCallback(() => {
-    const transcriptFilter = {
-      dateRange,
-      userId: selectedUser || undefined,
-      userIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
+    const transcriptFilter: CallTranscriptFilter = {
+      startDate: dateRange?.from,
+      endDate: dateRange?.to,
+      sortBy: 'created_at',
+      sortOrder: 'desc'
     };
+    
+    if (selectedUser) {
+      transcriptFilter.userId = selectedUser;
+    } else if (filters.teamMembers.length > 0) {
+      transcriptFilter.userIds = filters.teamMembers;
+    }
     
     fetchTranscripts(transcriptFilter);
     setRefreshTrigger(prev => prev + 1);

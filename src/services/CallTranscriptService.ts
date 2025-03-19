@@ -27,7 +27,9 @@ export interface CallTranscriptFilter {
   sortBy?: 'created_at' | 'sentiment' | 'call_score';
   sortOrder?: 'asc' | 'desc';
   page?: number;
-  force?: boolean; // Add force property to trigger refresh
+  force?: boolean;
+  userId?: string;
+  userIds?: string[];
 }
 
 const PAGE_SIZE = 10;

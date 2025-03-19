@@ -1,3 +1,4 @@
+
 import { create } from 'zustand';
 import { CallMetricsState } from './types';
 import { supabase } from '@/integrations/supabase/client';
@@ -28,6 +29,11 @@ const initialCallState = {
   feedback: '',
   date: new Date().toISOString().slice(0, 10),
   talkRatio: { agent: 50, customer: 50 },
+  keywordsByCategory: {
+    positive: [],
+    neutral: [],
+    negative: []
+  }
 };
 
 export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
@@ -35,6 +41,44 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
   callHistory: [],
   isLoading: false,
   error: null,
+  
+  classifyKeywords: () => {
+    const keyPhrases = get().keyPhrases || [];
+    const sentiment = get().sentiment;
+    
+    const positiveThreshold = 0.65;
+    const negativeThreshold = 0.35;
+    
+    const keywordsByCategory = {
+      positive: [] as string[],
+      neutral: [] as string[],
+      negative: [] as string[]
+    };
+    
+    keyPhrases.forEach(phrase => {
+      if (typeof phrase === 'string') {
+        // Handle simple string case
+        if (sentiment.customer > positiveThreshold) {
+          keywordsByCategory.positive.push(phrase);
+        } else if (sentiment.customer < negativeThreshold) {
+          keywordsByCategory.negative.push(phrase);
+        } else {
+          keywordsByCategory.neutral.push(phrase);
+        }
+      } else if (phrase && typeof phrase === 'object' && 'text' in phrase) {
+        // Handle object with text property
+        if (phrase.category === 'positive') {
+          keywordsByCategory.positive.push(phrase.text);
+        } else if (phrase.category === 'negative') {
+          keywordsByCategory.negative.push(phrase.text);
+        } else {
+          keywordsByCategory.neutral.push(phrase.text);
+        }
+      }
+    });
+    
+    set({ keywordsByCategory });
+  },
   
   startRecording: () => {
     set({ 
@@ -93,7 +137,9 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const { user } = useAuth.getState();
+      const authState = useAuth.getState ? useAuth.getState() : useAuth();
+      const user = authState.user;
+      
       const {
         startTime,
         endTime,
@@ -123,33 +169,20 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
         return;
       }
       
+      const callData = {
+        user_id: user.id,
+        created_at: new Date().toISOString(),
+        duration: duration,
+        key_phrases: keyPhrases.map(kp => typeof kp === 'string' ? kp : kp.text),
+        sentiment_agent: sentiment.agent,
+        sentiment_customer: sentiment.customer,
+        talk_ratio_agent: talkRatio.agent,
+        talk_ratio_customer: talkRatio.customer
+      };
+      
       const { data, error } = await supabase
         .from('calls')
-        .insert([
-          {
-            user_id: user.id,
-            start_time: startTime.toISOString(),
-            end_time: endTime.toISOString(),
-            duration,
-            agent_talk_time: agentTalkTime,
-            customer_talk_time: customerTalkTime,
-            agent_interruptions: agentInterruptions,
-            customer_interruptions: customerInterruptions,
-            key_phrases: keyPhrases.map(kp => kp.text),
-            sentiment,
-            sentiment_trend: sentimentTrend,
-            transcript,
-            recording_url: recordingUrl,
-            recording_id: recordingId,
-            call_score: callScore,
-            outcome,
-            summary,
-            next_steps: nextSteps,
-            feedback,
-            date,
-            talk_ratio: talkRatio,
-          },
-        ])
+        .insert(callData)
         .select()
         .single();
       
@@ -162,12 +195,12 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
         
         const dispatchEvent = useEventsStore.getState().dispatchEvent;
         
-        dispatchEvent('recording-completed', {
+        dispatchEvent('recording-completed' as EventType, {
           id: recordingId,
           duration,
           sentiment,
           talkRatio,
-          keywords: keyPhrases.map(kp => kp.text)
+          keywords: keyPhrases.map(kp => typeof kp === 'string' ? kp : kp.text)
         });
         
         get().loadPastCalls();
@@ -182,7 +215,8 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const { user } = useAuth.getState();
+      const authState = useAuth.getState ? useAuth.getState() : useAuth();
+      const user = authState.user;
       
       if (!user) {
         console.error('User not authenticated.');
@@ -194,7 +228,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
         .from('calls')
         .select('*')
         .eq('user_id', user.id)
-        .order('start_time', { ascending: false });
+        .order('created_at', { ascending: false });
       
       if (error) {
         console.error('Error loading past calls:', error);

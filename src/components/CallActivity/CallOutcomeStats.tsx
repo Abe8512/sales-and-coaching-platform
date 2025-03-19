@@ -28,7 +28,7 @@ const CallOutcomeStats: React.FC<CallOutcomeStatsProps> = ({
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Call Distribution</CardTitle>
-          <CardDescription>Number of calls per sales representative</CardDescription>
+          <CardDescription>Number of calls per day</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[400px]">
@@ -103,6 +103,7 @@ const CallOutcomeStats: React.FC<CallOutcomeStatsProps> = ({
                     outerRadius={100}
                     fill="#8884d8"
                     dataKey="count"
+                    nameKey="outcome"
                   >
                     {outcomeStats.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

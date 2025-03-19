@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -76,7 +77,7 @@ const CallActivity = () => {
     setRefreshTrigger(prev => prev + 1);
   }, [selectedUser, filters, dateRange, fetchTranscripts]);
   
-  useEventListener('bulk-upload-completed', (data) => {
+  useEventListener('bulk-upload-completed' as any, (data) => {
     console.log('Bulk upload completed event received', data);
     toast.success(`${data?.count || 'Multiple'} files processed`, {
       description: "Refreshing call data..."
@@ -84,7 +85,7 @@ const CallActivity = () => {
     refreshData();
   });
   
-  useEventListener('recording-completed', (data) => {
+  useEventListener('recording-completed' as any, (data) => {
     console.log('Recording completed event received', data);
     toast.success('New recording added', {
       description: "Refreshing call data..."
@@ -92,7 +93,7 @@ const CallActivity = () => {
     refreshData();
   });
   
-  useEventListener('transcripts-refreshed', () => {
+  useEventListener('transcripts-refreshed' as any, () => {
     console.log('Transcripts refreshed event received');
     refreshData();
   });
@@ -139,6 +140,21 @@ const CallActivity = () => {
 
   const handleFilterChange = (newFilters) => {
     setFilters(newFilters);
+  };
+
+  // Convert outcome stats to the format expected by CallOutcomeStats
+  const getFormattedMetrics = () => {
+    const rawMetrics = getMetrics(transcripts);
+    return rawMetrics.outcomeStats.filter(outcome => outcome.outcome !== 'Total');
+  };
+
+  // Convert call distribution data to the format expected by CallOutcomeStats
+  const getFormattedDistributionData = () => {
+    const rawData = getCallDistributionData(transcripts);
+    return rawData.map(item => ({
+      name: item.name,
+      calls: item.calls
+    }));
   };
 
   return (
@@ -204,15 +220,15 @@ const CallActivity = () => {
         
         <TabsContent value="analytics" className="mt-6">
           <CallOutcomeStats 
-            outcomeStats={getMetrics(transcripts).outcomeStats} 
-            callDistributionData={getCallDistributionData(transcripts)} 
+            outcomeStats={getFormattedMetrics()} 
+            callDistributionData={getFormattedDistributionData()} 
           />
         </TabsContent>
         
         <TabsContent value="outcomes" className="mt-6">
           <CallOutcomeStats 
-            outcomeStats={getMetrics(transcripts).outcomeStats} 
-            callDistributionData={getCallDistributionData(transcripts)} 
+            outcomeStats={getFormattedMetrics()} 
+            callDistributionData={getFormattedDistributionData()} 
           />
         </TabsContent>
         

@@ -1,13 +1,14 @@
 
 import { CallTranscript } from './CallTranscriptService';
 
-interface MetricsResult {
-  outcomeStats: {
-    qualified: number;
-    followUp: number;
-    noInterest: number;
-    total: number;
-  };
+export interface CallOutcome {
+  outcome: string;
+  count: number;
+  percentage: number;
+}
+
+export interface MetricsResult {
+  outcomeStats: CallOutcome[];
   sentimentBreakdown: {
     positive: number;
     neutral: number;
@@ -47,13 +48,32 @@ export const getMetrics = (transcripts: CallTranscript[]): MetricsResult => {
     }
   }
 
-  return {
-    outcomeStats: {
-      qualified,
-      followUp,
-      noInterest,
-      total
+  // Convert to array of CallOutcome objects
+  const outcomeStats: CallOutcome[] = [
+    {
+      outcome: 'Qualified Leads',
+      count: qualified,
+      percentage: total > 0 ? Math.round((qualified / total) * 100) : 0
     },
+    {
+      outcome: 'Follow Up Required',
+      count: followUp,
+      percentage: total > 0 ? Math.round((followUp / total) * 100) : 0
+    },
+    {
+      outcome: 'No Interest',
+      count: noInterest,
+      percentage: total > 0 ? Math.round((noInterest / total) * 100) : 0
+    },
+    {
+      outcome: 'Total',
+      count: total,
+      percentage: 100
+    }
+  ];
+
+  return {
+    outcomeStats,
     sentimentBreakdown: {
       positive,
       neutral,
@@ -84,9 +104,9 @@ export const getCallDistributionData = (transcripts: CallTranscript[]) => {
     }
   }
   
-  // Convert to array for chart
+  // Convert to array for chart with correct property names
   return Object.entries(dates).map(([date, count]) => ({
-    date,
-    count
+    name: date,
+    calls: count
   }));
 };

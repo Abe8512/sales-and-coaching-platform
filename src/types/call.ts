@@ -27,3 +27,16 @@ export interface CallMetrics {
     customer: number;
   };
 }
+
+export interface CoachingAlert {
+  id: string;
+  type: 'warning' | 'info' | 'critical';
+  message: string;
+  timestamp: Date;
+  dismissed: boolean;
+}
+
+export interface SpeakingStatus {
+  agent: boolean;
+  customer: boolean;
+}

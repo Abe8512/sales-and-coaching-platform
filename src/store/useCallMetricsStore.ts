@@ -3,13 +3,31 @@ import { create } from 'zustand';
 import { CallMetricsState } from './types';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { SentimentData } from '@/types/call';
+import { v4 as uuidv4 } from 'uuid';
 import { EventType, useEventsStore } from '@/services/events';
+
+// Helper to safely get auth user
+const getAuthUser = () => {
+  let user = null;
+  try {
+    if (typeof useAuth === 'function') {
+      // Handle both function and object cases
+      const authState = typeof useAuth.getState === 'function' 
+        ? useAuth.getState() 
+        : useAuth();
+      user = authState.user;
+    }
+  } catch (error) {
+    console.error('Error getting auth user:', error);
+  }
+  return user;
+};
 
 const initialCallState = {
   startTime: null,
   endTime: null,
   duration: 0,
+  callDuration: 0,
   agentTalkTime: 0,
   customerTalkTime: 0,
   agentInterruptions: 0,
@@ -29,6 +47,8 @@ const initialCallState = {
   feedback: '',
   date: new Date().toISOString().slice(0, 10),
   talkRatio: { agent: 50, customer: 50 },
+  isTalkingMap: { agent: false, customer: false },
+  coachingAlerts: [],
   keywordsByCategory: {
     positive: [],
     neutral: [],
@@ -41,6 +61,21 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
   callHistory: [],
   isLoading: false,
   error: null,
+  
+  updateKeyPhrases: (phrase) => {
+    const keyPhrases = get().keyPhrases || [];
+    const newKeyPhrases = [...keyPhrases, { text: phrase }];
+    set({ keyPhrases: newKeyPhrases });
+    get().classifyKeywords();
+  },
+  
+  dismissAlert: (id) => {
+    const coachingAlerts = get().coachingAlerts || [];
+    const updatedAlerts = coachingAlerts.map(alert => 
+      alert.id === id ? { ...alert, dismissed: true } : alert
+    );
+    set({ coachingAlerts: updatedAlerts });
+  },
   
   classifyKeywords: () => {
     const keyPhrases = get().keyPhrases || [];
@@ -81,11 +116,20 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
   },
   
   startRecording: () => {
+    const newCoachingAlert = {
+      id: uuidv4(),
+      type: 'info' as const,
+      message: 'Call recording started. Remember to ask open-ended questions.',
+      timestamp: new Date(),
+      dismissed: false
+    };
+    
     set({ 
       ...initialCallState,
       startTime: new Date(), 
       isRecording: true,
-      date: new Date().toISOString().slice(0, 10)
+      date: new Date().toISOString().slice(0, 10),
+      coachingAlerts: [newCoachingAlert]
     });
   },
   
@@ -97,6 +141,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
     set({ 
       endTime, 
       duration, 
+      callDuration: Math.floor(duration),
       isRecording: false,
       isCallEnded: true
     });
@@ -137,8 +182,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const authState = useAuth.getState ? useAuth.getState() : useAuth();
-      const user = authState.user;
+      const user = getAuthUser();
       
       const {
         startTime,
@@ -195,6 +239,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
         
         const dispatchEvent = useEventsStore.getState().dispatchEvent;
         
+        // Type assertion to ensure compatibility
         dispatchEvent('recording-completed' as EventType, {
           id: recordingId,
           duration,
@@ -215,8 +260,7 @@ export const useCallMetricsStore = create<CallMetricsState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const authState = useAuth.getState ? useAuth.getState() : useAuth();
-      const user = authState.user;
+      const user = getAuthUser();
       
       if (!user) {
         console.error('User not authenticated.');

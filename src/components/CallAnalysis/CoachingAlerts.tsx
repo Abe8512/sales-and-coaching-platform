@@ -9,13 +9,18 @@ import { Button } from "@/components/ui/button";
 import { throttle } from "lodash";
 
 const CoachingAlerts = () => {
-  const { coachingAlerts, dismissAlert, isRecording } = useCallMetricsStore();
-  // Use local state to smooth transitions and prevent UI jitter
+  const { isRecording } = useCallMetricsStore();
   const [visibleAlerts, setVisibleAlerts] = useState<any[]>([]);
+  
+  // Get the alerts and dismiss function from the store
+  const coachingAlerts = useCallMetricsStore(state => state.coachingAlerts || []);
+  const dismissAlert = useCallMetricsStore(state => state.dismissAlert);
   
   // Throttle the dismiss function to prevent UI jitter
   const throttledDismiss = throttle((id: string) => {
-    dismissAlert(id);
+    if (dismissAlert) {
+      dismissAlert(id);
+    }
   }, 200);
   
   // Update visible alerts with smooth transitions
@@ -76,7 +81,9 @@ const CoachingAlerts = () => {
                   <div>
                     <AlertTitle className="flex items-center gap-2">
                       Coaching Alert
-                      <Badge variant="outline" className="text-xs">
+                      <Badge variant={alert.type === 'warning' ? 'outline' : 
+                              alert.type === 'critical' ? 'destructive' : 'default'} 
+                            className="text-xs">
                         {alert.type === 'warning' ? 'Suggestion' : 
                          alert.type === 'critical' ? 'Critical' : 'Tip'}
                       </Badge>

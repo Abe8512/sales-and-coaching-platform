@@ -18,7 +18,7 @@ const LiveMetricsDisplay = ({ isCallActive }: LiveMetricsDisplayProps) => {
   const { isDarkMode } = useContext(ThemeContext);
   const { 
     isRecording, 
-    callDuration, 
+    duration: callDuration, 
     talkRatio, 
     sentiment, 
     isTalkingMap, 
@@ -154,14 +154,18 @@ const LiveMetricsDisplay = ({ isCallActive }: LiveMetricsDisplayProps) => {
           <GlowingCard gradient="purple" className="col-span-1 md:col-span-2">
             <h3 className="text-white text-lg font-semibold mb-2">Real-time Keywords</h3>
             <div className="flex flex-wrap gap-2 mt-3">
-              {keyPhrases.map((phrase, index) => (
-                <span 
-                  key={index} 
-                  className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-white/10 text-white"
-                >
-                  {phrase}
-                </span>
-              ))}
+              {keyPhrases.map((phrase, index) => {
+                // Make sure we render the text correctly based on the data structure
+                const phraseText = typeof phrase === 'string' ? phrase : phrase.text;
+                return (
+                  <span 
+                    key={index} 
+                    className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-white/10 text-white"
+                  >
+                    {phraseText}
+                  </span>
+                );
+              })}
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-neon-blue/30 text-white">
                 pricing
               </span>

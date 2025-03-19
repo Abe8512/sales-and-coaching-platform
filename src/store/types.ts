@@ -36,6 +36,17 @@ export interface CallMetricsState {
     negative: string[];
   };
   
+  // Additional properties needed to fix errors
+  callDuration: number;
+  isTalkingMap: { agent: boolean; customer: boolean };
+  coachingAlerts: {
+    id: string;
+    type: 'warning' | 'info' | 'critical';
+    message: string;
+    timestamp: Date;
+    dismissed: boolean;
+  }[];
+  
   // Functions
   startRecording: () => void;
   stopRecording: () => Promise<void>;
@@ -47,4 +58,6 @@ export interface CallMetricsState {
   saveCallMetrics: () => Promise<void>;
   loadPastCalls: () => Promise<void>;
   classifyKeywords: () => void;
+  dismissAlert: (id: string) => void;
+  updateKeyPhrases: (phrase: string) => void;
 }

@@ -33,12 +33,20 @@ const LiveCallAnalysis = () => {
   
   const { 
     isRecording, 
-    callDuration, 
+    duration: callDuration, 
     isTalkingMap, 
     startRecording: startRecordingStore, 
     stopRecording: stopRecordingStore,
-    updateKeyPhrases
+    updateCallMetrics,
   } = useCallMetricsStore();
+  
+  const updateKeyPhrases = (phrase: string) => {
+    const store = useCallMetricsStore.getState();
+    const currentPhrases = store.keyPhrases || [];
+    updateCallMetrics({ 
+      keyPhrases: [...currentPhrases, { text: phrase }] 
+    });
+  };
   
   const realtimeTranscriptionRef = React.useRef<{ stop: () => void } | null>(null);
   
@@ -462,3 +470,4 @@ const LiveCallAnalysis = () => {
 };
 
 export default LiveCallAnalysis;
+

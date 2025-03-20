@@ -1,4 +1,3 @@
-
 /**
  * Animation utilities for smooth transitions
  */
@@ -56,24 +55,38 @@ export const animationUtils = {
     
     let lastCall = 0;
     let timeoutId: number | null = null;
+    let lastArgs: Parameters<T> | null = null;
+    let lastThisContext: unknown = null;
     
-    const throttled = function(this: any, ...args: any[]) {
+    const throttled = function(this: unknown, ...args: Parameters<T>) {
       const now = Date.now();
       const timeSinceLastCall = now - lastCall;
       
+      // Store the most recent context and arguments
+      lastArgs = args;
+      lastThisContext = this;
+      
       if (timeSinceLastCall >= delay) {
+        // Execute immediately if enough time has passed
         lastCall = now;
-        return fn.apply(this, args);
-      } else {
-        // Schedule a call at the end of the throttle period
-        if (timeoutId === null) {
-          timeoutId = window.setTimeout(() => {
-            lastCall = Date.now();
-            timeoutId = null;
-            fn.apply(this, args);
-          }, delay - timeSinceLastCall);
-        }
+        fn.apply(this, args);
+        lastArgs = null;
+        lastThisContext = null;
+      } else if (timeoutId === null) {
+        // Schedule a trailing call with the most recent arguments
+        timeoutId = window.setTimeout(() => {
+          lastCall = Date.now();
+          timeoutId = null;
+          
+          // Only call if we have stored arguments
+          if (lastArgs !== null && lastThisContext !== null) {
+            fn.apply(lastThisContext, lastArgs);
+            lastArgs = null;
+            lastThisContext = null;
+          }
+        }, delay - timeSinceLastCall);
       }
+      // If a call is already scheduled, we'll use those arguments
     } as T & { cancel: () => void };
     
     // Add cancel method
@@ -82,6 +95,8 @@ export const animationUtils = {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
+      lastArgs = null;
+      lastThisContext = null;
     };
     
     return throttled;
@@ -95,16 +110,35 @@ export const animationUtils = {
    */
   debounce: <T extends (...args: any[]) => any>(fn: T, delay: number): T & { cancel: () => void } => {
     let timeoutId: number | null = null;
+    let immediateTimeoutId: number | null = null;
+    let lastCallTime = 0;
     
-    const debounced = function(this: any, ...args: any[]) {
+    const debounced = function(this: unknown, ...args: Parameters<T>) {
+      const now = Date.now();
+      const timeSinceLastCall = now - lastCallTime;
+      
+      // Clear any existing timeout
       if (timeoutId !== null) {
         clearTimeout(timeoutId);
+        timeoutId = null;
       }
       
+      // Schedule the execution
       timeoutId = window.setTimeout(() => {
+        // Record when this call happened to prevent rapid consecutive calls
+        lastCallTime = Date.now();
         fn.apply(this, args);
         timeoutId = null;
       }, delay);
+      
+      // If this is the first call or it's been a long time since the last call,
+      // consider executing immediately to improve perceived performance
+      if (timeSinceLastCall > delay * 3 && immediateTimeoutId === null) {
+        // Use a very short timeout to allow rapid consecutive calls to be combined
+        immediateTimeoutId = window.setTimeout(() => {
+          immediateTimeoutId = null;
+        }, 50);
+      }
     } as T & { cancel: () => void };
     
     // Add cancel method
@@ -112,6 +146,10 @@ export const animationUtils = {
       if (timeoutId !== null) {
         clearTimeout(timeoutId);
         timeoutId = null;
+      }
+      if (immediateTimeoutId !== null) {
+        clearTimeout(immediateTimeoutId);
+        immediateTimeoutId = null;
       }
     };
     

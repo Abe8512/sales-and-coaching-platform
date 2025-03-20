@@ -1,7 +1,64 @@
 import { supabase } from "@/integrations/supabase/client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { DateRange } from "react-day-picker";
 import { toast } from "sonner";
+import React from "react";
+import { getStoredTranscriptions, StoredTranscription } from '@/services/WhisperService';
+
+// Debounce utility function to prevent rapid duplicate requests
+const debounce = <T extends (...args: unknown[]) => void>(
+  func: T,
+  wait: number
+): ((...args: Parameters<T>) => void) => {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  
+  return function(...args: Parameters<T>) {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    
+    timeout = setTimeout(() => {
+      timeout = null;
+      func(...args);
+    }, wait);
+  };
+};
+
+// Cache to store recent requests by their stringified filters
+const requestCache = new Map<string, {
+  timestamp: number;
+  data: unknown;
+}>();
+
+// Cache timeout in milliseconds (5 seconds)
+const CACHE_TIMEOUT = 5000;
+
+// Function to get cache key from filters
+const getCacheKey = (filters?: DataFilters): string => {
+  return JSON.stringify(filters || {});
+};
+
+// Function to check if we have a valid cache entry
+const getValidCacheEntry = <T>(key: string): T | null => {
+  const entry = requestCache.get(key);
+  if (!entry) return null;
+  
+  const now = Date.now();
+  if (now - entry.timestamp > CACHE_TIMEOUT) {
+    requestCache.delete(key);
+    return null;
+  }
+  
+  return entry.data as T;
+};
+
+// Function to set cache entry
+const setCacheEntry = <T>(key: string, data: T): void => {
+  requestCache.set(key, {
+    timestamp: Date.now(),
+    data
+  });
+};
 
 // Define common filter types
 export interface DataFilters {
@@ -134,235 +191,403 @@ export const useSharedTeamMetrics = (filters?: DataFilters) => {
   const [metrics, setMetrics] = useState<TeamMetricsData>(DEFAULT_TEAM_METRICS);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const isMounted = useRef(true);
+  const isInitialRender = useRef(true);
+  const pendingRequest = useRef<boolean>(false);
+  const requestId = useRef<string>(Math.random().toString(36).substring(2, 9));
+  const activeFetch = useRef<AbortController | null>(null);
+  const cacheKey = useMemo(() => getCacheKey(filters), [filters]);
 
-  const fetchTeamMetrics = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      // Timeout for Supabase fetch to prevent hanging UI
-      const callsPromise = new Promise<any[]>(async (resolve, reject) => {
-        try {
-          // Base query for calls
-          let query = supabase.from('calls').select('*');
-          
-          // Apply date range filter if provided
-          if (filters?.dateRange?.from) {
-            const fromDate = filters.dateRange.from.toISOString();
-            query = query.gte('created_at', fromDate);
-          }
-          
-          if (filters?.dateRange?.to) {
-            const toDate = filters.dateRange.to.toISOString();
-            query = query.lte('created_at', toDate);
-          }
-          
-          // Fetch calls data
-          const { data, error } = await query;
-          
-          if (error) throw error;
-          resolve(data || []);
-        } catch (err) {
-          reject(err);
-        }
-      });
-      
-      // Set a timeout fallback for API calls
-      const callsData = await fetchWithTimeout(callsPromise, [], 5000);
-      
-      // Fetch keyword trends with timeout
-      const keywordPromise = new Promise<any[]>(async (resolve, reject) => {
-        try {
-          const { data, error } = await supabase
-            .from('keyword_trends')
-            .select('*')
-            .order('count', { ascending: false })
-            .limit(10);
-            
-          if (error) throw error;
-          resolve(data || []);
-        } catch (err) {
-          reject(err);
-        }
-      });
-      
-      const keywordData = await fetchWithTimeout(keywordPromise, [], 3000);
-      
-      // Calculate metrics from the data we received
-      if (callsData && callsData.length > 0) {
-        // Calculate total calls
-        const totalCalls = callsData.length;
-        
-        // Calculate average sentiment
-        const avgSentiment = callsData.reduce((sum, call) => 
-          sum + (call.sentiment_agent + call.sentiment_customer) / 2, 0) / totalCalls;
-        
-        // Calculate average talk ratio
-        const avgTalkRatioAgent = callsData.reduce((sum, call) => 
-          sum + call.talk_ratio_agent, 0) / totalCalls;
-        
-        const avgTalkRatioCustomer = callsData.reduce((sum, call) => 
-          sum + call.talk_ratio_customer, 0) / totalCalls;
-        
-        // Extract top keywords
-        const topKeywords = keywordData
-          ? keywordData.map(k => k.keyword).slice(0, 5)
-          : [];
-          
-        // Calculate performance score (average of individual call scores)
-        const performanceScore = callsData.reduce((sum, call) => {
-          return sum + calculatePerformanceScore(
-            (call.sentiment_agent + call.sentiment_customer) / 2,
-            { agent: call.talk_ratio_agent, customer: call.talk_ratio_customer },
-            call.duration
-          );
-        }, 0) / totalCalls;
-        
-        // Calculate conversion rate (calls with positive sentiment)
-        const positiveCalls = callsData.filter(call => 
-          (call.sentiment_agent + call.sentiment_customer) / 2 > 0.6
-        ).length;
-        
-        const conversionRate = calculateConversionRate(positiveCalls, totalCalls);
-        
-        // Update metrics
-        const newMetrics = {
-          totalCalls,
-          avgSentiment,
-          avgTalkRatio: {
-            agent: avgTalkRatioAgent,
-            customer: avgTalkRatioCustomer
-          },
-          topKeywords,
-          performanceScore: Math.round(performanceScore),
-          conversionRate
-        };
-        
-        setMetrics(newMetrics);
-        validateDataConsistency('useSharedTeamMetrics', newMetrics, filters);
-      } else {
-        // If we don't have real data, use sensible defaults or cached values
-        // This prevents UI from showing zeros and flickering
-        const cachedMetrics = metrics.totalCalls > 0 ? 
-          metrics : 
-          {
-            ...DEFAULT_TEAM_METRICS,
-            performanceScore: 72,
-            conversionRate: 45,
-            totalCalls: 123,
-            avgSentiment: 0.78
-          };
-          
-        setMetrics(cachedMetrics);
-      }
-      
-      setLastUpdated(new Date().toISOString());
-      setError(null);
-    } catch (error) {
-      console.error('Error fetching shared team metrics:', error);
-      setError(error instanceof Error ? error.message : 'Unknown error');
-      
-      // If there was an error but we have previous data, keep using it
-      if (metrics.totalCalls === 0) {
-        // Use sensible defaults if we have no data at all
-        setMetrics({
-          ...DEFAULT_TEAM_METRICS,
-          performanceScore: 72,
-          conversionRate: 45,
-          totalCalls: 123,
-          avgSentiment: 0.78
-        });
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filters, metrics]);
-
-  // Set up initial fetch and real-time subscription
-  useEffect(() => {
-    fetchTeamMetrics();
+  // Clean fetch function that uses AbortController for cancellation
+  const fetchTeamMetrics = useCallback(() => {
+    // Use a unique request ID to track this specific request instance
+    const currentRequestId = requestId.current;
     
-    // Set up real-time subscription for calls table
+    // Check if a request is already in progress
+    if (pendingRequest.current) {
+      console.log('Skipping duplicate team metrics request - one already in progress');
+      return;
+    }
+    
+    // Check if we have a recent cache entry for this exact filter combination
+    const cachedData = getValidCacheEntry<TeamMetricsData>(cacheKey);
+    if (cachedData) {
+      console.log('Using cached team metrics data');
+      if (isMounted.current) {
+        setMetrics(cachedData);
+        setIsLoading(false);
+      }
+      return;
+    }
+    
+    // Create an AbortController for this fetch
+    const controller = new AbortController();
+    activeFetch.current = controller;
+    
+    // Mark that a request is in progress
+    pendingRequest.current = true;
+    
+    if (isMounted.current) {
+      setIsLoading(true);
+    }
+    
+    // Define the asynchronous fetch operation
+    const doFetch = async () => {
+      try {
+        // Skip if already aborted or component unmounted
+        if (controller.signal.aborted || !isMounted.current || requestId.current !== currentRequestId) {
+          return;
+        }
+        
+        // Instead of fetching from Supabase directly, use our real data fetcher
+        const teamMetricsData = await fetchRealTeamMetrics(filters);
+        
+        // Check if component is unmounted or request was cancelled during await
+        if (controller.signal.aborted || !isMounted.current || requestId.current !== currentRequestId) {
+          console.log('Request cancelled during processing');
+          return;
+        }
+        
+        // Check one last time before updating state
+        if (isMounted.current && !controller.signal.aborted && requestId.current === currentRequestId) {
+          // Cache the result
+          setCacheEntry(cacheKey, teamMetricsData);
+          
+          // Update state
+          setMetrics(teamMetricsData);
+          validateDataConsistency('useSharedTeamMetrics', teamMetricsData, filters);
+          setLastUpdated(new Date().toISOString());
+          setError(null);
+        }
+      } catch (err) {
+        // Only set error if component is still mounted and this request is still relevant
+        if (isMounted.current && !controller.signal.aborted && requestId.current === currentRequestId) {
+          // Check if the error is due to a duplicate request cancellation
+          if (err && typeof err === 'object' && 'message' in err && 
+              (err.message as string).includes('Duplicate request cancelled')) {
+            // Log as warning instead of error for duplicate requests
+            console.warn('Duplicate request for shared team metrics cancelled:', err);
+          } else {
+            // Log actual errors
+            console.error('Error fetching shared team metrics:', err);
+            setError(err instanceof Error ? err : new Error(String(err)));
+          }
+        }
+      } finally {
+        // Only update state if this specific request is still relevant
+        if (isMounted.current && !controller.signal.aborted && requestId.current === currentRequestId) {
+          pendingRequest.current = false;
+          setIsLoading(false);
+          activeFetch.current = null;
+        } else {
+          // Still clean up the pending flag to allow new requests
+          pendingRequest.current = false;
+        }
+      }
+    };
+    
+    // Start the fetch process
+    doFetch();
+    
+    // Return a function that can be used to abort this specific fetch
+    return () => {
+      if (activeFetch.current === controller) {
+        controller.abort();
+        activeFetch.current = null;
+        pendingRequest.current = false;
+      }
+    };
+  }, [cacheKey, filters]);
+
+  // Create a debounced version of fetchTeamMetrics
+  const debouncedFetchTeamMetrics = useCallback(() => {
+    // Generate a new request ID for each debounced call to track it uniquely
+    requestId.current = Math.random().toString(36).substring(2, 9);
+    
+    // Abort any in-progress fetch
+    if (activeFetch.current) {
+      activeFetch.current.abort();
+      activeFetch.current = null;
+    }
+    
+    // Clear pending flag
+    pendingRequest.current = false;
+    
+    // Use a simple timeout instead of debounce utility
+    const timeoutId = setTimeout(() => {
+      if (isMounted.current) {
+        fetchTeamMetrics();
+      }
+    }, 500);
+    
+    // Return cleanup function
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [fetchTeamMetrics]);
+  
+  useEffect(() => {
+    // Cleanup function to collect all the things we need to clean up
+    const cleanupFunctions: Array<() => void> = [];
+    
+    // Skip initial render effect for immediate data
+    if (isInitialRender.current) {
+      isInitialRender.current = false;
+      // Call non-debounced version for initial load
+      const cancelInitialFetch = fetchTeamMetrics();
+      if (cancelInitialFetch) {
+        cleanupFunctions.push(cancelInitialFetch);
+      }
+    } else {
+      // For subsequent loads, use debounced version
+      const cancelDebouncedFetch = debouncedFetchTeamMetrics();
+      if (cancelDebouncedFetch) {
+        cleanupFunctions.push(cancelDebouncedFetch);
+      }
+    }
+    
+    // Set up real-time subscription
     const channel = supabase
-      .channel('shared-calls-changes')
+      .channel('shared-team-changes')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'calls' },
         (payload) => {
-          console.log('Real-time calls update received:', payload);
-          fetchTeamMetrics();
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to calls table');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('Error subscribing to calls table');
-        }
-      });
-      
-    // Set up real-time subscription for keyword_trends table
-    const keywordsChannel = supabase
-      .channel('shared-keywords-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'keyword_trends' },
-        (payload) => {
-          console.log('Real-time keywords update received:', payload);
-          fetchTeamMetrics();
+          console.log('Real-time team update received:', payload);
+          // Generate new request ID to ensure it's tracked separately
+          requestId.current = Math.random().toString(36).substring(2, 9);
+          const cancelRealTimeFetch = debouncedFetchTeamMetrics();
+          if (cancelRealTimeFetch) {
+            // We don't add this to cleanupFunctions because we want it to complete
+            // It will be cleaned up by the next fetch or unmount
+          }
         }
       )
       .subscribe();
       
-    // Set up real-time subscription for sentiment_trends table
-    const sentimentChannel = supabase
-      .channel('shared-sentiment-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'sentiment_trends' },
-        (payload) => {
-          console.log('Real-time sentiment update received:', payload);
-          fetchTeamMetrics();
-        }
-      )
-      .subscribe();
+    // Add channel removal to cleanup
+    cleanupFunctions.push(() => {
+      supabase.removeChannel(channel);
+    });
 
     return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(keywordsChannel);
-      supabase.removeChannel(sentimentChannel);
+      // Execute all cleanup functions
+      cleanupFunctions.forEach(cleanup => cleanup());
+      
+      // Mark component as unmounted
+      isMounted.current = false;
+      
+      // Abort any pending fetch
+      if (activeFetch.current) {
+        activeFetch.current.abort();
+        activeFetch.current = null;
+      }
     };
-  }, [fetchTeamMetrics]);
-
-  // Simulate refresh function - for demo purposes
-  const refreshMetrics = useCallback(() => {
-    setIsLoading(true);
-    
-    // Simulate API delay
-    setTimeout(() => {
-      // Generate slight variations to the existing metrics
-      const updatedMetrics = {
-        ...metrics,
-        totalCalls: Math.max(1, metrics.totalCalls + Math.floor(Math.random() * 5 - 2)),
-        avgSentiment: Math.min(1, Math.max(0, metrics.avgSentiment + (Math.random() * 0.1 - 0.05))),
-        performanceScore: Math.min(100, Math.max(1, metrics.performanceScore + Math.floor(Math.random() * 7 - 3))),
-        conversionRate: Math.min(100, Math.max(1, metrics.conversionRate + Math.floor(Math.random() * 5 - 2))),
-      };
-      
-      setMetrics(updatedMetrics);
-      setLastUpdated(new Date().toISOString());
-      setIsLoading(false);
-      
-      // Show toast notification
-      toast.success("Metrics updated successfully", {
-        description: "Latest data has been loaded"
-      });
-    }, 800);
-  }, [metrics]);
+  }, [fetchTeamMetrics, debouncedFetchTeamMetrics]);
 
   return {
     metrics,
     isLoading,
     lastUpdated,
     error,
-    refreshMetrics
+    refreshMetrics: debouncedFetchTeamMetrics
   };
+};
+
+// Generate mock representative data for demo purposes
+const getMockRepData = (): RepMetricsData[] => {
+  return [
+        {
+          id: "1",
+          name: "Alex Johnson",
+      callVolume: 42,
+      successRate: 78,
+          sentiment: 0.85,
+      insights: [
+        "Consistently addresses customer objections",
+        "Excellent at building rapport",
+        "Could improve on call duration management"
+      ]
+        },
+        {
+          id: "2",
+      name: "Sam Rodriguez",
+      callVolume: 37,
+      successRate: 65,
+          sentiment: 0.72,
+      insights: [
+        "Strong product knowledge",
+        "Needs to improve closing techniques",
+        "Good listening skills"
+      ]
+    },
+    {
+      id: "3", 
+      name: "Jamie Taylor",
+      callVolume: 45,
+      successRate: 82,
+      sentiment: 0.91,
+      insights: [
+        "Top performer in conversion rate",
+        "Excellent at identifying customer needs",
+        "Provides clear value propositions"
+      ]
+    }
+  ];
+};
+
+// Function to fetch real representative metrics from Whisper transcriptions
+const fetchRealRepMetrics = async (filters?: DataFilters): Promise<RepMetricsData[]> => {
+  try {
+    // Fetch real transcriptions from WhisperService
+    const transcriptions = await getStoredTranscriptions();
+    
+    if (!transcriptions || transcriptions.length === 0) {
+      return []; // Return empty array if no transcriptions
+    }
+    
+    // Filter transcriptions based on date range if provided
+    let filteredTranscriptions = [...transcriptions];
+    if (filters?.dateRange?.from) {
+      filteredTranscriptions = filteredTranscriptions.filter(t => 
+        new Date(t.date) >= new Date(filters.dateRange.from)
+      );
+    }
+    
+    if (filters?.dateRange?.to) {
+      filteredTranscriptions = filteredTranscriptions.filter(t => 
+        new Date(t.date) <= new Date(filters.dateRange.to)
+      );
+    }
+    
+    // Group transcriptions by rep (speakerName)
+    const repTranscriptionsMap = new Map<string, StoredTranscription[]>();
+    
+    // First, identify all unique rep IDs/names
+    const repIds = new Set<string>();
+    filteredTranscriptions.forEach(t => {
+      const repId = t.speakerName || 'Unknown';
+      repIds.add(repId);
+    });
+    
+    // If specific rep IDs are requested, filter to just those
+    const targetRepIds = filters?.repIds && filters.repIds.length > 0 
+      ? filters.repIds 
+      : Array.from(repIds);
+    
+    // Group transcriptions by rep ID
+    filteredTranscriptions.forEach(t => {
+      const repId = t.speakerName || 'Unknown';
+      
+      // Skip if not in our target rep IDs
+      if (!targetRepIds.includes(repId)) {
+        return;
+      }
+      
+      if (!repTranscriptionsMap.has(repId)) {
+        repTranscriptionsMap.set(repId, []);
+      }
+      
+      repTranscriptionsMap.get(repId)?.push(t);
+    });
+    
+    // Calculate metrics for each rep
+    const repMetrics: RepMetricsData[] = [];
+    
+    repTranscriptionsMap.forEach((repTranscriptions, repId) => {
+      // Calculate call volume
+      const callVolume = repTranscriptions.length;
+      
+      // Calculate success rate
+      const successfulCalls = repTranscriptions.filter(t => 
+        t.sentiment === 'positive' || 
+        (t.callScore !== undefined && t.callScore > 70)
+      ).length;
+      
+      const successRate = callVolume > 0 ? (successfulCalls / callVolume) * 100 : 0;
+      
+      // Calculate average sentiment
+      const totalSentiment = repTranscriptions.reduce((sum, t) => {
+        // Determine sentiment score (convert text sentiment to numeric)
+        const sentimentScore = 
+          t.sentiment === 'positive' ? 0.8 :
+          t.sentiment === 'negative' ? 0.3 : 0.6; // neutral or undefined
+        return sum + sentimentScore;
+      }, 0);
+      
+      const avgSentiment = callVolume > 0 ? totalSentiment / callVolume : 0;
+      
+      // Generate insights for this rep
+      const insights: string[] = [];
+      
+      // Add sentiment-based insight
+      if (avgSentiment > 0.7) {
+        insights.push("Consistently achieves positive customer sentiment");
+      } else if (avgSentiment < 0.5) {
+        insights.push("Opportunity to improve customer sentiment");
+      }
+      
+      // Add success rate insight
+      if (successRate > 75) {
+        insights.push("High conversion rate on calls");
+      } else if (successRate < 50) {
+        insights.push("Could improve call outcomes");
+      }
+      
+      // Add volume-based insight
+      if (callVolume > 10) {
+        insights.push("Handles high call volume effectively");
+      }
+      
+      // Add keyword-based insights if available
+      const keywordMap: Record<string, number> = {};
+      repTranscriptions.forEach(t => {
+        if (t.keywords && Array.isArray(t.keywords)) {
+          t.keywords.forEach(keyword => {
+            if (typeof keyword === 'string') {
+              keywordMap[keyword] = (keywordMap[keyword] || 0) + 1;
+            }
+          });
+        }
+      });
+      
+      // Get top keywords for this rep
+      const topKeywords = Object.entries(keywordMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([keyword]) => keyword);
+        
+      if (topKeywords.length > 0) {
+        insights.push(`Frequently discusses: ${topKeywords.join(', ')}`);
+      }
+      
+      // Ensure we have at least 3 insights
+      while (insights.length < 3) {
+        insights.push("Continue applying successful call techniques");
+      }
+      
+      // Limit to top 3 insights
+      const limitedInsights = insights.slice(0, 3);
+      
+      // Add this rep's metrics to the results
+      repMetrics.push({
+        id: repId,
+        name: repId, // Use the repId as name since that's what we have
+        callVolume,
+        successRate,
+        sentiment: avgSentiment,
+        insights: limitedInsights
+      });
+    });
+    
+    // Sort by call volume (highest first)
+    repMetrics.sort((a, b) => b.callVolume - a.callVolume);
+    
+    return repMetrics;
+    } catch (error) {
+    console.error('Error fetching real rep metrics:', error);
+    return []; // Return empty array on error
+  }
 };
 
 // Hook for shared rep metrics data
@@ -370,97 +595,140 @@ export const useSharedRepMetrics = (filters?: DataFilters) => {
   const [metrics, setMetrics] = useState<RepMetricsData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const isMounted = useRef(true);
+  const isInitialRender = useRef(true);
+  const pendingRequest = useRef<boolean>(false);
+  const requestId = useRef<string>(Math.random().toString(36).substring(2, 9));
+  const activeFetch = useRef<AbortController | null>(null);
+  const cacheKey = useMemo(() => getCacheKey(filters), [filters]);
 
-  const fetchRepMetrics = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      // Mock data for now - in a real implementation this would fetch from Supabase
-      // filtered by the provided filters
-      const mockReps: RepMetricsData[] = [
-        {
-          id: "1",
-          name: "Alex Johnson",
-          callVolume: 145,
-          successRate: 72,
-          sentiment: 0.85,
-          insights: ["Excellent rapport building", "Good at overcoming objections"]
-        },
-        {
-          id: "2",
-          name: "Maria Garcia",
-          callVolume: 128,
-          successRate: 68,
-          sentiment: 0.79,
-          insights: ["Strong product knowledge", "Could improve closing"]
-        },
-        {
-          id: "3",
-          name: "David Kim",
-          callVolume: 103,
-          successRate: 62,
-          sentiment: 0.72,
-          insights: ["Good discovery questions", "Needs work on follow-up"]
-        },
-        {
-          id: "4",
-          name: "Sarah Williams",
-          callVolume: 137,
-          successRate: 75,
-          sentiment: 0.82,
-          insights: ["Excellent at building trust", "Clear communication"]
-        },
-        {
-          id: "5",
-          name: "James Taylor",
-          callVolume: 95,
-          successRate: 58,
-          sentiment: 0.67,
-          insights: ["Good technical knowledge", "Needs improvement in listening"]
-        }
-      ];
-      
-      // Apply filters if provided
-      let filteredReps = [...mockReps];
-      
-      if (filters?.repIds && filters.repIds.length > 0) {
-        filteredReps = filteredReps.filter(rep => filters.repIds?.includes(rep.id));
-      }
-      
-      setMetrics(filteredReps);
-      validateDataConsistency('useSharedRepMetrics', { totalCalls: filteredReps.reduce((sum, rep) => sum + rep.callVolume, 0) }, filters);
-      setLastUpdated(new Date().toISOString());
-    } catch (error) {
-      console.error('Error fetching shared rep metrics:', error);
-    } finally {
-      setIsLoading(false);
+  const fetchRepMetrics = useCallback(() => {
+    // Use a unique request ID to track this specific request instance
+    const currentRequestId = requestId.current;
+    
+    // Check if a request is already in progress
+    if (pendingRequest.current) {
+      console.log('Skipping duplicate rep metrics request - one already in progress');
+      return;
     }
-  }, [filters]);
+    
+    // Check if we have a recent cache entry for this exact filter combination
+    const cachedData = getValidCacheEntry<RepMetricsData[]>(cacheKey);
+    if (cachedData) {
+      console.log('Using cached rep metrics data');
+      if (isMounted.current) {
+        setMetrics(cachedData);
+        setIsLoading(false);
+      }
+      return;
+    }
+    
+    // Create an AbortController for this fetch
+    const controller = new AbortController();
+    activeFetch.current = controller;
+    
+    // Mark that a request is in progress
+    pendingRequest.current = true;
+    
+    if (isMounted.current) {
+      setIsLoading(true);
+    }
+    
+    // Define the asynchronous fetch operation
+    const doFetch = async () => {
+      try {
+        // Skip if already aborted or component unmounted
+        if (controller.signal.aborted || !isMounted.current || requestId.current !== currentRequestId) {
+          return;
+        }
+        
+        // Use real data from Whisper instead of mock data
+        const repMetricsData = await fetchRealRepMetrics(filters);
+        
+        // Check if component is unmounted or request was cancelled during await
+        if (controller.signal.aborted || !isMounted.current || requestId.current !== currentRequestId) {
+          console.log('Request cancelled during processing');
+          return;
+        }
+        
+        // Check one last time before updating state
+        if (isMounted.current && !controller.signal.aborted && requestId.current === currentRequestId) {
+          // Cache the result
+          setCacheEntry(cacheKey, repMetricsData);
+          
+          // Update state
+          setMetrics(repMetricsData);
+          setLastUpdated(new Date().toISOString());
+          setError(null);
+        }
+      } catch (err) {
+        // Only set error if component is still mounted and this request is still relevant
+        if (isMounted.current && !controller.signal.aborted && requestId.current === currentRequestId) {
+          // Check if the error is due to a duplicate request cancellation
+          if (err && typeof err === 'object' && 'message' in err && 
+              (err.message as string).includes('Duplicate request cancelled')) {
+            // Log as warning instead of error for duplicate requests
+            console.warn('Duplicate request for shared rep metrics cancelled:', err);
+          } else {
+            // Log actual errors
+            console.error('Error fetching shared rep metrics:', err);
+            setError(err instanceof Error ? err : new Error(String(err)));
+          }
+        }
+    } finally {
+        // Only update state if this specific request is still relevant
+        if (isMounted.current && !controller.signal.aborted && requestId.current === currentRequestId) {
+          pendingRequest.current = false;
+      setIsLoading(false);
+          activeFetch.current = null;
+        } else {
+          // Still clean up the pending flag to allow new requests
+          pendingRequest.current = false;
+        }
+      }
+    };
+    
+    // Start the fetch process
+    doFetch();
+    
+    // Return a function that can be used to abort this specific fetch
+    return () => {
+      if (activeFetch.current === controller) {
+        controller.abort();
+        activeFetch.current = null;
+        pendingRequest.current = false;
+      }
+    };
+  }, [cacheKey, filters]);
+
+  // Create a debounced version of fetchRepMetrics
+  const debouncedFetchRepMetrics = useCallback(
+    debounce(fetchRepMetrics, 500),
+    [fetchRepMetrics]
+  );
 
   useEffect(() => {
-    fetchRepMetrics();
+    // Skip initial render effect for immediate data
+    if (isInitialRender.current) {
+      isInitialRender.current = false;
+      fetchRepMetrics(); // Call non-debounced version for initial load
+    } else {
+      debouncedFetchRepMetrics();
+    }
     
-    // Set up real-time subscription (would connect to relevant tables in a real implementation)
-    const channel = supabase
-      .channel('shared-rep-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'calls' },
-        (payload) => {
-          console.log('Real-time rep update received:', payload);
-          fetchRepMetrics();
-        }
-      )
-      .subscribe();
-
+    // Setup cleanup
     return () => {
-      supabase.removeChannel(channel);
+      isMounted.current = false;
     };
-  }, [fetchRepMetrics]);
+  }, [fetchRepMetrics, debouncedFetchRepMetrics]);
 
   return {
     metrics,
     isLoading,
     lastUpdated,
-    refreshMetrics: fetchRepMetrics
+    error,
+    refreshMetrics: debouncedFetchRepMetrics
   };
 };
 
@@ -469,6 +737,13 @@ export const useSharedKeywordData = (filters?: DataFilters) => {
   const [keywords, setKeywords] = useState<KeywordData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  
+  // Cached keywords for use across components
+  const [cachedKeywords, setCachedKeywords] = useState<Record<string, string[]>>({
+    positive: [],
+    neutral: [],
+    negative: []
+  });
 
   const fetchKeywordData = useCallback(async () => {
     setIsLoading(true);
@@ -479,7 +754,16 @@ export const useSharedKeywordData = (filters?: DataFilters) => {
         .select('*')
         .order('count', { ascending: false });
         
-      // TODO: Add date filtering when keyword_trends has timestamps
+      // Apply date filtering if available
+      if (filters?.dateRange?.from) {
+        const fromDate = filters.dateRange.from.toISOString();
+        query = query.gte('last_used', fromDate);
+      }
+      
+      if (filters?.dateRange?.to) {
+        const toDate = filters.dateRange.to.toISOString();
+        query = query.lte('last_used', toDate);
+      }
       
       const { data, error } = await query;
       
@@ -487,6 +771,21 @@ export const useSharedKeywordData = (filters?: DataFilters) => {
       
       if (data) {
         setKeywords(data);
+        
+        // Update cached keywords by category
+        const keywordsByCategory: Record<string, string[]> = {
+          positive: [],
+          neutral: [],
+          negative: []
+        };
+        
+        data.forEach(keyword => {
+          if (keyword.category && keywordsByCategory[keyword.category]) {
+            keywordsByCategory[keyword.category].push(keyword.keyword);
+          }
+        });
+        
+        setCachedKeywords(keywordsByCategory);
         setLastUpdated(new Date().toISOString());
       }
     } catch (error) {
@@ -518,6 +817,7 @@ export const useSharedKeywordData = (filters?: DataFilters) => {
 
   return {
     keywords,
+    keywordsByCategory: cachedKeywords,
     isLoading,
     lastUpdated,
     refreshKeywords: fetchKeywordData
@@ -619,4 +919,317 @@ export const useSharedFilters = () => {
     filters,
     updateFilters
   };
+};
+
+// Hook for accessing transcript data
+interface MockTranscript {
+  id: string;
+  created_at: string;
+  duration: number;
+  filename: string;
+  user_id: string;
+  sentiment: string;
+  keywords: string[];
+}
+
+export const useTranscripts = (filters?: DataFilters) => {
+  const [transcripts, setTranscripts] = useState<MockTranscript[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const isMounted = useRef(true);
+  const isInitialRender = useRef(true);
+  const pendingRequest = useRef<boolean>(false);
+  const cacheKey = useMemo(() => getCacheKey(filters), [filters]);
+
+  const fetchTranscripts = useCallback(async () => {
+    // Check if a request is already in progress
+    if (pendingRequest.current) {
+      console.log('Skipping duplicate transcripts request - one already in progress');
+      return;
+    }
+    
+    // Check if we have a recent cache entry for this exact filter combination
+    const cachedData = getValidCacheEntry<MockTranscript[]>(cacheKey);
+    if (cachedData) {
+      console.log('Using cached transcripts data');
+      if (isMounted.current) {
+        setTranscripts(cachedData);
+        setIsLoading(false);
+      }
+      return;
+    }
+    
+    // Mark that a request is in progress
+    pendingRequest.current = true;
+    if (isMounted.current) {
+      setIsLoading(true);
+    }
+    
+    try {
+      // Generate mock transcript data instead of fetching from database
+      const mockTranscripts = [
+        {
+          id: "transcript1",
+          created_at: new Date().toISOString(),
+          duration: 320,
+          filename: "call_acme_corp.mp3",
+          user_id: "1",
+          sentiment: "positive",
+          keywords: ["product", "features", "pricing", "demo"]
+        },
+        {
+          id: "transcript2",
+          created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          duration: 450,
+          filename: "call_globex_inc.mp3",
+          user_id: "1",
+          sentiment: "neutral",
+          keywords: ["technical", "support", "installation"]
+        },
+        {
+          id: "transcript3",
+          created_at: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+          duration: 280,
+          filename: "call_stark_industries.mp3",
+          user_id: "2",
+          sentiment: "positive",
+          keywords: ["features", "integration", "pricing"]
+        },
+        {
+          id: "transcript4",
+          created_at: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
+          duration: 350,
+          filename: "call_wayne_enterprises.mp3",
+          user_id: "2",
+          sentiment: "negative",
+          keywords: ["technical", "issue", "bugs"]
+        },
+        {
+          id: "transcript5",
+          created_at: new Date(Date.now() - 96 * 60 * 60 * 1000).toISOString(),
+          duration: 400,
+          filename: "call_umbrella_corp.mp3",
+          user_id: "3",
+          sentiment: "positive",
+          keywords: ["pricing", "demo", "contract"]
+        }
+      ];
+      
+      // Apply filters if provided
+      let filteredTranscripts = [...mockTranscripts];
+      
+      if (filters?.dateRange?.from) {
+        const fromDate = new Date(filters.dateRange.from);
+        filteredTranscripts = filteredTranscripts.filter(t => 
+          new Date(t.created_at) >= fromDate
+        );
+      }
+      
+      if (filters?.dateRange?.to) {
+        const toDate = new Date(filters.dateRange.to);
+        filteredTranscripts = filteredTranscripts.filter(t => 
+          new Date(t.created_at) <= toDate
+        );
+      }
+      
+      if (filters?.repIds && filters.repIds.length > 0) {
+        filteredTranscripts = filteredTranscripts.filter(t => 
+          filters.repIds.includes(t.user_id)
+        );
+      }
+      
+      if (isMounted.current) {
+        setCacheEntry(cacheKey, filteredTranscripts);
+        setTranscripts(filteredTranscripts);
+        setError(null);
+      }
+    } catch (err) {
+      console.error('Error fetching transcripts:', err);
+      if (isMounted.current) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    } finally {
+      pendingRequest.current = false;
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [cacheKey, filters]);
+  
+  // Create a debounced version of fetchTranscripts
+  const debouncedFetchTranscripts = useCallback(
+    debounce(fetchTranscripts, 500),
+    [fetchTranscripts]
+  );
+  
+  useEffect(() => {
+    // Skip initial render effect for immediate data
+    if (isInitialRender.current) {
+      isInitialRender.current = false;
+      fetchTranscripts(); // Call non-debounced version for initial load
+    } else {
+      debouncedFetchTranscripts();
+    }
+    
+    // Cleanup
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchTranscripts, debouncedFetchTranscripts]);
+  
+  return {
+    transcripts,
+    isLoading,
+    error,
+    fetchTranscripts: debouncedFetchTranscripts
+  };
+};
+
+// Replace mock data functions with real data fetchers
+const fetchRealTeamMetrics = async (filters?: DataFilters): Promise<TeamMetricsData> => {
+  try {
+    // Fetch real transcriptions from WhisperService
+    const transcriptions = await getStoredTranscriptions();
+    
+    if (!transcriptions || transcriptions.length === 0) {
+      return DEFAULT_TEAM_METRICS;
+    }
+    
+    // Filter transcriptions based on date range if provided
+    let filteredTranscriptions = [...transcriptions];
+    if (filters?.dateRange?.from) {
+      filteredTranscriptions = filteredTranscriptions.filter(t => 
+        new Date(t.date) >= new Date(filters.dateRange.from)
+      );
+    }
+    
+    if (filters?.dateRange?.to) {
+      filteredTranscriptions = filteredTranscriptions.filter(t => 
+        new Date(t.date) <= new Date(filters.dateRange.to)
+      );
+    }
+    
+    // Filter by rep IDs if provided (we'll need to check this field exists or find an alternative)
+    if (filters?.repIds && filters.repIds.length > 0) {
+      filteredTranscriptions = filteredTranscriptions.filter(t => {
+        // Try to match rep ID from speakerName or other identifiers
+        const repId = t.speakerName || '';
+        return filters.repIds.includes(repId);
+      });
+    }
+    
+    // Calculate real metrics from transcription data
+    const totalCalls = filteredTranscriptions.length;
+    
+    // Calculate average sentiment
+    const totalSentiment = filteredTranscriptions.reduce((sum, t) => {
+      // Determine sentiment score (convert text sentiment to numeric)
+      const sentimentScore = 
+        t.sentiment === 'positive' ? 0.8 :
+        t.sentiment === 'negative' ? 0.3 : 0.6; // neutral or undefined
+      return sum + sentimentScore;
+    }, 0);
+    
+    const avgSentiment = totalCalls > 0 ? totalSentiment / totalCalls : 0;
+    
+    // Extract talk ratio from transcription data - use transcript_segments to calculate
+    const talkRatios = filteredTranscriptions.map(t => {
+      // Estimate from segments if available
+      if (t.transcript_segments && Array.isArray(t.transcript_segments)) {
+        let agentTime = 0;
+        let customerTime = 0;
+        
+        t.transcript_segments.forEach(segment => {
+          if (segment.speaker === 'agent') {
+            agentTime += segment.end - segment.start;
+          } else if (segment.speaker === 'customer') {
+            customerTime += segment.end - segment.start;
+          }
+        });
+        
+        const totalTime = agentTime + customerTime;
+        if (totalTime > 0) {
+          return {
+            agent: Math.round((agentTime / totalTime) * 100),
+            customer: Math.round((customerTime / totalTime) * 100)
+          };
+        }
+      }
+      
+      // Default if we can't determine
+      return { agent: 50, customer: 50 };
+    });
+    
+    // Calculate average talk ratio across all calls
+    const avgTalkRatio = {
+      agent: totalCalls > 0 ? 
+        talkRatios.reduce((sum, ratio) => sum + ratio.agent, 0) / totalCalls : 50,
+      customer: totalCalls > 0 ? 
+        talkRatios.reduce((sum, ratio) => sum + ratio.customer, 0) / totalCalls : 50
+    };
+    
+    // Instead of extracting keywords from transcriptions directly,
+    // fetch the latest keywords from the shared keyword data system
+    let topKeywords: string[] = [];
+    
+    try {
+      const { data } = await supabase
+        .from('keyword_trends')
+        .select('keyword, count, category')
+        .order('count', { ascending: false })
+        .limit(10);
+      
+      if (data && data.length > 0) {
+        topKeywords = data.map(k => k.keyword);
+      }
+    } catch (keywordError) {
+      console.error('Error fetching shared keywords:', keywordError);
+      
+      // Fallback to extracting from transcriptions
+      const keywordCounts: Record<string, number> = {};
+      filteredTranscriptions.forEach(t => {
+        if (t.keywords && Array.isArray(t.keywords)) {
+          t.keywords.forEach(keyword => {
+            if (typeof keyword === 'string') {
+              keywordCounts[keyword] = (keywordCounts[keyword] || 0) + 1;
+            }
+          });
+        }
+      });
+      
+      topKeywords = Object.entries(keywordCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([keyword]) => keyword);
+    }
+    
+    // Calculate performance score based on sentiment, talk ratio, and duration
+    const avgDuration = filteredTranscriptions.reduce((sum, t) => sum + (t.duration || 0), 0) / Math.max(1, totalCalls);
+    
+    const performanceScore = calculatePerformanceScore(
+      avgSentiment,
+      avgTalkRatio,
+      avgDuration
+    );
+    
+    // Calculate conversion rate (success rate)
+    const successfulCalls = filteredTranscriptions.filter(t => 
+      t.sentiment === 'positive' || 
+      (t.callScore !== undefined && t.callScore > 70)
+    ).length;
+    
+    const conversionRate = totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 0;
+    
+    return {
+      totalCalls,
+      avgSentiment,
+      avgTalkRatio,
+      topKeywords,
+      performanceScore,
+      conversionRate
+    };
+  } catch (error) {
+    console.error('Error fetching real team metrics:', error);
+    return DEFAULT_TEAM_METRICS;
+  }
 };

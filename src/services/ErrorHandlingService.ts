@@ -1,4 +1,3 @@
-
 import { toast } from 'sonner';
 import { PostgrestError, PostgrestSingleResponse } from '@supabase/supabase-js';
 
@@ -10,7 +9,7 @@ export interface ErrorDetails {
   severity?: ErrorSeverity;
   code?: string;
   actionable?: boolean;
-  retry?: () => Promise<any>;
+  retry?: () => Promise<unknown>;
 }
 
 /**
@@ -75,10 +74,16 @@ class ErrorHandlingService {
       // Use a tiny request to measure latency
       const start = performance.now();
       
-      // Request a tiny resource or use the Supabase server
-      await fetch('https://yfufpcxkerovnijhodrr.supabase.co/ping', { 
+      // Use a relative URL to avoid CORS issues
+      await fetch('/api/ping', { 
         method: 'HEAD',
         cache: 'no-store'
+      }).catch(async () => {
+        // Fallback: if we can't reach our own server, try a simple image request
+        await fetch('/assets/favicon.ico', { 
+          method: 'HEAD',
+          cache: 'no-store'
+        });
       });
       
       const end = performance.now();
@@ -152,10 +157,29 @@ class ErrorHandlingService {
   }
 
   /**
-   * Check if the application is currently offline
+   * Get the current offline status
    */
-  public get isOffline(): boolean {
+  get isOffline(): boolean {
     return this._isOffline;
+  }
+  
+  /**
+   * Set the offline status and notify listeners
+   * @param offline Whether the application is offline
+   */
+  public setOffline(offline: boolean): void {
+    if (this._isOffline !== offline) {
+      console.log(`Setting connection status to: ${offline ? 'offline' : 'online'}`);
+      this._isOffline = offline;
+      this._connectionListeners.forEach(listener => listener(!offline));
+      
+      // Dispatch event for other components to listen for
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(
+          offline ? 'supabase-connection-lost' : 'supabase-connection-restored'
+        ));
+      }
+    }
   }
   
   /**
@@ -321,7 +345,7 @@ export const withErrorHandling = async <T>(
   fallback: PostgrestSingleResponse<T>,
   context: string,
   options?: {
-    retry?: () => Promise<any>,
+    retry?: () => Promise<unknown>,
     message?: string
   }
 ): Promise<PostgrestSingleResponse<T>> => {
@@ -340,3 +364,37 @@ export const withErrorHandling = async <T>(
     return fallback;
   }
 };
+
+// Function to handle and log errors
+export function handleError(
+  error: unknown, 
+  context: string, 
+  errorDetails: {
+    message: string, 
+    technical?: unknown, 
+    severity: 'warning' | 'error' | 'info', 
+    code: string
+  }
+) {
+  // Ensure we have a technical details object
+  if (!errorDetails.technical) {
+    errorDetails.technical = {};
+  }
+  
+  // Add the original error to technical details for better debugging
+  if (error && typeof error === 'object') {
+    errorDetails.technical = {
+      ...errorDetails.technical as Record<string, unknown>,
+      originalError: error
+    };
+  }
+  
+  // Log to console with context
+  if (errorDetails.technical) {
+    console.error(`Error [${context}]:`, errorDetails.technical, error);
+  } else {
+    console.error(`Error [${context}]:`, error);
+  }
+  
+  // Rest of the error handling code follows...
+}

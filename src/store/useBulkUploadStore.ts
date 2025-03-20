@@ -1,27 +1,45 @@
-
 import { create } from 'zustand';
 import { supabase } from '@/integrations/supabase/client';
+import { Json } from '@/integrations/supabase/types';
 
 export type UploadStatus = 'queued' | 'processing' | 'complete' | 'error';
 
+// Type for file being processed
 export interface BulkUploadFile {
   id: string;
   file: File;
   status: UploadStatus;
   progress: number;
-  result?: string;
-  error?: string;
-  transcriptId?: string;
-  lastUpdated?: number; // Add timestamp for tracking updates
+  createdAt: string;
+  userId: string;
+  transcriptId: string | null;
+  error: string | null;
+  result: string | null;
+  lastUpdated?: number; // Timestamp of last status update
+}
+
+// Type for history records from database
+export interface UploadHistoryRecord {
+  id: string;
+  filename: string;
+  created_at: string;
+  user_id: string;
+  duration: number;
+  call_score: number;
+  sentiment: string;
+  text: string;
+  keywords: string[];
+  transcript_segments: Json;
 }
 
 interface BulkUploadStore {
   files: BulkUploadFile[];
   isProcessing: boolean;
-  uploadHistory: any[];
+  uploadHistory: UploadHistoryRecord[]; // History from database
   hasLoadedHistory: boolean;
   processingLock: boolean; // Add lock to prevent concurrent processing
-  addFiles: (files: File[]) => void;
+  userId?: string; // User ID to associate with uploads
+  addFiles: (files: File[], userId?: string) => void;
   updateFileStatus: (id: string, status: UploadStatus, progress: number, result?: string, error?: string, transcriptId?: string) => void;
   removeFile: (id: string) => void;
   clearCompleted: () => void;
@@ -38,31 +56,32 @@ export const useBulkUploadStore = create<BulkUploadStore>((set, get) => ({
   uploadHistory: [],
   hasLoadedHistory: false,
   processingLock: false,
+  userId: undefined,
   
-  addFiles: (files: File[]) => {
-    // Deduplicate files by name
-    const existingFileNames = new Set(get().files.map(f => f.file.name));
+  addFiles: (files: File[], userId?: string) => {
+    console.log(`Adding ${files.length} files to queue with userId: ${userId || 'undefined'}`);
     
-    const newFiles = files
-      .filter(file => !existingFileNames.has(file.name))
-      .map(file => ({
-        id: crypto.randomUUID(),
+    set(state => {
+      const newFiles = Array.from(files).map(file => ({
+        id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         file,
         status: 'queued' as UploadStatus,
         progress: 0,
-        lastUpdated: Date.now()
+        createdAt: new Date().toISOString(),
+        userId: userId || state.userId || 'unknown',
+        transcriptId: null,
+        error: null,
+        result: null
       }));
-    
-    if (newFiles.length === 0) {
-      console.log('No new files to add (all duplicates)');
-      return;
-    }
-    
-    set(state => ({
-      files: [...state.files, ...newFiles]
-    }));
-    
-    console.log(`Added ${newFiles.length} files to upload queue`);
+      
+      console.log(`Created ${newFiles.length} new file objects with status queued`);
+      console.log(`First file userId: ${newFiles[0]?.userId}`);
+      
+      return { 
+        files: [...state.files, ...newFiles],
+        userId: userId || state.userId
+      };
+    });
   },
   
   updateFileStatus: (id, status, progress, result, error, transcriptId) => {

@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
@@ -8,8 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from "@/components/ui/use-toast";
 import { useEventsStore } from '@/services/events';
+import { EventTypeEnum } from '@/services/events/types';
 import { useBulkUploadService, BulkUploadFilter } from '@/services/BulkUploadService';
 import { Progress } from "@/components/ui/progress";
+import { useWhisperService } from '@/services/WhisperService';
 
 interface CSVData {
   filename: string;
@@ -23,53 +24,134 @@ interface CSVData {
 const BulkUploadProcessor: React.FC = () => {
   const [csvData, setCsvData] = useState<CSVData[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [processingProgress, setProcessingProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [modelName, setModelName] = useState('');
-  const { refreshTranscripts } = useBulkUploadService();
+  const { 
+    refreshTranscripts, 
+    processQueue, 
+    isProcessing: isServiceProcessing,
+    setAssignedUserId
+  } = useBulkUploadService();
   const { toast } = useToast();
-	const dispatchEvent = useEventsStore((state) => state.dispatchEvent);
+  const dispatchEvent = useEventsStore((state) => state.dispatchEvent);
+  const { setApiKey: setWhisperApiKey, saveTranscriptionWithAnalysis } = useWhisperService();
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      const file = acceptedFiles[0];
-      Papa.parse(file, {
-        header: true,
-        complete: (results) => {
-          if (results.data && results.data.length > 0) {
-            // Type assertion to CSVData[]
-            setCsvData(results.data as CSVData[]);
-          } else {
-            toast({
-              variant: "destructive",
-              title: "Upload error",
-              description: "Could not parse CSV file."
-            });
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    console.log(`Received ${acceptedFiles.length} files:`, acceptedFiles.map(f => ({
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      extension: f.name.split('.').pop()?.toLowerCase()
+    })));
+    
+    // Filter out non-audio files
+    const audioFiles = acceptedFiles.filter(file => {
+      const isAudio = file.type.startsWith('audio/');
+      if (!isAudio) {
+        console.warn(`Rejected file ${file.name} (type: ${file.type}) as it's not a valid audio file`);
+      }
+      return isAudio;
+    });
+    
+    console.log(`${audioFiles.length} of ${acceptedFiles.length} files passed audio validation`);
+    
+    if (audioFiles.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "No valid audio files",
+        description: "Please upload audio files only (WAV, MP3, etc.)"
+      });
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadProgress(0);
+    dispatchEvent(EventTypeEnum.UPLOAD_STARTED);
+    
+    // Save the API key for Whisper service
+    setWhisperApiKey(apiKey);
+    localStorage.setItem("openai_api_key", apiKey);
+
+    try {
+      const totalRows = audioFiles.length;
+      
+      // Process CSV data directly instead of converting to audio files
+      let successCount = 0;
+      
+      // Set initial progress
+      setUploadProgress(10);
+      
+      // Process each row in the CSV
+      for (let i = 0; i < audioFiles.length; i++) {
+        const file = audioFiles[i];
+        const progress = Math.round((i / totalRows) * 80) + 10; // Progress from 10% to 90%
+        setUploadProgress(progress);
+        
+        try {
+          // Use saveTranscriptionWithAnalysis to directly create transcript from text
+          const result = await saveTranscriptionWithAnalysis(
+            file.name,
+            file,
+            file.name
+          );
+          
+          successCount++;
+          
+          // Log success
+          console.log(`Processed CSV row ${i + 1}/${totalRows}: ${file.name}`);
+          
+          // Small delay between processing to prevent overwhelming the system
+          if (i < audioFiles.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
-        },
-        error: (error) => {
-          toast({
-            variant: "destructive",
-            title: "Upload error",
-            description: error.message
-          });
+        } catch (rowError) {
+          console.error(`Error processing CSV row ${i + 1}:`, rowError);
         }
+      }
+      
+      // Completed processing
+      setUploadProgress(100);
+      setIsUploading(false);
+      
+      // Force refresh of transcript data
+      await refreshTranscripts({ force: true });
+      
+      // Trigger UI update
+      window.dispatchEvent(new CustomEvent('transcriptions-updated'));
+      
+      // Notify completion
+      dispatchEvent(EventTypeEnum.BULK_UPLOAD_COMPLETED, {
+        fileCount: audioFiles.length,
+        successCount: successCount
+      });
+      
+      toast({
+        title: "Upload complete",
+        description: `Successfully processed ${successCount} of ${audioFiles.length} items.`,
+      });
+    } catch (error) {
+      console.error('Bulk upload process failed:', error);
+      setIsUploading(false);
+      dispatchEvent(EventTypeEnum.UPLOAD_ERROR, { error });
+      toast({
+        variant: "destructive",
+        title: "Upload error",
+        description: error instanceof Error ? error.message : "Unknown error"
       });
     }
-  }, [toast]);
+  }, [apiKey, dispatchEvent, refreshTranscripts, saveTranscriptionWithAnalysis, setWhisperApiKey, toast]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: {
     'text/csv': ['.csv']
   } });
 
   const uploadData = async () => {
-    if (!apiKey || !modelName) {
+    if (!apiKey) {
       toast({
         variant: "destructive",
         title: "Configuration required",
-        description: "Please provide both API Key and Model Name."
+        description: "Please provide an OpenAI API Key."
       });
       return;
     }
@@ -85,99 +167,77 @@ const BulkUploadProcessor: React.FC = () => {
 
     setIsUploading(true);
     setUploadProgress(0);
-    dispatchEvent('upload-started' as any);
+    dispatchEvent(EventTypeEnum.UPLOAD_STARTED);
+    
+    // Save the API key for Whisper service
+    setWhisperApiKey(apiKey);
+    localStorage.setItem("openai_api_key", apiKey);
 
     try {
       const totalRows = csvData.length;
-      let uploadedCount = 0;
-
-      for (const data of csvData) {
+      
+      // Process CSV data directly instead of converting to audio files
+      let successCount = 0;
+      
+      // Set initial progress
+      setUploadProgress(10);
+      
+      // Process each row in the CSV
+      for (let i = 0; i < csvData.length; i++) {
+        const row = csvData[i];
+        const progress = Math.round((i / totalRows) * 80) + 10; // Progress from 10% to 90%
+        setUploadProgress(progress);
+        
         try {
-          dispatchEvent('upload-progress' as any, { progress: (uploadedCount / totalRows) * 100 });
-          setUploadProgress((uploadedCount / totalRows) * 100);
-
-          // Mock upload functionality since we don't have the actual uploadTranscript method
-          await new Promise(resolve => setTimeout(resolve, 500)); // Simulate upload time
-
-          uploadedCount++;
-          dispatchEvent('upload-progress' as any, { progress: (uploadedCount / totalRows) * 100 });
-          setUploadProgress((uploadedCount / totalRows) * 100);
-        } catch (uploadError: any) {
-          console.error('Upload failed for row:', data, uploadError);
-          toast({
-            variant: "destructive",
-            title: "Upload error",
-            description: `Failed to upload row: ${data.filename || 'Unknown'}. ${uploadError?.message || 'Unknown error'}`
-          });
-          dispatchEvent('upload-error' as any, { error: uploadError });
+          // Use saveTranscriptionWithAnalysis to directly create transcript from text
+          const result = await saveTranscriptionWithAnalysis(
+            row.text || '',
+            undefined, // No audio file
+            row.filename || `CSV_Import_${i + 1}`
+          );
+          
+          successCount++;
+          
+          // Log success
+          console.log(`Processed CSV row ${i + 1}/${totalRows}: ${row.filename || 'Unnamed'}`);
+          
+          // Small delay between processing to prevent overwhelming the system
+          if (i < csvData.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        } catch (rowError) {
+          console.error(`Error processing CSV row ${i + 1}:`, rowError);
         }
       }
-
-      setIsUploading(false);
+      
+      // Completed processing
       setUploadProgress(100);
-      dispatchEvent('upload-completed' as any);
+      setIsUploading(false);
+      
+      // Force refresh of transcript data
+      await refreshTranscripts({ force: true });
+      
+      // Trigger UI update
+      window.dispatchEvent(new CustomEvent('transcriptions-updated'));
+      
+      // Notify completion
+      dispatchEvent(EventTypeEnum.BULK_UPLOAD_COMPLETED, {
+        fileCount: csvData.length,
+        successCount: successCount
+      });
+      
       toast({
         title: "Upload complete",
-        description: `Successfully uploaded ${uploadedCount} of ${totalRows} rows.`,
+        description: `Successfully processed ${successCount} of ${csvData.length} items.`,
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Bulk upload process failed:', error);
       setIsUploading(false);
-      dispatchEvent('upload-error' as any, { error });
+      dispatchEvent(EventTypeEnum.UPLOAD_ERROR, { error });
       toast({
         variant: "destructive",
         title: "Upload error",
-        description: error.message
-      });
-    }
-  };
-
-  const processData = async () => {
-    setIsProcessing(true);
-    setProcessingProgress(0);
-    dispatchEvent('processing-started' as any);
-
-    try {
-      const totalRows = csvData.length;
-      let processedCount = 0;
-
-      for (const data of csvData) {
-        try {
-          dispatchEvent('processing-progress' as any, { progress: (processedCount / totalRows) * 100 });
-          setProcessingProgress((processedCount / totalRows) * 100);
-
-          // Mock processing functionality
-          await new Promise(resolve => setTimeout(resolve, 800)); // Simulate processing time
-
-          processedCount++;
-          dispatchEvent('processing-progress' as any, { progress: (processedCount / totalRows) * 100 });
-          setProcessingProgress((processedCount / totalRows) * 100);
-        } catch (processError: any) {
-          console.error('Processing failed for row:', data, processError);
-          toast({
-            variant: "destructive",
-            title: "Processing error",
-            description: `Failed to process row: ${data.filename || 'Unknown'}. ${processError?.message || 'Unknown error'}`
-          });
-          dispatchEvent('processing-error' as any, { error: processError });
-        }
-      }
-
-      setIsProcessing(false);
-      setProcessingProgress(100);
-      dispatchEvent('processing-completed' as any);
-      toast({
-        title: "Processing complete",
-        description: `Successfully processed ${processedCount} of ${totalRows} rows.`,
-      });
-    } catch (error: any) {
-      console.error('Bulk processing failed:', error);
-      setIsProcessing(false);
-      dispatchEvent('processing-error' as any, { error });
-      toast({
-        variant: "destructive",
-        title: "Processing error",
-        description: error.message
+        description: error instanceof Error ? error.message : "Unknown error"
       });
     }
   };
@@ -192,108 +252,103 @@ const BulkUploadProcessor: React.FC = () => {
         title: "Data refreshed",
         description: "Successfully refreshed transcript data.",
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: "destructive",
         title: "Refresh error",
-        description: error.message
+        description: error instanceof Error ? error.message : "Unknown error"
       });
     }
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Bulk Upload Transcripts</h1>
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold mb-4">CSV Data Upload</h2>
 
-      <div className="mb-4">
-        <Label htmlFor="apiKey">API Key</Label>
-        <Input
-          type="password"
-          id="apiKey"
-          placeholder="Enter API Key"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          className="mt-1"
-        />
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="apiKey">OpenAI API Key</Label>
+          <Input
+            type="password"
+            id="apiKey"
+            placeholder="Enter API Key"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            className="mt-1"
+          />
+        </div>
+
+        <div>
+          <Label htmlFor="modelName">Model Name (Optional)</Label>
+          <Input
+            type="text"
+            id="modelName"
+            placeholder="Enter Model Name (e.g. gpt-4)"
+            value={modelName}
+            onChange={(e) => setModelName(e.target.value)}
+            className="mt-1"
+          />
+        </div>
       </div>
 
-      <div className="mb-4">
-        <Label htmlFor="modelName">Model Name</Label>
-        <Input
-          type="text"
-          id="modelName"
-          placeholder="Enter Model Name"
-          value={modelName}
-          onChange={(e) => setModelName(e.target.value)}
-          className="mt-1"
-        />
-      </div>
-
-      <div {...getRootProps()} className={`dropzone ${isDragActive ? 'active' : ''} mb-4 border-2 border-dashed p-6 rounded cursor-pointer text-center`}>
+      <div {...getRootProps()} className={`dropzone ${isDragActive ? 'active' : ''} border-2 border-dashed p-6 rounded cursor-pointer text-center`}>
         <input {...getInputProps()} />
         {
           isDragActive ?
-            <p>Drop the files here ...</p> :
-            <p>Drag 'n' drop some files here, or click to select files</p>
+            <p>Drop the CSV file here ...</p> :
+            <p>Drag 'n' drop a CSV file here, or click to select file</p>
         }
       </div>
 
       {csvData.length > 0 && (
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold mb-2">Uploaded Data Preview</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border border-gray-200">
-              <thead>
+        <div>
+          <h3 className="text-md font-medium mb-2">Uploaded Data Preview</h3>
+          <div className="max-h-40 overflow-y-auto border rounded-md">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="py-2 px-4 border-b">Filename</th>
-                  <th className="py-2 px-4 border-b">Text</th>
-                  <th className="py-2 px-4 border-b">Keywords</th>
-                  <th className="py-2 px-4 border-b">Sentiment</th>
-                  <th className="py-2 px-4 border-b">Call Score</th>
-                  <th className="py-2 px-4 border-b">Duration</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Filename</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Text</th>
                 </tr>
               </thead>
-              <tbody>
-                {csvData.map((data, index) => (
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                {csvData.slice(0, 5).map((row, index) => (
                   <tr key={index}>
-                    <td className="py-2 px-4 border-b">{data.filename}</td>
-                    <td className="py-2 px-4 border-b">{data.text}</td>
-                    <td className="py-2 px-4 border-b">{data.keywords}</td>
-                    <td className="py-2 px-4 border-b">{data.sentiment}</td>
-                    <td className="py-2 px-4 border-b">{data.call_score}</td>
-                    <td className="py-2 px-4 border-b">{data.duration}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{row.filename || `Item ${index + 1}`}</td>
+                    <td className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{row.text || 'No text'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {csvData.length > 5 && (
+              <div className="p-2 text-center text-sm text-gray-500 dark:text-gray-400">
+                Showing 5 of {csvData.length} items
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {uploadProgress > 0 && isUploading && (
-        <div className="mb-4">
+        <div>
           <Label>Upload Progress</Label>
           <Progress value={uploadProgress} />
-          <p className="text-sm text-gray-500 mt-1">Uploading data to the server...</p>
-        </div>
-      )}
-
-      {processingProgress > 0 && isProcessing && (
-        <div className="mb-4">
-          <Label>Processing Progress</Label>
-          <Progress value={processingProgress} />
-          <p className="text-sm text-gray-500 mt-1">Processing data on the server...</p>
+          <p className="text-sm text-gray-500 mt-1">Processing {csvData.length} items...</p>
         </div>
       )}
 
       <div className="flex gap-4">
-        <Button onClick={uploadData} disabled={isUploading || isProcessing}>
-          {isUploading ? 'Uploading...' : 'Upload Data'}
+        <Button 
+          onClick={uploadData} 
+          disabled={isUploading || isServiceProcessing || csvData.length === 0}
+          className="bg-neon-purple hover:bg-neon-purple/90 text-white"
+        >
+          {isUploading ? 'Processing...' : 'Process CSV Data'}
         </Button>
-        <Button onClick={processData} disabled={isProcessing || isUploading}>
-          {isProcessing ? 'Processing...' : 'Process Data'}
-        </Button>
-        <Button onClick={() => refreshData(true)}>
+        <Button 
+          onClick={() => refreshData(true)}
+          variant="outline"
+        >
           Refresh Data
         </Button>
       </div>

@@ -1,76 +1,80 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Activity, Clock, AlertCircle } from "lucide-react";
-import { TeamMetrics } from "@/services/RealTimeMetricsService";
-import { animationUtils } from "@/utils/animationUtils";
+import { Phone, Activity, Clock, AlertCircle, TrendingUp } from "lucide-react";
 import ContentLoader from "@/components/ui/ContentLoader";
+import { useSharedTeamMetrics, TeamMetricsData, useSharedKeywordData } from '@/services/SharedDataService';
+import ExpandableChart from '@/components/ui/ExpandableChart';
+import { useSharedFilters } from "@/contexts/SharedFilterContext";
 
-interface TeamPerformanceOverviewProps {
-  teamMetrics: TeamMetrics;
-  teamMetricsLoading: boolean;
-  callsLength: number;
+export interface TeamPerformanceOverviewProps {
+  dateRange?: {
+    from: Date;
+    to: Date;
+  };
+  // Support for legacy props
+  teamMetrics?: TeamMetricsData;
+  teamMetricsLoading?: boolean;
+  callsLength?: number;
 }
 
-const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = ({ 
-  teamMetrics, 
-  teamMetricsLoading,
+export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = ({ 
+  dateRange,
+  teamMetrics: externalTeamMetrics,
+  teamMetricsLoading: externalLoading,
   callsLength
 }) => {
-  // Track previous metrics to smooth transitions
-  const [stableMetrics, setStableMetrics] = useState<TeamMetrics | null>(null);
-  const [stableCallsLength, setStableCallsLength] = useState(0);
+  // Use shared filters context if dateRange isn't explicitly provided
+  const { filters } = useSharedFilters();
+  const finalDateRange = dateRange || filters.dateRange;
   
-  // Smooth transitions for metrics to prevent UI jitter
-  useEffect(() => {
-    if (!teamMetricsLoading && teamMetrics) {
-      if (!stableMetrics) {
-        setStableMetrics(teamMetrics);
-      } else {
-        // Smoothly transition to new values to prevent UI jitter
-        const newMetrics = {
-          ...stableMetrics,
-          totalCalls: animationUtils.smoothTransition(
-            teamMetrics.totalCalls, 
-            stableMetrics.totalCalls, 
-            3
-          ),
-          avgSentiment: animationUtils.smoothTransition(
-            teamMetrics.avgSentiment,
-            stableMetrics.avgSentiment,
-            0.05
-          ),
-          avgTalkRatio: {
-            agent: animationUtils.smoothTransition(
-              teamMetrics.avgTalkRatio?.agent || 0,
-              stableMetrics.avgTalkRatio?.agent || 0,
-              0.5
-            ),
-            customer: animationUtils.smoothTransition(
-              teamMetrics.avgTalkRatio?.customer || 0,
-              stableMetrics.avgTalkRatio?.customer || 0,
-              0.5
-            )
-          },
-          topKeywords: teamMetrics.topKeywords // Keywords don't need smoothing
-        };
-        
-        setStableMetrics(newMetrics);
-      }
-    }
-  }, [teamMetrics, teamMetricsLoading, stableMetrics]);
+  // Use real data from the SharedDataService or external props
+  const { 
+    metrics: internalTeamMetrics, 
+    isLoading: internalLoading 
+  } = useSharedTeamMetrics({
+    dateRange: finalDateRange
+  });
   
-  // Smooth transitions for calls length
+  // Also fetch shared keyword data to ensure consistency across components
+  const { keywordsByCategory } = useSharedKeywordData({
+    dateRange: finalDateRange
+  });
+  
+  // Use external metrics if provided, otherwise use internal metrics
+  const teamMetrics = externalTeamMetrics || internalTeamMetrics;
+  const metricsLoading = externalLoading !== undefined ? externalLoading : internalLoading;
+  
+  // Get all keywords from all categories for display
+  const allKeywords = [
+    ...(keywordsByCategory?.positive || []),
+    ...(keywordsByCategory?.neutral || []),
+    ...(keywordsByCategory?.negative || [])
+  ];
+  
+  // Get top keywords (limit to 10)
+  const topKeywords = allKeywords.slice(0, 10);
+  
+  // Custom stable loading state to prevent UI flicker
+  const [isStableLoading, setIsStableLoading] = useState(true);
+  
   useEffect(() => {
-    if (stableCallsLength === 0 && callsLength > 0) {
-      setStableCallsLength(callsLength);
-    } else if (callsLength !== stableCallsLength) {
-      setStableCallsLength(prevLength => 
-        animationUtils.smoothTransition(callsLength, prevLength, 2)
-      );
+    if (metricsLoading) {
+      // Don't immediately show loading state, wait a bit to prevent flicker
+      const timer = setTimeout(() => {
+        setIsStableLoading(true);
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    } else {
+      // Keep showing loading for a bit after data arrives
+      const timer = setTimeout(() => {
+        setIsStableLoading(false);
+      }, 800);
+      
+      return () => clearTimeout(timer);
     }
-  }, [callsLength, stableCallsLength]);
+  }, [metricsLoading]);
   
   return (
     <Card className="mb-6">
@@ -81,87 +85,91 @@ const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = ({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-          <Card className="bg-purple-50 dark:bg-purple-950/20">
-            <CardContent className="p-6">
-              <ContentLoader isLoading={teamMetricsLoading} height={80}>
+        <ContentLoader isLoading={isStableLoading} height={200}>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <Card className="bg-purple-50 dark:bg-purple-950/20">
+              <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Total Calls</p>
                     <h3 className="text-2xl font-bold mt-1">
-                      {stableMetrics ? (stableMetrics?.totalCalls || 0) + stableCallsLength : '...'}
+                      {teamMetrics?.totalCalls || 0}
                     </h3>
                   </div>
                   <Phone className="h-8 w-8 text-neon-purple opacity-80" />
                 </div>
-              </ContentLoader>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-green-50 dark:bg-green-950/20">
-            <CardContent className="p-6">
-              <ContentLoader isLoading={teamMetricsLoading} height={80}>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-green-50 dark:bg-green-950/20">
+              <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Avg Sentiment</p>
                     <h3 className="text-2xl font-bold mt-1">
-                      {stableMetrics 
-                        ? `${Math.round((stableMetrics?.avgSentiment || 0) * 100)}%` 
-                        : '...'}
+                      {Math.round((teamMetrics?.avgSentiment || 0) * 100)}%
                     </h3>
                   </div>
                   <Activity className="h-8 w-8 text-green-500 opacity-80" />
                 </div>
-              </ContentLoader>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-blue-50 dark:bg-blue-950/20">
-            <CardContent className="p-6">
-              <ContentLoader isLoading={teamMetricsLoading} height={80}>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-blue-50 dark:bg-blue-950/20">
+              <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Talk Ratio</p>
+                    <p className="text-sm font-medium text-muted-foreground">Performance</p>
                     <h3 className="text-2xl font-bold mt-1">
-                      {stableMetrics 
-                        ? `${Math.round((stableMetrics?.avgTalkRatio?.agent || 0))}:${Math.round((stableMetrics?.avgTalkRatio?.customer || 0))}`
-                        : '...'}
+                      {Math.round(teamMetrics?.performanceScore || 0)}%
                     </h3>
                   </div>
                   <Clock className="h-8 w-8 text-neon-blue opacity-80" />
                 </div>
-              </ContentLoader>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-amber-50 dark:bg-amber-950/20">
-            <CardContent className="p-6">
-              <ContentLoader isLoading={teamMetricsLoading} height={80}>
-                <div className="flex flex-col">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-muted-foreground">Top Keywords</p>
-                    <AlertCircle className="h-5 w-5 text-amber-500 opacity-80" />
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-amber-50 dark:bg-amber-950/20">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Talk Ratio</p>
+                    <h3 className="text-2xl font-bold mt-1">
+                      {teamMetrics?.avgTalkRatio 
+                        ? `${Math.round(teamMetrics.avgTalkRatio.agent)}:${Math.round(teamMetrics.avgTalkRatio.customer)}`
+                        : '0:0'}
+                    </h3>
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {stableMetrics
-                      ? (stableMetrics?.topKeywords?.length || 0) > 0 
-                        ? (stableMetrics?.topKeywords || []).map((keyword, idx) => (
-                            <Badge key={idx} variant="outline" className="text-xs">
-                              {keyword}
-                            </Badge>
-                          ))
-                        : <p className="text-sm">No keywords recorded</p>
-                      : <p className="text-sm">Loading...</p>
-                    }
-                  </div>
+                  <TrendingUp className="h-8 w-8 text-amber-500 opacity-80" />
                 </div>
-              </ContentLoader>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Keywords Section */}
+          <Card className="mt-6">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Top Keywords & Topics</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {topKeywords && topKeywords.length > 0 ? (
+                  topKeywords.map((keyword, idx) => (
+                    <Badge key={idx} variant="outline" className="text-xs">
+                      {keyword}
+                    </Badge>
+                  ))
+                ) : (
+                  <p className="text-center text-muted-foreground py-4">No keywords recorded</p>
+                )}
+              </div>
             </CardContent>
           </Card>
-        </div>
+        </ContentLoader>
       </CardContent>
     </Card>
   );
 };
 
+// Also export as default for compatibility with default imports
 export default TeamPerformanceOverview;

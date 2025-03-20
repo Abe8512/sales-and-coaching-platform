@@ -1,4 +1,3 @@
-
 import React, { useContext, useState } from "react";
 import { Mic, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,10 +37,30 @@ const WhisperButton = ({ recordingId }: WhisperButtonProps) => {
     
     setTimeout(() => {
       if (transcription) {
+        // Log the transcription to help with debugging
+        console.log("Viewing transcript with ID:", transcription.id);
+        console.log("Transcript data:", transcription);
+        
         toast({
           title: "Transcript Available",
           description: "Viewing transcript details",
         });
+        
+        // Make sure transcript_segments is included
+        if (!transcription.transcript_segments) {
+          transcription.transcript_segments = [];
+        }
+        
+        // Ensure all required fields are present
+        const fullTranscription = {
+          ...transcription,
+          sentiment: transcription.sentiment || 'neutral',
+          keywords: transcription.keywords || [],
+          transcript_segments: transcription.transcript_segments || []
+        };
+        
+        // Store the full transcription in localStorage for the transcripts page
+        localStorage.setItem('active_transcript', JSON.stringify(fullTranscription));
         
         // Navigate to the transcript view with the ID
         navigate(`/transcripts?id=${transcription.id}`);

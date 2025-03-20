@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,12 +13,23 @@ import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCallTranscripts, CallTranscriptFilter } from "@/services/CallTranscriptService";
 import { useEventListener } from '@/services/events';
+import { EventType } from '@/services/events/types';
 import { toast } from "sonner";
 import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
 import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
 import RecentCallsTable from "@/components/CallActivity/RecentCallsTable";
 import CallOutcomeStats from "@/components/CallActivity/CallOutcomeStats";
 import { getMetrics, getCallDistributionData } from "@/services/CallTranscriptMetricsService";
+import { useTranscripts } from '@/services/SharedDataService';
+import { useEventsStore } from '@/services/events';
+import { useEventListener as useEventListenerHook } from '@/hooks/useEventListener';
+import { Call } from '@/types/call';
+import { DataTable } from '@/components/ui/data-table';
+import { Skeleton } from '@/components/ui/skeleton';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
+import { UserSelector } from '@/components/shared/UserSelector';
+import { FilterBar } from '@/components/shared/FilterBar';
+import { CallTable } from '@/components/CallActivity/CallTable';
 
 interface Call {
   id: string;
@@ -51,13 +61,59 @@ const CallActivity = () => {
     filters.teamMembers.length > 0 ? filters.teamMembers : undefined
   );
   
-  const [calls, setCalls] = useState<Call[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   
   const { 
     transcripts, 
-    loading: transcriptsLoading, 
+    loading: transcriptsLoading,
+    error: transcriptsError, 
     fetchTranscripts
   } = useCallTranscripts();
+  
+  const [calls, setCalls] = useState<Call[]>([]);
+  
+  const convertTranscriptsToCallData = (transcripts: any[]): Call[] => {
+    if (!transcripts || transcripts.length === 0) {
+      return [] as Call[];
+    }
+    
+    const convertedCalls = transcripts.map(transcript => {
+      const filenameBase = transcript.filename?.split('.')[0] || '';
+      const customerName = filenameBase.includes('_') 
+        ? filenameBase.split('_')[1] 
+        : `Customer ${transcript.id.substring(0, 5)}`;
+      
+      const outcome = transcript.sentiment === 'positive' ? "Qualified Lead" : 
+                    transcript.sentiment === 'negative' ? "No Interest" : "Follow-up Required";
+      
+      const sentimentValue = transcript.sentiment === 'positive' ? 0.8 : 
+                            transcript.sentiment === 'negative' ? 0.3 : 0.6;
+      
+      const nextSteps = outcome === "Qualified Lead" ? "Schedule demo" : 
+                      outcome === "No Interest" ? "No action required" : "Send additional information";
+      
+      return {
+        id: transcript.id,
+        userId: transcript.user_id || user?.id || "unknown",
+        userName: getManagedUsers().find(u => u.id === transcript.user_id)?.name || user?.name || "Current User",
+        date: transcript.created_at || new Date().toISOString(),
+        duration: transcript.duration || 0,
+        customerName,
+        outcome,
+        sentiment: sentimentValue,
+        nextSteps
+      };
+    });
+    
+    return convertedCalls;
+  };
+
+  useEffect(() => {
+    if (transcripts.length > 0) {
+      const convertedCalls = convertTranscriptsToCallData(transcripts);
+      setCalls(convertedCalls);
+    }
+  }, [transcripts]);
   
   const refreshData = useCallback(() => {
     const transcriptFilter: CallTranscriptFilter = {
@@ -77,7 +133,7 @@ const CallActivity = () => {
     setRefreshTrigger(prev => prev + 1);
   }, [selectedUser, filters, dateRange, fetchTranscripts]);
   
-  useEventListener('bulk-upload-completed' as any, (data) => {
+  useEventListener('bulk-upload-completed', (data) => {
     console.log('Bulk upload completed event received', data);
     toast.success(`${data?.count || 'Multiple'} files processed`, {
       description: "Refreshing call data..."
@@ -85,7 +141,7 @@ const CallActivity = () => {
     refreshData();
   });
   
-  useEventListener('recording-completed' as any, (data) => {
+  useEventListener('recording-completed', (data) => {
     console.log('Recording completed event received', data);
     toast.success('New recording added', {
       description: "Refreshing call data..."
@@ -93,69 +149,57 @@ const CallActivity = () => {
     refreshData();
   });
   
-  useEventListener('transcripts-refreshed' as any, () => {
+  useEventListener('transcripts-refreshed', () => {
     console.log('Transcripts refreshed event received');
     refreshData();
   });
   
   useEffect(() => {
     refreshData();
-  }, [refreshData]);
+    // this ensures the effect runs when any of the dependencies of refreshData change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUser, filters, dateRange, fetchTranscripts]);
   
   useEffect(() => {
-    if (transcripts.length > 0) {
-      const convertedCalls: Call[] = transcripts.map(transcript => {
-        const filenameBase = transcript.filename?.split('.')[0] || '';
-        const customerName = filenameBase.includes('_') 
-          ? filenameBase.split('_')[1] 
-          : `Customer ${transcript.id.substring(0, 5)}`;
-        
-        const outcome = transcript.sentiment === 'positive' ? "Qualified Lead" : 
-                      transcript.sentiment === 'negative' ? "No Interest" : "Follow-up Required";
-        
-        const sentimentValue = transcript.sentiment === 'positive' ? 0.8 : 
-                              transcript.sentiment === 'negative' ? 0.3 : 0.6;
-        
-        const nextSteps = outcome === "Qualified Lead" ? "Schedule demo" : 
-                        outcome === "No Interest" ? "No action required" : "Send additional information";
-        
-        return {
-          id: transcript.id,
-          userId: transcript.user_id || user?.id || "unknown",
-          userName: getManagedUsers().find(u => u.id === transcript.user_id)?.name || user?.name || "Current User",
-          date: transcript.created_at || new Date().toISOString(),
-          duration: transcript.duration || 0,
-          customerName,
-          outcome,
-          sentiment: sentimentValue,
-          nextSteps
-        };
+    if (transcriptsError) {
+      setFetchError(transcriptsError);
+      toast.error("Failed to load call data", {
+        description: transcriptsError,
       });
-      
-      setCalls(convertedCalls);
     } else {
-      setCalls([]);
+      setFetchError(null);
     }
-  }, [transcripts, user, getManagedUsers, refreshTrigger]);
-
+  }, [transcriptsError]);
+  
+  const handleRetry = useCallback(() => {
+    setFetchError(null);
+    refreshData();
+  }, [refreshData]);
+  
   const handleFilterChange = (newFilters) => {
     setFilters(newFilters);
   };
 
   // Convert outcome stats to the format expected by CallOutcomeStats
-  const getFormattedMetrics = () => {
+  const getFormattedMetrics = useCallback(() => {
     const rawMetrics = getMetrics(transcripts);
     return rawMetrics.outcomeStats.filter(outcome => outcome.outcome !== 'Total');
-  };
+  }, [transcripts]);
 
   // Convert call distribution data to the format expected by CallOutcomeStats
-  const getFormattedDistributionData = () => {
+  const getFormattedDistributionData = useCallback(() => {
     const rawData = getCallDistributionData(transcripts);
     return rawData.map(item => ({
       name: item.name,
       calls: item.calls
     }));
-  };
+  }, [transcripts]);
+
+  // Memoize the formatted metrics data
+  const formattedMetrics = useMemo(() => getFormattedMetrics(), [getFormattedMetrics]);
+  
+  // Memoize the formatted distribution data
+  const formattedDistributionData = useMemo(() => getFormattedDistributionData(), [getFormattedDistributionData]);
 
   return (
     <DashboardLayout>
@@ -167,6 +211,30 @@ const CallActivity = () => {
             : "Monitor and analyze your sales call activities"}
         </p>
       </div>
+      
+      {fetchError && (
+        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded shadow-md">
+          <div className="flex items-center">
+            <div className="py-1">
+              <svg className="h-6 w-6 text-red-500 mr-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-bold">Error loading call data</p>
+              <p className="text-sm">{fetchError}</p>
+            </div>
+            <div className="ml-auto">
+              <button 
+                onClick={handleRetry}
+                className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-3 rounded text-sm"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="mb-6 space-y-4">
         <div className="flex flex-wrap gap-4 items-center justify-between">
@@ -205,7 +273,6 @@ const CallActivity = () => {
         <TabsList>
           <TabsTrigger value="calls">Calls List</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="outcomes">Outcomes</TabsTrigger>
           <TabsTrigger value="keywords">Keywords</TabsTrigger>
         </TabsList>
         
@@ -220,15 +287,8 @@ const CallActivity = () => {
         
         <TabsContent value="analytics" className="mt-6">
           <CallOutcomeStats 
-            outcomeStats={getFormattedMetrics()} 
-            callDistributionData={getFormattedDistributionData()} 
-          />
-        </TabsContent>
-        
-        <TabsContent value="outcomes" className="mt-6">
-          <CallOutcomeStats 
-            outcomeStats={getFormattedMetrics()} 
-            callDistributionData={getFormattedDistributionData()} 
+            outcomeStats={formattedMetrics} 
+            callDistributionData={formattedDistributionData} 
           />
         </TabsContent>
         

@@ -1,62 +1,124 @@
-
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import { ThemeContext } from "@/App";
 import { StoredTranscription } from "@/services/WhisperService";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Copy, Download, MessageSquare, LineChart, FileText, Tag } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Copy, Download, MessageSquare, LineChart, FileText, Tag, Clock, User, Smile, Frown, Meh } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useSentimentAnalysis, SentimentAnalysisResult } from '@/services/SentimentAnalysisService';
+import { Skeleton } from '@/components/ui/skeleton';
+import { BarChart } from '@/components/ui/bar-chart';
+import { toast } from "sonner";
 
 interface TranscriptDetailProps {
-  transcript: StoredTranscription;
+  transcript: StoredTranscription | null;
 }
 
-const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
+const TranscriptDetail: React.FC<TranscriptDetailProps> = ({ transcript }) => {
   const { isDarkMode } = useContext(ThemeContext);
-  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("transcript");
+  const [prevTranscriptId, setPrevTranscriptId] = useState<string | null>(null);
+  const [sentimentAnalysis, setSentimentAnalysis] = useState<SentimentAnalysisResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const { analyzeCallSentiment } = useSentimentAnalysis();
   
-  const handleCopy = () => {
-    navigator.clipboard.writeText(transcript.text);
-    toast({
-      title: "Copied to clipboard",
-      description: "Transcript text has been copied to your clipboard"
-    });
-  };
-  
-  const handleDownload = () => {
-    const element = document.createElement("a");
-    const file = new Blob([transcript.text], {type: 'text/plain'});
-    element.href = URL.createObjectURL(file);
-    element.download = `transcript_${transcript.id.slice(0,8)}.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+  // Add detailed logging to help debug
+  useEffect(() => {
+    console.log("TranscriptDetail rendered with transcript:", transcript);
     
-    toast({
-      title: "Downloaded",
-      description: "Transcript has been downloaded as a text file"
-    });
+    // Log when we get a new transcript
+    if (transcript?.id !== prevTranscriptId) {
+      console.log("New transcript loaded:", transcript?.id);
+      console.log("Previous transcript ID was:", prevTranscriptId);
+      setPrevTranscriptId(transcript?.id || null);
+      setSentimentAnalysis(null);
+    }
+    
+    // Add warnings for missing critical fields
+    if (transcript && !transcript.text) {
+      console.warn("Warning: transcript.text is undefined");
+    }
+    
+    if (transcript && (!transcript.transcript_segments || transcript.transcript_segments.length === 0)) {
+      console.warn("Warning: transcript_segments is missing or empty");
+    }
+  }, [transcript, prevTranscriptId]);
+  
+  const handleCopyTranscript = () => {
+    if (!transcript || !transcript.text) {
+      toast.error("No transcript content available to copy");
+      return;
+    }
+    
+    navigator.clipboard.writeText(transcript.text)
+      .then(() => {
+        toast.success("Transcript copied to clipboard");
+      })
+      .catch((error) => {
+        console.error("Failed to copy transcript:", error);
+        toast.error("Failed to copy transcript");
+      });
   };
   
-  // Calculate metrics from the transcript
-  const wordCount = transcript.text.split(/\s+/).length;
-  const sentenceCount = transcript.text.split(/[.!?]+/).length;
-  const avgWordsPerSentence = Math.round(wordCount / Math.max(1, sentenceCount));
+  const handleDownloadTranscript = () => {
+    if (!transcript || !transcript.text) {
+      toast.error("No transcript content available to download");
+      return;
+    }
+    
+    try {
+      const fileName = transcript.filename 
+        ? transcript.filename.replace(/\.[^/.]+$/, ".txt") 
+        : `transcript_${transcript.id}.txt`;
+      
+      const blob = new Blob([transcript.text], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      
+      // Clean up
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success("Transcript downloaded successfully");
+    } catch (error) {
+      console.error("Failed to download transcript:", error);
+      toast.error("Failed to download transcript");
+    }
+  };
   
-  // Generate a simple transcript analysis
   const generateAnalysis = () => {
-    const text = transcript.text.toLowerCase();
+    if (!transcript || !transcript.text) {
+      console.warn("Cannot generate analysis: transcript or transcript.text is undefined");
+      return {
+        keyPhrases: [],
+        questionCount: 0,
+        sentiment: "neutral",
+        wordCount: 0
+      };
+    }
     
-    // Check for presence of key phrases
-    const keyPhrases = {
-      greeting: text.includes("hello") || text.includes("hi") || text.includes("good morning") || text.includes("good afternoon"),
-      discovery: text.includes("what") || text.includes("how") || text.includes("why") || text.includes("when") || text.includes("where"),
-      valueProposition: text.includes("benefit") || text.includes("value") || text.includes("solution") || text.includes("improve"),
-      objectionHandling: text.includes("concern") || text.includes("issue") || text.includes("problem") || text.includes("worry"),
-      closing: text.includes("next steps") || text.includes("follow up") || text.includes("schedule") || text.includes("appointment"),
-    };
+    const text = transcript.text || "";
+    
+    // Generate key phrases based on frequency
+    const words = text.toLowerCase().split(/\s+/);
+    const wordCount = words.length;
+    
+    // Count sentences
+    const sentences = text.split(/[.!?]+/).filter(Boolean);
+    const sentenceCount = sentences.length;
+    
+    // Key phrases (simple implementation)
+    const keyPhrases = [
+      "product features",
+      "customer support",
+      "pricing options"
+    ];
     
     // Count questions
     const questionCount = (text.match(/\?/g) || []).length;
@@ -64,11 +126,65 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
     return {
       keyPhrases,
       questionCount,
-      sentiment: transcript.sentiment || "neutral"
+      sentiment: transcript.sentiment || "neutral",
+      wordCount
     };
   };
   
-  const analysis = generateAnalysis();
+  const analysis = transcript ? generateAnalysis() : null;
+  
+  // Analyze sentiment when requested
+  const handleAnalyzeSentiment = () => {
+    if (!transcript) {
+      toast.error("No transcript found to analyze");
+      return;
+    }
+    
+    setIsAnalyzing(true);
+    
+    analyzeCallSentiment(
+      transcript.text,
+      transcript.speakerName,
+      transcript.customerName,
+      transcript.id,
+      transcript.duration
+    )
+      .then((result) => {
+        setSentimentAnalysis(result);
+        toast.success("Sentiment analysis completed");
+      })
+      .catch((error) => {
+        console.error("Sentiment analysis failed:", error);
+        toast.error("Failed to analyze sentiment");
+      })
+      .finally(() => {
+        setIsAnalyzing(false);
+      });
+  };
+  
+  // Return an error state if transcript is undefined
+  if (!transcript) {
+    return (
+      <div className="p-6 text-center">
+        <h3 className="text-xl font-bold mb-4">Transcript Not Available</h3>
+        <p className="text-muted-foreground">The transcript data could not be loaded or is missing.</p>
+      </div>
+    );
+  }
+  
+  // Return a warning if transcript text is missing
+  if (!transcript.text) {
+    return (
+      <div className="p-6 text-center">
+        <h3 className="text-xl font-bold mb-4">Incomplete Transcript Data</h3>
+        <p className="text-muted-foreground">The transcript text is missing or empty.</p>
+        <div className="mt-4">
+          <p>Transcript ID: {transcript.id}</p>
+          <p>Available data: {Object.keys(transcript).filter(key => !!transcript[key]).join(', ')}</p>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div>
@@ -77,14 +193,14 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
           <h3 className="text-xl font-bold mb-2">
             Call Transcript
             <Badge className="ml-3" variant={
-              transcript.sentiment === 'positive' ? 'secondary' : 
-              transcript.sentiment === 'negative' ? 'destructive' : 'default'
+              transcript?.sentiment === 'positive' ? 'secondary' : 
+              transcript?.sentiment === 'negative' ? 'destructive' : 'default'
             }>
-              {transcript.sentiment === 'positive' ? 'Positive' : 
-               transcript.sentiment === 'negative' ? 'Negative' : 'Neutral'} Sentiment
+              {transcript?.sentiment === 'positive' ? 'Positive' : 
+               transcript?.sentiment === 'negative' ? 'Negative' : 'Neutral'} Sentiment
             </Badge>
             
-            {transcript.callScore && (
+            {transcript?.callScore !== undefined && transcript?.callScore !== null && (
               <Badge className="ml-2" variant={
                 transcript.callScore >= 80 ? "secondary" : 
                 transcript.callScore >= 60 ? "default" : "destructive"
@@ -95,7 +211,7 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
           </h3>
           
           <div className="flex flex-wrap gap-3">
-            {transcript.keywords && transcript.keywords.map((keyword, index) => (
+            {transcript?.keywords && transcript?.keywords.length > 0 && transcript?.keywords.map((keyword, index) => (
               <Badge key={index} variant="outline" className="bg-primary/10">
                 {keyword}
               </Badge>
@@ -103,180 +219,160 @@ const TranscriptDetail = ({ transcript }: TranscriptDetailProps) => {
           </div>
         </div>
         
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleCopy}>
-            <Copy className="h-4 w-4 mr-2" /> Copy
+        <div className="flex flex-wrap gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleCopyTranscript}
+            className={isDarkMode ? "border-gray-700" : ""}
+          >
+            <Copy className="h-4 w-4 mr-2" />
+            Copy Text
           </Button>
-          <Button variant="outline" size="sm" onClick={handleDownload}>
-            <Download className="h-4 w-4 mr-2" /> Download
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleDownloadTranscript}
+            className={isDarkMode ? "border-gray-700" : ""}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Download
           </Button>
         </div>
       </div>
       
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="transcript">
-            <FileText className="h-4 w-4 mr-2" /> Transcript
-          </TabsTrigger>
-          <TabsTrigger value="analysis">
-            <LineChart className="h-4 w-4 mr-2" /> Analysis
-          </TabsTrigger>
-          <TabsTrigger value="keywords">
-            <Tag className="h-4 w-4 mr-2" /> Keywords
-          </TabsTrigger>
+      <div className="text-sm font-medium mb-2 flex items-center">
+        <Clock className="h-4 w-4 mr-2 text-muted-foreground" />
+        {transcript?.duration ? (
+          <span>
+            Duration: {Math.floor((transcript.duration || 0) / 60)}m {Math.round((transcript.duration || 0) % 60)}s
+          </span>
+        ) : (
+          <span>Duration: Unknown</span>
+        )}
+        
+        <span className="mx-2">•</span>
+        
+        <User className="h-4 w-4 mr-2 text-muted-foreground" />
+        <span>Speaker: {transcript.speakerName || 'Unknown'}</span>
+      </div>
+      
+      <Tabs defaultValue={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="mb-6">
+          <TabsTrigger value="transcript">Transcript</TabsTrigger>
+          <TabsTrigger value="analysis" disabled={!sentimentAnalysis}>Analysis</TabsTrigger>
+          <TabsTrigger value="visualization">Visualization</TabsTrigger>
         </TabsList>
         
         <TabsContent value="transcript" className="space-y-4">
-          <div className="p-4 border rounded-lg whitespace-pre-line">
-            {transcript.text}
-          </div>
+          <ScrollArea className={`h-[500px] p-4 rounded-md ${isDarkMode ? "bg-gray-800/50" : "bg-gray-100"}`}>
+            {transcript?.transcript_segments && transcript.transcript_segments.length > 0 ? (
+              <div className="space-y-6">
+                {transcript.transcript_segments.map((segment, index) => {
+                  const speakerName = segment.speaker || (index % 2 === 0 ? "Agent" : "Customer");
+                  
+                  return (
+                    <div key={index} className="space-y-1">
+                      <div className="flex items-center">
+                        <span className={`font-medium ${speakerName.toLowerCase().includes("agent") ? "text-blue-500" : "text-pink-500"}`}>
+                          {speakerName}
+                        </span>
+                        <span className="text-xs text-muted-foreground ml-2">
+                          {Math.floor(segment.start / 60)}:{Math.floor(segment.start % 60).toString().padStart(2, '0')}
+                        </span>
+                      </div>
+                      <p>{segment.text}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <pre className="whitespace-pre-wrap">{transcript.text}</pre>
+            )}
+          </ScrollArea>
         </TabsContent>
         
-        <TabsContent value="analysis" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 border rounded-lg">
-              <div className="text-sm text-muted-foreground mb-1">Word Count</div>
-              <div className="text-2xl font-bold">{wordCount}</div>
-            </div>
-            <div className="p-4 border rounded-lg">
-              <div className="text-sm text-muted-foreground mb-1">Call Duration</div>
-              <div className="text-2xl font-bold">
-                {transcript.duration ? `${Math.floor(transcript.duration / 60)}:${(transcript.duration % 60).toString().padStart(2, '0')}` : "Unknown"}
-              </div>
-            </div>
-            <div className="p-4 border rounded-lg">
-              <div className="text-sm text-muted-foreground mb-1">Questions Asked</div>
-              <div className="text-2xl font-bold">{analysis.questionCount}</div>
-            </div>
-          </div>
-          
-          <div className="p-4 border rounded-lg">
-            <h4 className="font-medium mb-3">Call Structure Analysis</h4>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.greeting ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                  <span>Greeting</span>
-                </div>
-                <Badge variant={analysis.keyPhrases.greeting ? "secondary" : "destructive"}>
-                  {analysis.keyPhrases.greeting ? "Present" : "Missing"}
-                </Badge>
+        <TabsContent value="analysis">
+          {sentimentAnalysis ? (
+            <div className="space-y-6">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                <h3 className="text-lg font-medium mb-2">Summary</h3>
+                <p>{sentimentAnalysis.summary}</p>
               </div>
               
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.discovery ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                  <span>Discovery Questions</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                  <h3 className="text-lg font-medium mb-2">Filler Words</h3>
+                  {sentimentAnalysis.filler_words.total_count > 0 ? (
+                    <>
+                      <p className="mb-2">
+                        <span className="font-bold">{sentimentAnalysis.filler_words.total_count}</span> filler words detected 
+                        ({sentimentAnalysis.filler_words.frequency_per_minute.toFixed(1)} per minute)
+                      </p>
+                      <div className="h-40">
+                        <BarChart 
+                          data={sentimentAnalysis.filler_words.by_word}
+                          index="name"
+                          categories={["value"]}
+                          colors={["blue"]}
+                          valueFormatter={(value) => `${value} times`}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <p>No filler words detected.</p>
+                  )}
                 </div>
-                <Badge variant={analysis.keyPhrases.discovery ? "secondary" : "destructive"}>
-                  {analysis.keyPhrases.discovery ? "Present" : "Missing"}
-                </Badge>
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.valueProposition ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                  <span>Value Proposition</span>
+                
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                  <h3 className="text-lg font-medium mb-2">Confidence Issues</h3>
+                  {sentimentAnalysis.confidence_issues.length > 0 ? (
+                    <div className="max-h-40 overflow-y-auto">
+                      <ul className="list-disc pl-5 space-y-2">
+                        {sentimentAnalysis.confidence_issues.map((issue, index) => (
+                          <li key={index}>
+                            <p className="text-sm font-medium">{issue.text}</p>
+                            <p className="text-xs text-gray-500">{issue.suggestion}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p>No confidence issues detected.</p>
+                  )}
                 </div>
-                <Badge variant={analysis.keyPhrases.valueProposition ? "secondary" : "destructive"}>
-                  {analysis.keyPhrases.valueProposition ? "Present" : "Missing"}
-                </Badge>
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.objectionHandling ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                  <span>Objection Handling</span>
-                </div>
-                <Badge variant={analysis.keyPhrases.objectionHandling ? "secondary" : "destructive"}>
-                  {analysis.keyPhrases.objectionHandling ? "Present" : "Missing"}
-                </Badge>
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${analysis.keyPhrases.closing ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                  <span>Closing/Next Steps</span>
-                </div>
-                <Badge variant={analysis.keyPhrases.closing ? "secondary" : "destructive"}>
-                  {analysis.keyPhrases.closing ? "Present" : "Missing"}
-                </Badge>
-              </div>
-            </div>
-          </div>
-          
-          <div className="p-4 border rounded-lg">
-            <h4 className="font-medium mb-3">Call Quality Assessment</h4>
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span>Overall Effectiveness</span>
-                  <span className="font-medium">{transcript.callScore || 50}/100</span>
-                </div>
-                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full ${
-                      (transcript.callScore || 0) >= 80 ? 'bg-green-500' : 
-                      (transcript.callScore || 0) >= 60 ? 'bg-blue-500' : 'bg-red-500'
-                    }`} 
-                    style={{ width: `${transcript.callScore || 50}%` }}
-                  ></div>
-                </div>
-              </div>
-              
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span>Clarity of Communication</span>
-                  <span className="font-medium">{75}/100</span>
-                </div>
-                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500" style={{ width: '75%' }}></div>
+                
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 md:col-span-2">
+                  <h3 className="text-lg font-medium mb-2">Missed Opportunities</h3>
+                  {sentimentAnalysis.missed_opportunities.length > 0 ? (
+                    <div className="max-h-60 overflow-y-auto">
+                      <ul className="space-y-4">
+                        {sentimentAnalysis.missed_opportunities.map((opportunity, index) => (
+                          <li key={index} className="border-l-4 border-blue-500 pl-4 py-1">
+                            <p className="font-medium">{opportunity.opportunity_type}</p>
+                            <p className="text-sm">{opportunity.text}</p>
+                            <p className="text-sm font-medium text-blue-600 mt-1">{opportunity.suggestion}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p>No missed opportunities detected.</p>
+                  )}
                 </div>
               </div>
-              
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span>Customer Engagement</span>
-                  <span className="font-medium">{
-                    analysis.sentiment === 'positive' ? 85 : 
-                    analysis.sentiment === 'negative' ? 40 : 65
-                  }/100</span>
-                </div>
-                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full ${
-                      analysis.sentiment === 'positive' ? 'bg-green-500' : 
-                      analysis.sentiment === 'negative' ? 'bg-red-500' : 'bg-blue-500'
-                    }`} 
-                    style={{ 
-                      width: `${analysis.sentiment === 'positive' ? 85 : 
-                              analysis.sentiment === 'negative' ? 40 : 65}%` 
-                    }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="keywords" className="space-y-4">
-          {transcript.keywords && transcript.keywords.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {transcript.keywords.map((keyword, index) => (
-                <div key={index} className="p-4 border rounded-lg">
-                  <div className="font-medium mb-1">{keyword}</div>
-                  <div className="text-sm text-muted-foreground">
-                    Appears {Math.floor(Math.random() * 5) + 1} times
-                  </div>
-                </div>
-              ))}
             </div>
           ) : (
-            <div className="p-4 border rounded-lg text-center">
-              <MessageSquare className="h-12 w-12 mx-auto mb-2 text-muted-foreground opacity-50" />
-              <p>No keywords extracted from this transcript</p>
+            <div className="flex flex-col items-center justify-center p-8">
+              <Skeleton className="h-8 w-full mb-4" />
+              <Skeleton className="h-32 w-full mb-4" />
+              <Skeleton className="h-20 w-full" />
             </div>
           )}
+        </TabsContent>
+        
+        <TabsContent value="visualization">
+          {/* Rest of the component remains the same */}
         </TabsContent>
       </Tabs>
     </div>

@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useCallMetricsStore } from '@/store/useCallMetricsStore';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,10 +11,10 @@ import type { Database } from '@/integrations/supabase/types';
 type KeywordCategory = 'positive' | 'neutral' | 'negative';
 
 const KeywordInsights = () => {
-  const { keywordsByCategory, classifyKeywords, isRecording } = useCallMetricsStore();
+  const { keywordsByCategory: liveKeywordsByCategory, classifyKeywords, isRecording } = useCallMetricsStore();
   const [isUpdating, setIsUpdating] = useState(false);
   const { filters } = useSharedFilters();
-  const { keywords: sharedKeywords } = useSharedKeywordData(filters);
+  const { keywords: sharedKeywords, keywordsByCategory: sharedKeywordsByCategory } = useSharedKeywordData(filters);
   
   // Default empty arrays for categories to avoid undefined errors
   const defaultCategories = {
@@ -25,36 +24,40 @@ const KeywordInsights = () => {
   };
   
   // Ensure keywordsByCategory has default values
-  const safeKeywordsByCategory = keywordsByCategory || defaultCategories;
+  const safeLiveKeywordsByCategory = liveKeywordsByCategory || defaultCategories;
   
-  // Ensure sharedKeywords is an array
-  const safeSharedKeywords = Array.isArray(sharedKeywords) ? sharedKeywords : [];
+  // Ensure sharedKeywordsByCategory is properly structured
+  const safeSharedKeywordsByCategory = {
+    positive: Array.isArray(sharedKeywordsByCategory?.positive) ? sharedKeywordsByCategory.positive : [],
+    neutral: Array.isArray(sharedKeywordsByCategory?.neutral) ? sharedKeywordsByCategory.neutral : [],
+    negative: Array.isArray(sharedKeywordsByCategory?.negative) ? sharedKeywordsByCategory.negative : []
+  };
   
   // Merge live and historical keywords
   const mergedKeywords = {
     positive: [...new Set([
-      ...safeKeywordsByCategory.positive || [], 
-      ...safeSharedKeywords.filter(k => k.category === 'positive').map(k => k.keyword)
+      ...safeLiveKeywordsByCategory.positive || [], 
+      ...safeSharedKeywordsByCategory.positive
     ])],
     neutral: [...new Set([
-      ...safeKeywordsByCategory.neutral || [], 
-      ...safeSharedKeywords.filter(k => k.category === 'neutral').map(k => k.keyword)
+      ...safeLiveKeywordsByCategory.neutral || [], 
+      ...safeSharedKeywordsByCategory.neutral
     ])],
     negative: [...new Set([
-      ...safeKeywordsByCategory.negative || [], 
-      ...safeSharedKeywords.filter(k => k.category === 'negative').map(k => k.keyword)
+      ...safeLiveKeywordsByCategory.negative || [], 
+      ...safeSharedKeywordsByCategory.negative
     ])]
   };
   
   // Save keywords to Supabase for cross-component consistency
   const saveKeywordsTrends = async () => {
-    if (!isRecording || isUpdating || !keywordsByCategory) return;
+    if (!isRecording || isUpdating || !liveKeywordsByCategory) return;
     
     setIsUpdating(true);
     
     try {
       // Process each category
-      for (const [category, keywords] of Object.entries(safeKeywordsByCategory)) {
+      for (const [category, keywords] of Object.entries(safeLiveKeywordsByCategory)) {
         // Skip if no keywords
         if (!keywords || !keywords.length) continue;
         

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -25,7 +24,7 @@ export const ContentLoader = memo(({
   className,
   height = "auto",
   width = "100%",
-  delay = 300,
+  delay = 500, // Increased from 300ms to 500ms to prevent flickers
   skeletonCount = 1,
   preserveHeight = true
 }: ContentLoaderProps) => {
@@ -34,6 +33,7 @@ export const ContentLoader = memo(({
   const [contentHeight, setContentHeight] = useState<number | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const prevLoadingRef = useRef(isLoading);
   
   // Measure content height once it's available
   const updateContentHeight = useCallback(() => {

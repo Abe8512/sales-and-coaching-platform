@@ -59,6 +59,10 @@ export type Database = {
           talk_ratio_agent: number
           talk_ratio_customer: number
           user_id: string | null
+          speaking_speed: number | null
+          filler_word_count: number | null
+          objection_count: number | null
+          customer_engagement: number | null
         }
         Insert: {
           created_at?: string | null
@@ -70,6 +74,10 @@ export type Database = {
           talk_ratio_agent: number
           talk_ratio_customer: number
           user_id?: string | null
+          speaking_speed?: number | null
+          filler_word_count?: number | null
+          objection_count?: number | null
+          customer_engagement?: number | null
         }
         Update: {
           created_at?: string | null
@@ -81,6 +89,10 @@ export type Database = {
           talk_ratio_agent?: number
           talk_ratio_customer?: number
           user_id?: string | null
+          speaking_speed?: number | null
+          filler_word_count?: number | null
+          objection_count?: number | null
+          customer_engagement?: number | null
         }
         Relationships: []
       }

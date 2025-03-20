@@ -1,3 +1,25 @@
+// Event types enum
+export enum EventTypeEnum {
+  TRANSCRIPT_CREATED = 'transcript-created',
+  TRANSCRIPT_UPDATED = 'transcript-updated',
+  TRANSCRIPT_DELETED = 'transcript-deleted',
+  TRANSCRIPT_PROGRESS = 'transcript-progress',
+  UPLOAD_STARTED = 'upload-started',
+  UPLOAD_PROGRESS = 'upload-progress',
+  UPLOAD_COMPLETED = 'upload-completed',
+  UPLOAD_ERROR = 'upload-error',
+  PROCESSING_STARTED = 'processing-started',
+  PROCESSING_PROGRESS = 'processing-progress',
+  PROCESSING_COMPLETED = 'processing-completed',
+  PROCESSING_ERROR = 'processing-error',
+  CONNECTION_RESTORED = 'connection-restored',
+  CONNECTION_LOST = 'connection-lost',
+  BULK_UPLOAD_STARTED = 'bulk-upload-started',
+  BULK_UPLOAD_COMPLETED = 'bulk-upload-completed',
+  RECORDING_COMPLETED = 'recording-completed',
+  TRANSCRIPTS_REFRESHED = 'transcripts-refreshed'
+}
+
 // Event types
 export type EventType = 
   | 'transcript-created'

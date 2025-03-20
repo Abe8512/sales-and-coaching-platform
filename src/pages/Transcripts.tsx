@@ -1,13 +1,12 @@
-
-import React, { useContext, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import React, { useContext, useEffect, useState, useRef, useCallback } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { ThemeContext } from "@/App";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getStoredTranscriptions, StoredTranscription } from "@/services/WhisperService";
+import { getStoredTranscriptions, StoredTranscription, TranscriptSegment } from "@/services/WhisperService";
 import { Search, Filter, Clock, ArrowUpDown, Download, RefreshCw, Calendar, Phone, FileCheck, Database } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import BulkUploadButton from "@/components/BulkUpload/BulkUploadButton";
@@ -16,35 +15,136 @@ import TranscriptDetail from "@/components/Transcripts/TranscriptDetail";
 import AIWaveform from "@/components/ui/AIWaveform";
 import { supabase } from "@/integrations/supabase/client";
 import BulkUploadHistory from "@/components/BulkUpload/BulkUploadHistory";
+import { useCallTranscripts } from "@/services/CallTranscriptService";
+import { useSharedFilters } from "@/contexts/SharedFilterContext";
+import { Json } from "@/integrations/supabase/types";
 
-const Transcripts = () => {
+// Define a type for database transcript format
+interface DbTranscript {
+  id: string;
+  text: string;
+  filename?: string;
+  created_at: string;
+  duration?: number;
+  call_score?: number;
+  sentiment?: string;
+  keywords?: string[];
+  transcript_segments?: TranscriptSegment[];
+}
+
+// Type guard to check if a transcript is from the database
+function isDbTranscript(transcript: StoredTranscription | DbTranscript | Record<string, unknown>): transcript is DbTranscript {
+  return transcript !== null && 
+         typeof transcript === 'object' && 
+         'created_at' in transcript && 
+         'id' in transcript;
+}
+
+// Define interface for transcript segment from Json type
+interface TranscriptSegmentFromJson {
+  id?: number | string;
+  start?: number | string;
+  end?: number | string;
+  text?: string;
+  speaker?: string;
+}
+
+// Helper function to safely process transcript segments
+function processTranscriptSegments(segments: Json | unknown | null): TranscriptSegment[] {
+  // Return empty array for null/undefined
+  if (!segments) return [];
+  
+  try {
+    // If it's already an array, map it
+    if (Array.isArray(segments)) {
+      return segments.map(segment => ({
+        id: typeof segment.id === 'number' ? segment.id : Number(segment.id) || 0,
+        start: typeof segment.start === 'number' ? segment.start : Number(segment.start) || 0,
+        end: typeof segment.end === 'number' ? segment.end : Number(segment.end) || 0,
+        text: String(segment.text || ''),
+        speaker: String(segment.speaker || '')
+      }));
+    }
+    
+    // If it's a string, try to parse it
+    if (typeof segments === 'string') {
+      try {
+        const parsed = JSON.parse(segments);
+        return processTranscriptSegments(parsed);
+      } catch (e) {
+        console.error('Failed to parse segments JSON string:', e);
+        return [];
+      }
+    }
+    
+    // If it's a single object, wrap it in an array
+    if (segments && typeof segments === 'object') {
+      return [{
+        id: 0,
+        start: 0,
+        end: 0,
+        text: '',
+        speaker: '',
+        ...(segments as Record<string, unknown>)
+      }];
+    }
+    
+    // Default case: return empty array
+    return [];
+  } catch (error) {
+    console.error('Error processing transcript segments:', error);
+    return [];
+  }
+}
+
+const Transcripts: React.FC = () => {
   const { isDarkMode } = useContext(ThemeContext);
   const [searchParams, setSearchParams] = useSearchParams();
+  const transcriptId = searchParams.get('id');
+  const [activeSource, setActiveSource] = useState<'db' | 'local'>('db');
   const [activeTranscript, setActiveTranscript] = useState<StoredTranscription | null>(null);
   const [transcripts, setTranscripts] = useState<StoredTranscription[]>([]);
-  const [dbTranscripts, setDbTranscripts] = useState<any[]>([]);
+  const [dbTranscripts, setDbTranscripts] = useState<DbTranscript[]>([]);
+  const { transcripts: callTranscripts, loading: isLoading, error, fetchTranscripts: refetch } = useCallTranscripts();
+  const { filters } = useSharedFilters();
   const [searchTerm, setSearchTerm] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
-  const [activeSource, setActiveSource] = useState("local");
   
   // Load transcriptions from storage and check for ID in URL parameters
   useEffect(() => {
     loadTranscriptions();
     
-    const transcriptId = searchParams.get("id");
     if (transcriptId) {
-      // First check in local storage
+      // Check if we have an active_transcript in localStorage that was set by WhisperButton
+      const activeTranscriptJson = localStorage.getItem('active_transcript');
+      if (activeTranscriptJson) {
+        try {
+          const parsedTranscript = JSON.parse(activeTranscriptJson);
+          if (parsedTranscript.id === transcriptId) {
+            console.log("Found active transcript in localStorage:", parsedTranscript);
+            setActiveTranscript(parsedTranscript);
+            // Clear the localStorage to avoid stale data
+            localStorage.removeItem('active_transcript');
+            return;
+          }
+        } catch (error) {
+          console.error("Error parsing active transcript from localStorage:", error);
+        }
+      }
+      
+      // If no active_transcript in localStorage or ID doesn't match, check in local storage
       const transcript = transcripts.find(t => t.id === transcriptId);
       if (transcript) {
+        console.log("Found transcript in local storage:", transcript);
         setActiveTranscript(transcript);
       } else {
         // Then check in database
+        console.log("Transcript not found in local storage, checking database for ID:", transcriptId);
         fetchTranscriptById(transcriptId);
       }
     }
-  }, [searchParams]);
+  }, [searchParams, transcripts]);
   
   const fetchTranscriptById = async (id: string) => {
     try {
@@ -80,7 +180,8 @@ const Transcripts = () => {
   };
   
   const loadTranscriptions = async () => {
-    setIsLoading(true);
+    // Set loading state
+    const startLoading = true;
     
     // Get local data from storage
     const storedTranscriptions = getStoredTranscriptions();
@@ -102,12 +203,35 @@ const Transcripts = () => {
       if (error) throw error;
       
       if (data) {
-        setDbTranscripts(data);
+        try {
+          // Need to handle the transcript_segments type properly
+          const formattedData = data.map(item => {
+            // Create a properly typed transcript object
+            const transcript: DbTranscript = {
+              id: item.id,
+              text: item.text,
+              filename: item.filename || undefined,
+              created_at: item.created_at || new Date().toISOString(),
+              duration: item.duration || undefined,
+              call_score: item.call_score || undefined,
+              sentiment: item.sentiment || undefined,
+              keywords: item.keywords || undefined,
+              // Process transcript segments using our helper function
+              transcript_segments: processTranscriptSegments(item.transcript_segments)
+            };
+            
+            return transcript;
+          });
+          
+          setDbTranscripts(formattedData);
+        } catch (err) {
+          console.error('Error formatting transcript data:', err);
+        }
       }
     } catch (error) {
       console.error('Error loading transcripts from DB:', error);
     } finally {
-      setIsLoading(false);
+      // Finished loading
     }
   };
   
@@ -138,46 +262,70 @@ const Transcripts = () => {
   
   // Format duration from seconds to minutes and seconds
   const formatDuration = (seconds?: number): string => {
-    if (!seconds) return "unknown";
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
+    try {
+      if (seconds === undefined || seconds === null) return "unknown";
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = seconds % 60;
+      return `${minutes}m ${remainingSeconds}s`;
+    } catch (error) {
+      console.error('Error formatting duration:', error);
+      return "unknown";
+    }
   };
   
   // Generate a speaker name if none exists
-  const getSpeakerName = (transcript: any): string => {
-    if (transcript.speakerName) return transcript.speakerName;
+  const getSpeakerName = (transcript: StoredTranscription | null | undefined): string => {
+    // Check if transcript or id is undefined/null
+    if (!transcript || !transcript.id) {
+      return "Unknown Speaker";
+    }
     
-    // Generate a random name if none exists
-    const firstNames = ["Sarah", "Michael", "Emily", "David", "Jessica", "John", "Rachel", "Robert", "Linda", "William"];
-    const lastNames = ["Johnson", "Chen", "Rodriguez", "Kim", "Wong", "Smith", "Brown", "Jones", "Miller", "Davis"];
-    
-    // Use the transcript ID as a seed for consistent naming
-    const idSum = transcript.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const firstName = firstNames[idSum % firstNames.length];
-    const lastName = lastNames[(idSum * 13) % lastNames.length];
-    
-    return `${firstName} ${lastName}`;
+    try {
+      // Generate a random name if none exists
+      const firstNames = ["Sarah", "Michael", "Emily", "David", "Jessica", "John", "Rachel", "Robert", "Linda", "William"];
+      const lastNames = ["Johnson", "Chen", "Rodriguez", "Kim", "Wong", "Smith", "Brown", "Jones", "Miller", "Davis"];
+      
+      // Use the transcript ID as a seed for consistent naming
+      const idSum = transcript.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+      const firstName = firstNames[idSum % firstNames.length];
+      const lastName = lastNames[(idSum * 13) % lastNames.length];
+      
+      return `${firstName} ${lastName}`;
+    } catch (error) {
+      console.error('Error generating speaker name:', error);
+      return "Unknown Speaker";
+    }
   };
   
-  const handleTranscriptClick = (transcript: any) => {
+  const handleTranscriptClick = (transcript: StoredTranscription | DbTranscript) => {
     if (activeSource === 'local') {
       const localTranscript = transcripts.find(t => t.id === transcript.id);
       setActiveTranscript(localTranscript || null);
     } else {
-      // Convert DB transcript to StoredTranscription format
-      const convertedTranscript: StoredTranscription = {
-        id: transcript.id,
-        text: transcript.text,
-        filename: transcript.filename,
-        date: transcript.created_at,
-        duration: transcript.duration,
-        callScore: transcript.call_score,
-        sentiment: transcript.sentiment,
-        keywords: transcript.keywords || [],
-      };
-      
-      setActiveTranscript(convertedTranscript);
+      // Check if this is a DB transcript
+      if (isDbTranscript(transcript)) {
+        // Convert DB transcript to StoredTranscription format with transcript segments
+        const convertedTranscript: StoredTranscription = {
+          id: transcript.id,
+          text: transcript.text,
+          filename: transcript.filename,
+          date: transcript.created_at,
+          duration: transcript.duration,
+          callScore: transcript.call_score,
+          sentiment: transcript.sentiment,
+          keywords: transcript.keywords || [],
+          transcript_segments: transcript.transcript_segments || [],
+          // Add any missing required fields with defaults
+          speakerName: transcript.filename?.split('.')[0] || 'Unknown Speaker'
+        };
+        
+        console.log("Converting DB transcript to StoredTranscription format:", convertedTranscript);
+        setActiveTranscript(convertedTranscript);
+      } else {
+        // It's already a StoredTranscription - make sure we log what's happening
+        console.log("Setting active transcript from StoredTranscription:", transcript);
+        setActiveTranscript(transcript);
+      }
     }
     
     setSearchParams({ id: transcript.id });
@@ -223,11 +371,20 @@ const Transcripts = () => {
                 <div>
                   <CardTitle>Transcript Details</CardTitle>
                   <CardDescription>
-                    {activeTranscript.filename ? activeTranscript.filename : `Call with ${getSpeakerName(activeTranscript)}`} • {
-                      format(
-                        parseISO(activeTranscript.date), 
-                        'PPp'
-                      )
+                    {activeTranscript.filename 
+                      ? activeTranscript.filename 
+                      : `Call with ${getSpeakerName(activeTranscript)}`
+                    } • {
+                      activeTranscript.date
+                        ? (() => {
+                            try {
+                              return format(parseISO(activeTranscript.date), 'PPp');
+                            } catch (error) {
+                              console.error('Error formatting date:', error);
+                              return 'Unknown date';
+                            }
+                          })()
+                        : 'Unknown date'
                     } • {formatDuration(activeTranscript.duration)}
                   </CardDescription>
                 </div>
@@ -282,7 +439,7 @@ const Transcripts = () => {
                       </div>
                       
                       <div className="flex items-center gap-2">
-                        <Tabs defaultValue="local" value={activeSource} onValueChange={setActiveSource}>
+                        <Tabs defaultValue="local" value={activeSource} onValueChange={(value) => setActiveSource(value as 'db' | 'local')}>
                           <TabsList>
                             <TabsTrigger value="local">
                               <Phone className="h-4 w-4 mr-2" />
@@ -330,7 +487,15 @@ const Transcripts = () => {
                                 </div>
                                 <div className="text-sm text-muted-foreground flex items-center gap-2">
                                   <Calendar className="h-3 w-3" />
-                                  {format(parseISO(activeSource === 'local' ? transcript.date : transcript.created_at), 'PPp')}
+                                  {(() => {
+                                    try {
+                                      const dateStr = activeSource === 'local' ? transcript.date : transcript.created_at;
+                                      return format(parseISO(dateStr), 'PPp');
+                                    } catch (error) {
+                                      console.error('Error formatting date in list:', error);
+                                      return 'Unknown date';
+                                    }
+                                  })()}
                                   <span>•</span>
                                   <Clock className="h-3 w-3" />
                                   {formatDuration(transcript.duration)}

@@ -1,25 +1,67 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { RepMetrics } from "@/services/RealTimeMetricsService";
-import { animationUtils } from '@/utils/animationUtils';
 import ContentLoader from '@/components/ui/ContentLoader';
+import { useSharedRepMetrics } from '@/services/SharedDataService';
+import { useStableLoadingState } from '@/hooks/useStableLoadingState';
+import { RepMetricsData } from '@/services/SharedDataService';
+import { animationUtils } from '@/utils/animationUtils';
 
-interface RepPerformanceCardsProps {
-  repMetrics: RepMetrics[];
-  repMetricsLoading: boolean;
+export interface RepPerformanceCardsProps {
+  dateRange?: {
+    from: Date;
+    to: Date;
+  };
+  selectedRepIds?: string[];
+  // Support for legacy props
+  repMetrics?: RepMetricsData[];
+  repMetricsLoading?: boolean;
 }
 
 const RepPerformanceCards: React.FC<RepPerformanceCardsProps> = ({ 
-  repMetrics, 
-  repMetricsLoading 
+  dateRange,
+  selectedRepIds,
+  repMetrics: externalRepMetrics,
+  repMetricsLoading: externalLoading
 }) => {
+  // Fetch real rep metrics from SharedDataService
+  const { 
+    metrics: internalRepMetrics, 
+    isLoading: internalLoading 
+  } = useSharedRepMetrics({
+    dateRange,
+    repIds: selectedRepIds
+  });
+  
+  // Use external metrics if provided, otherwise use internal metrics
+  const repMetrics = externalRepMetrics as RepMetricsData[] || internalRepMetrics;
+  const repMetricsLoading = externalLoading !== undefined ? externalLoading : internalLoading;
+  
   // Store stable metrics to prevent UI jitter during updates
-  const [stableMetrics, setStableMetrics] = useState<RepMetrics[]>([]);
+  const [stableMetrics, setStableMetrics] = useState<RepMetricsData[]>([]);
+  const [isStableLoading, setIsStableLoading] = useState(true);
+  
+  // Custom stable loading state implementation
+  useEffect(() => {
+    if (repMetricsLoading) {
+      // Don't immediately show loading state, wait a bit to prevent flicker
+      const timer = setTimeout(() => {
+        setIsStableLoading(true);
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    } else {
+      // Keep showing loading for a bit after data arrives
+      const timer = setTimeout(() => {
+        setIsStableLoading(false);
+      }, 800);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [repMetricsLoading]);
   
   useEffect(() => {
-    if (repMetricsLoading) return;
+    if (isStableLoading) return;
     
     // Initialize with first data load
     if (stableMetrics.length === 0 && repMetrics.length > 0) {
@@ -48,7 +90,7 @@ const RepPerformanceCards: React.FC<RepPerformanceCardsProps> = ({
       
       setStableMetrics(smoothedMetrics);
     }
-  }, [repMetrics, repMetricsLoading, stableMetrics]);
+  }, [repMetrics, isStableLoading, stableMetrics]);
   
   return (
     <Card className="mb-6">
@@ -59,7 +101,7 @@ const RepPerformanceCards: React.FC<RepPerformanceCardsProps> = ({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <ContentLoader isLoading={repMetricsLoading} height={300} skeletonCount={3}>
+        <ContentLoader isLoading={isStableLoading} height={300} skeletonCount={3}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {stableMetrics.length > 0 ? (
               stableMetrics.map(rep => (

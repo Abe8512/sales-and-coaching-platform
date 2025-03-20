@@ -1,9 +1,25 @@
-
 // A service for analyzing transcript text and extracting insights
 export class TranscriptAnalysisService {
   private cachedSentiments = new Map<string, string>();
   private cachedKeywords = new Map<string, string[]>();
   private cachedScores = new Map<string, number>();
+  private cachedMetrics = new Map<string, any>();
+  
+  // Common sales objections for detection
+  private objectionPhrases = [
+    'too expensive', 'can\'t afford', 'not in budget', 'price is too high',
+    'need to think about it', 'not ready', 'need more time', 
+    'need to talk to', 'get approval', 'check with',
+    'competitor', 'other option', 'alternative',
+    'not interested', 'don\'t need', 'don\'t see the value',
+    'won\'t work for us', 'too complicated'
+  ];
+  
+  // Filler words to detect
+  private fillerWords = [
+    'um', 'uh', 'like', 'actually', 'you know', 'so', 
+    'kind of', 'sort of', 'basically', 'right', 'okay', 'just'
+  ];
   
   // Analyze text and generate a sentiment score
   public analyzeSentiment(text: string): 'positive' | 'neutral' | 'negative' {
@@ -138,11 +154,188 @@ export class TranscriptAnalysisService {
     });
   }
   
+  // Calculate comprehensive call metrics
+  public calculateCallMetrics(text: string, segments: any[], duration: number) {
+    // Check cache first for this specific combination
+    const cacheKey = `metrics-${text.substring(0, 100)}-${duration}`;
+    if (this.cachedMetrics.has(cacheKey)) {
+      return this.cachedMetrics.get(cacheKey);
+    }
+    
+    // Ensure we have segments with speaker information
+    const processedSegments = this.ensureSegments(text, segments, 2);
+    
+    // Calculate talk time for each speaker
+    let agentTalkTime = 0;
+    let customerTalkTime = 0;
+    let totalWords = 0;
+    let agentWords = 0;
+    let customerWords = 0;
+    
+    processedSegments.forEach(segment => {
+      const segmentDuration = segment.end - segment.start;
+      const words = segment.text.split(/\s+/).filter((w: string) => w.length > 0);
+      totalWords += words.length;
+      
+      if (segment.speaker === "Agent") {
+        agentTalkTime += segmentDuration;
+        agentWords += words.length;
+      } else {
+        customerTalkTime += segmentDuration;
+        customerWords += words.length;
+      }
+    });
+    
+    // If duration wasn't provided or calculated properly, estimate it
+    const calculatedDuration = agentTalkTime + customerTalkTime;
+    const finalDuration = duration > 0 ? duration : calculatedDuration > 0 ? calculatedDuration : 60;
+    
+    // Calculate talk ratio
+    const totalTalkTime = agentTalkTime + customerTalkTime;
+    const talkRatio = {
+      agent: totalTalkTime > 0 ? (agentTalkTime / totalTalkTime) * 100 : 50,
+      customer: totalTalkTime > 0 ? (customerTalkTime / totalTalkTime) * 100 : 50
+    };
+    
+    // Calculate speaking speed (words per minute)
+    const speakingSpeed = {
+      overall: (totalWords / finalDuration) * 60,
+      agent: (agentWords / Math.max(agentTalkTime, 1)) * 60,
+      customer: (customerWords / Math.max(customerTalkTime, 1)) * 60
+    };
+    
+    // Detect filler words
+    const fillerWordCounts = this.detectFillerWords(text);
+    const totalFillerWords = Object.values(fillerWordCounts).reduce((sum, count) => sum + count, 0);
+    const fillerWordsPerMinute = (totalFillerWords / (finalDuration / 60));
+    
+    // Detect sales objections
+    const objections = this.detectSalesObjections(text);
+    
+    // Customer engagement score based on talk ratio, sentiment, etc.
+    let customerEngagement = 70; // Base score
+    
+    // If customer is talking a good amount (between 40-60%), that's a good sign
+    if (talkRatio.customer >= 40 && talkRatio.customer <= 60) {
+      customerEngagement += 15;
+    } else if (talkRatio.customer < 30 || talkRatio.customer > 70) {
+      customerEngagement -= 10; // Either dominating or barely participating
+    }
+    
+    // Sentiment affects engagement
+    const sentiment = this.analyzeSentiment(text);
+    if (sentiment === 'positive') customerEngagement += 10;
+    if (sentiment === 'negative') customerEngagement -= 15;
+    
+    // More objections typically means lower engagement
+    customerEngagement -= objections.count * 5;
+    
+    // Cap to 0-100 range
+    customerEngagement = Math.max(0, Math.min(100, customerEngagement));
+    
+    // Create final metrics object
+    const metrics = {
+      duration: finalDuration,
+      words: totalWords,
+      talkRatio,
+      speakingSpeed,
+      fillerWords: {
+        count: totalFillerWords,
+        perMinute: fillerWordsPerMinute,
+        breakdown: fillerWordCounts
+      },
+      objections: {
+        count: objections.count,
+        instances: objections.instances
+      },
+      sentiment,
+      customerEngagement
+    };
+    
+    // Cache results
+    this.cachedMetrics.set(cacheKey, metrics);
+    
+    return metrics;
+  }
+  
+  // Helper: Ensure we have segments with speaker information
+  private ensureSegments(text: string, segments: any[], numberOfSpeakers: number) {
+    if (!segments || segments.length === 0) {
+      // Create basic segments if none provided
+      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      const avgDuration = 30 / sentences.length;
+      
+      return sentences.map((sentence, index) => {
+        const speakerIndex = index % numberOfSpeakers;
+        return {
+          id: index + 1,
+          start: index * avgDuration,
+          end: (index + 1) * avgDuration,
+          text: sentence.trim(),
+          speaker: speakerIndex === 0 ? "Agent" : "Customer",
+          confidence: 0.8
+        };
+      });
+    }
+    
+    // Use existing segments, ensuring they have speaker info
+    return segments.map((segment, index) => {
+      if (!segment.speaker) {
+        const speakerIndex = index % numberOfSpeakers;
+        segment.speaker = speakerIndex === 0 ? "Agent" : "Customer";
+      }
+      return segment;
+    });
+  }
+  
+  // Detect filler words in text
+  private detectFillerWords(text: string): Record<string, number> {
+    const fillerWordCounts: Record<string, number> = {};
+    const lowerText = text.toLowerCase();
+    
+    this.fillerWords.forEach(fillerWord => {
+      const regex = new RegExp(`\\b${fillerWord}\\b`, 'gi');
+      const matches = lowerText.match(regex);
+      if (matches && matches.length > 0) {
+        fillerWordCounts[fillerWord] = matches.length;
+      }
+    });
+    
+    return fillerWordCounts;
+  }
+  
+  // Detect sales objections in text
+  private detectSalesObjections(text: string): { count: number; instances: string[] } {
+    const lowerText = text.toLowerCase();
+    let totalCount = 0;
+    const instances: string[] = [];
+    
+    this.objectionPhrases.forEach(phrase => {
+      if (lowerText.includes(phrase)) {
+        totalCount++;
+        
+        // Find surrounding context (20 chars before and after)
+        const index = lowerText.indexOf(phrase);
+        const start = Math.max(0, index - 20);
+        const end = Math.min(lowerText.length, index + phrase.length + 20);
+        const context = text.substring(start, end).trim();
+        
+        instances.push(`"${context}" (contains "${phrase}")`);
+      }
+    });
+    
+    return {
+      count: totalCount,
+      instances
+    };
+  }
+  
   // Clear caches to free memory
   public clearCaches(): void {
     this.cachedSentiments.clear();
     this.cachedKeywords.clear();
     this.cachedScores.clear();
+    this.cachedMetrics.clear();
   }
 }
 

@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useCallback } from "react";
 import {
   useSharedTeamMetrics,
@@ -70,15 +69,19 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
     }
   }, [metrics]);
   
-  // Log errors for monitoring but don't impact the UI
+  // Notify about errors
   useEffect(() => {
     if (error) {
-      errorHandler.handleError({
+      // Create detailed error object for better debugging
+      const errorObj = {
         message: "Couldn't load team metrics",
-        technical: typeof error === 'string' ? error : JSON.stringify(error),
-        severity: "warning",
-        code: "TEAM_METRICS_ERROR"
-      }, "TeamMetrics");
+        technical: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+        severity: 'warning' as const,
+        code: 'TEAM_METRICS_ERROR'
+      };
+      
+      // Call the error handler with the correct parameter order
+      errorHandler.handleError(errorObj, "TeamMetrics");
     }
   }, [error]);
   

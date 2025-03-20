@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Button } from '../ui/button';
+import { Button } from '@/components/ui/button';
 import { Mic, MicOff, Loader2 } from 'lucide-react';
 import { useWhisperService } from '@/services/WhisperService';
 import { useToast } from '@/hooks/use-toast';
 import AIWaveform from '../ui/AIWaveform';
+import { extractNames } from '@/services/WhisperService';
 
 interface SpeechToTextRecorderProps {
   onTranscriptionComplete?: (text: string) => void;
@@ -22,6 +23,8 @@ const SpeechToTextRecorder = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [status, setStatus] = useState('idle');
+  const [error, setError] = useState<string | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -75,6 +78,17 @@ const SpeechToTextRecorder = ({
             const result = await transcribeAudio(audioFile);
             
             if (result) {
+              // Extract names from transcript
+              const { repName, customerName } = extractNames(result.text);
+              console.log(`Extracted names - Rep: ${repName}, Customer: ${customerName}`);
+              
+              // Add the extracted names to the transcription
+              // Note: The WhisperTranscriptionResponse may not directly store customerName
+              // but we can use it when storing the transcription separately if needed
+              if (repName) {
+                result.speakerName = repName;
+              }
+              
               setTranscript(result.text);
               
               if (onTranscriptionComplete) {

@@ -3,7 +3,7 @@ import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
-import { useRealTimeTeamMetrics, useRealTimeRepMetrics } from "@/services/RealTimeMetricsService";
+import { useAnalyticsTeamMetrics, useAnalyticsRepMetrics, useAnalyticsTranscripts } from "@/services/AnalyticsHubService";
 import DateRangeFilter from "@/components/CallAnalysis/DateRangeFilter";
 import TeamFilterWrapper from "@/components/Performance/TeamFilterWrapper";
 import CoachingAlerts from "@/components/CallAnalysis/CoachingAlerts";
@@ -11,7 +11,6 @@ import KeywordInsights from "@/components/CallAnalysis/KeywordInsights";
 import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useCallTranscripts, CallTranscriptFilter } from "@/services/CallTranscriptService";
 import { useEventListener } from '@/services/events';
 import { EventType } from '@/services/events/types';
 import { toast } from "sonner";
@@ -20,17 +19,11 @@ import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
 import RecentCallsTable from "@/components/CallActivity/RecentCallsTable";
 import CallOutcomeStats from "@/components/CallActivity/CallOutcomeStats";
 import { getMetrics, getCallDistributionData } from "@/services/CallTranscriptMetricsService";
-import { useTranscripts } from '@/services/SharedDataService';
 import { useEventsStore } from '@/services/events';
 import { useEventListener as useEventListenerHook } from '@/hooks/useEventListener';
-import { Call } from '@/types/call';
-import { DataTable } from '@/components/ui/data-table';
 import { Skeleton } from '@/components/ui/skeleton';
-import { DateRangePicker } from '@/components/ui/date-range-picker';
-import { UserSelector } from '@/components/shared/UserSelector';
-import { FilterBar } from '@/components/shared/FilterBar';
-import { CallTable } from '@/components/CallActivity/CallTable';
 
+// Define local Call interface instead of importing from types
 interface Call {
   id: string;
   userId: string;
@@ -56,20 +49,23 @@ const CallActivity = () => {
   });
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   
-  const [teamMetrics, teamMetricsLoading] = useRealTimeTeamMetrics();
-  const [repMetrics, repMetricsLoading] = useRealTimeRepMetrics(
-    filters.teamMembers.length > 0 ? filters.teamMembers : undefined
-  );
+  // Use AnalyticsHubService hooks
+  const { metrics: teamMetrics, isLoading: teamMetricsLoading, refreshMetrics: refreshTeamMetrics } = useAnalyticsTeamMetrics({
+    dateRange,
+    repIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
+  });
+  
+  const { metrics: repMetrics, isLoading: repMetricsLoading } = useAnalyticsRepMetrics({
+    dateRange,
+    repIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
+  });
+  
+  const { transcripts, isLoading: transcriptsLoading, refreshTranscripts, error: transcriptsError } = useAnalyticsTranscripts({
+    dateRange,
+    repIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
+  });
   
   const [fetchError, setFetchError] = useState<string | null>(null);
-  
-  const { 
-    transcripts, 
-    loading: transcriptsLoading,
-    error: transcriptsError, 
-    fetchTranscripts
-  } = useCallTranscripts();
-  
   const [calls, setCalls] = useState<Call[]>([]);
   
   const convertTranscriptsToCallData = (transcripts: any[]): Call[] => {
@@ -109,29 +105,17 @@ const CallActivity = () => {
   };
 
   useEffect(() => {
-    if (transcripts.length > 0) {
+    if (transcripts && transcripts.length > 0) {
       const convertedCalls = convertTranscriptsToCallData(transcripts);
       setCalls(convertedCalls);
     }
   }, [transcripts]);
   
   const refreshData = useCallback(() => {
-    const transcriptFilter: CallTranscriptFilter = {
-      startDate: dateRange?.from,
-      endDate: dateRange?.to,
-      sortBy: 'created_at',
-      sortOrder: 'desc'
-    };
-    
-    if (selectedUser) {
-      transcriptFilter.userId = selectedUser;
-    } else if (filters.teamMembers.length > 0) {
-      transcriptFilter.userIds = filters.teamMembers;
-    }
-    
-    fetchTranscripts(transcriptFilter);
+    refreshTeamMetrics();
+    refreshTranscripts();
     setRefreshTrigger(prev => prev + 1);
-  }, [selectedUser, filters, dateRange, fetchTranscripts]);
+  }, [refreshTeamMetrics, refreshTranscripts]);
   
   useEventListener('bulk-upload-completed', (data) => {
     console.log('Bulk upload completed event received', data);
@@ -149,22 +133,17 @@ const CallActivity = () => {
     refreshData();
   });
   
-  useEventListener('transcripts-refreshed', () => {
-    console.log('Transcripts refreshed event received');
-    refreshData();
-  });
-  
   useEffect(() => {
     refreshData();
     // this ensures the effect runs when any of the dependencies of refreshData change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUser, filters, dateRange, fetchTranscripts]);
+  }, [selectedUser, filters, dateRange, refreshTeamMetrics, refreshTranscripts]);
   
   useEffect(() => {
     if (transcriptsError) {
-      setFetchError(transcriptsError);
+      setFetchError(transcriptsError instanceof Error ? transcriptsError.message : String(transcriptsError));
       toast.error("Failed to load call data", {
-        description: transcriptsError,
+        description: transcriptsError instanceof Error ? transcriptsError.message : String(transcriptsError),
       });
     } else {
       setFetchError(null);

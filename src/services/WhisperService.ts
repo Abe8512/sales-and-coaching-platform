@@ -2,6 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { errorHandler } from "./ErrorHandlingService";
+import { refreshMetrics } from "./DataSyncService";
 
 export interface WhisperTranscriptionResponse {
   id: string;
@@ -501,10 +503,24 @@ export const useWhisperService = () => {
         filename: newTranscription.filename
       });
       
-      // Emit event to notify other components
-      window.dispatchEvent(new CustomEvent('transcriptions-updated'));
+      // Integrate with AnalyticsHubService
+      try {
+        // Import AnalyticsHubService
+        import("./AnalyticsHubService").then(({ AnalyticsHubService }) => {
+          const analyticsHub = AnalyticsHubService.getInstance();
+          analyticsHub.processWhisperTranscript(newTranscription);
+          console.log('Successfully sent transcription data to AnalyticsHubService');
+        }).catch((error) => {
+          console.error('Failed to integrate with AnalyticsHubService:', error);
+        });
+        
+        // Trigger immediate metrics update (legacy)
+        refreshMetrics();
+      } catch (syncError) {
+        console.error('Error syncing metrics after transcription save:', syncError);
+      }
     } catch (error) {
-      console.error('Error saving to Supabase:', error);
+      console.error('Error saving transcription to Supabase:', error);
     }
     
     return newTranscription;

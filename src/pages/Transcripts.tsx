@@ -15,7 +15,7 @@ import TranscriptDetail from "@/components/Transcripts/TranscriptDetail";
 import AIWaveform from "@/components/ui/AIWaveform";
 import { supabase } from "@/integrations/supabase/client";
 import BulkUploadHistory from "@/components/BulkUpload/BulkUploadHistory";
-import { useCallTranscripts } from "@/services/CallTranscriptService";
+import { useAnalyticsTranscripts } from "@/services/AnalyticsHubService";
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
 import { Json } from "@/integrations/supabase/types";
 
@@ -104,9 +104,13 @@ const Transcripts: React.FC = () => {
   const [activeSource, setActiveSource] = useState<'db' | 'local'>('db');
   const [activeTranscript, setActiveTranscript] = useState<StoredTranscription | null>(null);
   const [transcripts, setTranscripts] = useState<StoredTranscription[]>([]);
-  const [dbTranscripts, setDbTranscripts] = useState<DbTranscript[]>([]);
-  const { transcripts: callTranscripts, loading: isLoading, error, fetchTranscripts: refetch } = useCallTranscripts();
+  const [localDbTranscripts, setLocalDbTranscripts] = useState<DbTranscript[]>([]);
   const { filters } = useSharedFilters();
+  const { 
+    transcripts: analyticsTranscripts, 
+    isLoading: transcriptsLoading, 
+    refreshTranscripts 
+  } = useAnalyticsTranscripts(filters);
   const [searchTerm, setSearchTerm] = useState("");
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
@@ -223,7 +227,7 @@ const Transcripts: React.FC = () => {
             return transcript;
           });
           
-          setDbTranscripts(formattedData);
+          setLocalDbTranscripts(formattedData);
         } catch (err) {
           console.error('Error formatting transcript data:', err);
         }
@@ -248,7 +252,7 @@ const Transcripts: React.FC = () => {
         
         return matchesSearch;
       })
-    : dbTranscripts.filter(transcript => {
+    : localDbTranscripts.filter(transcript => {
         const matchesSearch = transcript.text.toLowerCase().includes(searchTerm.toLowerCase()) ||
                              (transcript.filename && transcript.filename.toLowerCase().includes(searchTerm.toLowerCase()));
         
@@ -332,8 +336,15 @@ const Transcripts: React.FC = () => {
   };
   
   const handleRefresh = () => {
-    loadTranscriptions();
+    refreshTranscripts();
   };
+  
+  useEffect(() => {
+    if (analyticsTranscripts && analyticsTranscripts.length > 0) {
+      // Cast to unknown first, then to DbTranscript[] to avoid type checking errors
+      setLocalDbTranscripts(analyticsTranscripts as unknown as DbTranscript[]);
+    }
+  }, [analyticsTranscripts]);
   
   return (
     <DashboardLayout>
@@ -351,9 +362,9 @@ const Transcripts: React.FC = () => {
               variant="outline" 
               size="icon"
               onClick={handleRefresh}
-              disabled={isLoading}
+              disabled={transcriptsLoading}
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 ${transcriptsLoading ? "animate-spin" : ""}`} />
             </Button>
             <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
           </div>

@@ -1,4 +1,3 @@
-
 import React from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,7 +17,7 @@ import AISimulator from "@/components/Performance/AISimulator";
 import LearningPath from "@/components/Performance/LearningPath";
 import { DateRangeFilter } from "@/components/CallAnalysis/DateRangeFilter";
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
-import { useSharedTeamMetrics } from "@/services/SharedDataService";
+import { useAnalyticsTeamMetrics } from "@/services/AnalyticsHubService";
 import { useToast } from "@/hooks/use-toast";
 import { 
   AlertDialog,
@@ -36,7 +35,7 @@ const Performance = () => {
   const { isManager, isAdmin } = useAuth();
   const { toast } = useToast();
   const { filters, updateDateRange } = useSharedFilters();
-  const { refreshMetrics, isLoading } = useSharedTeamMetrics(filters);
+  const { refreshMetrics, isLoading } = useAnalyticsTeamMetrics(filters);
   const [activeTab, setActiveTab] = React.useState("trends");
   
   const handleRefresh = () => {

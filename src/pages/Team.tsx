@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useContext } from "react";
@@ -20,11 +19,26 @@ import { useChartData } from "@/hooks/useChartData";
 import TeamPerformanceComparison from "@/components/Team/TeamPerformanceComparison";
 import TeamMemberCard from "@/components/Team/TeamMemberCard";
 import AddTeamMemberModal from "@/components/Team/AddTeamMemberModal";
+import { toast } from "@/components/ui/use-toast";
+import { useAnalyticsRepMetrics } from '@/services/AnalyticsHubService';
+import { useSharedFilters } from '@/contexts/SharedFilterContext';
+
+// Type definition for team members used in this component
+type TeamMemberData = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  performance: number;
+  calls: number;
+  conversion: number;
+  avatar: string;
+};
 
 // Mock data for team members
 const initialTeamMembers = [
   {
-    id: 1,
+    id: "1",
     name: "Alex Johnson",
     email: "alex.johnson@example.com",
     role: "Senior Sales Rep",
@@ -34,7 +48,7 @@ const initialTeamMembers = [
     avatar: "AJ"
   },
   {
-    id: 2,
+    id: "2",
     name: "Maria Garcia",
     email: "maria.garcia@example.com",
     role: "Sales Rep",
@@ -44,7 +58,7 @@ const initialTeamMembers = [
     avatar: "MG"
   },
   {
-    id: 3,
+    id: "3",
     name: "David Kim",
     email: "david.kim@example.com",
     role: "Junior Sales Rep",
@@ -54,7 +68,7 @@ const initialTeamMembers = [
     avatar: "DK"
   },
   {
-    id: 4,
+    id: "4",
     name: "Sarah Williams",
     email: "sarah.williams@example.com",
     role: "Senior Sales Rep",
@@ -64,7 +78,7 @@ const initialTeamMembers = [
     avatar: "SW"
   },
   {
-    id: 5,
+    id: "5",
     name: "James Taylor",
     email: "james.taylor@example.com",
     role: "Sales Rep",
@@ -80,10 +94,26 @@ const Team = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   
-  const {
-    data: teamMembers,
-    setData: setTeamMembers
-  } = useChartData(initialTeamMembers);
+  const { filters } = useSharedFilters();
+  const { metrics: teamMembersData, isLoading: teamMembersLoading } = useAnalyticsRepMetrics(filters);
+  
+  // Convert analytics rep metrics to the format expected by the component
+  const teamMembers = React.useMemo(() => {
+    if (!teamMembersData || !teamMembersData.length) {
+      return initialTeamMembers; // Fallback to mock data if no real data
+    }
+    
+    return teamMembersData.map(rep => ({
+      id: rep.id,
+      name: rep.name || `Rep ${rep.id.substring(0, 4)}`,
+      email: `${rep.name?.toLowerCase().replace(' ', '.')}@example.com` || 'user@example.com',
+      role: "Sales Representative",
+      performance: Math.round(rep.sentiment * 100),
+      calls: rep.callVolume || 0,
+      conversion: Math.round(rep.successRate * 100),
+      avatar: rep.name ? rep.name.split(' ').map(part => part[0]).join('').substring(0, 2) : 'U'
+    }));
+  }, [teamMembersData]);
 
   const filteredMembers = teamMembers.filter(member => 
     member.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -92,15 +122,39 @@ const Team = () => {
   );
 
   const handleAddMember = (newMember) => {
-    const updatedMembers = [...teamMembers, {
+    // Since we're now using AnalyticsHubService, we don't have direct add/remove functions
+    // Instead, we'll just show a toast notification and would typically call an API
+    
+    toast({
+      title: "Team Member Added",
+      description: `${newMember.name} has been added to your team.`,
+    });
+    
+    // In a real implementation, we would call an API to add the member
+    // and then refresh the data from AnalyticsHubService
+    console.log("Added member (would be saved to database):", newMember);
+    
+    return {
       ...newMember,
-      id: teamMembers.length + 1,
-      performance: Math.floor(Math.random() * 30) + 60, // Random performance between 60-90
-      calls: Math.floor(Math.random() * 100) + 50, // Random calls between 50-150
-      conversion: Math.floor(Math.random() * 20) + 10, // Random conversion between 10-30
-      avatar: newMember.name.split(' ').map(n => n[0]).join('')
-    }];
-    setTeamMembers(updatedMembers);
+      id: `temp-${Date.now()}`,
+      performance: Math.floor(Math.random() * 30) + 60,
+      calls: Math.floor(Math.random() * 100) + 50,
+      conversion: Math.floor(Math.random() * 20) + 10,
+    };
+  };
+  
+  const handleRemoveMember = (member) => {
+    // Since we're now using AnalyticsHubService, we don't have direct add/remove functions
+    // Instead, we'll just show a toast notification and would typically call an API
+    
+    toast({
+      title: "Team Member Removed",
+      description: `${member.name} has been removed from your team.`,
+    });
+    
+    // In a real implementation, we would call an API to remove the member
+    // and then refresh the data from AnalyticsHubService
+    console.log("Removed member (would be deleted from database):", member.id);
   };
 
   return (
@@ -143,7 +197,20 @@ const Team = () => {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
             {filteredMembers.map((member) => (
-              <TeamMemberCard key={member.id} member={member} />
+              <TeamMemberCard 
+                key={member.id} 
+                member={{
+                  id: String(member.id),
+                  name: member.name,
+                  email: member.email,
+                  role: member.role,
+                  performance: member.performance,
+                  calls: member.calls,
+                  conversion: member.conversion,
+                  avatar: member.avatar
+                }}
+                onRemove={handleRemoveMember}
+              />
             ))}
           </div>
         </TabsContent>

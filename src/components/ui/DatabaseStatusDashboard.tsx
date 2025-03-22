@@ -43,11 +43,11 @@ const DatabaseStatusDashboard: React.FC<DatabaseStatusDashboardProps> = ({
 
   const checkRealtimeStatus = async () => {
     setCheckingRealtime(true);
-    const tables = ['call_transcripts', 'calls', 'keyword_trends', 'sentiment_trends'];
+    const { REALTIME_TABLES } = await import('@/constants/tables');
     const statuses: {[key: string]: boolean} = {};
     
     try {
-      for (const table of tables) {
+      for (const table of REALTIME_TABLES) {
         statuses[table] = true;
       }
     } catch (error) {

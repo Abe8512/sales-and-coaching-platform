@@ -1,4 +1,3 @@
-
 -- Create a function to check if a table is in a publication
 CREATE OR REPLACE FUNCTION check_table_in_publication(table_name TEXT, publication_name TEXT)
 RETURNS BOOLEAN
@@ -51,3 +50,31 @@ $$;
 GRANT EXECUTE ON FUNCTION check_table_in_publication TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION set_replica_identity_full_for_table TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION add_table_to_realtime_publication TO authenticated, anon;
+
+-- Add all the application tables to the realtime publication
+DO
+$$
+DECLARE
+  application_tables TEXT[] := ARRAY[
+    'call_transcripts', 
+    'calls', 
+    'keyword_trends', 
+    'sentiment_trends',
+    'call_metrics_summary',
+    'rep_metrics_summary'
+  ];
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY application_tables
+  LOOP
+    -- Only add if not already in the publication
+    IF NOT check_table_in_publication(t, 'supabase_realtime') THEN
+      PERFORM set_replica_identity_full_for_table(t);
+      PERFORM add_table_to_realtime_publication(t);
+      RAISE NOTICE 'Added table % to realtime publication', t;
+    ELSE
+      RAISE NOTICE 'Table % is already in the realtime publication', t;
+    END IF;
+  END LOOP;
+END;
+$$;

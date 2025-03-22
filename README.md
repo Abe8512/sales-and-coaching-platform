@@ -32,9 +32,31 @@ cd <YOUR_PROJECT_NAME>
 # Step 3: Install the necessary dependencies.
 npm i
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Step 4: Create a local environment file
+cp .env.example .env.local
+# Edit .env.local with your Supabase credentials
+
+# Step 5: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
+
+## Environment Variables
+
+This project uses environment variables for configuration:
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| VITE_SUPABASE_URL | Your Supabase project URL | Yes |
+| VITE_SUPABASE_ANON_KEY | Your Supabase anonymous key | Yes |
+| VITE_API_BASE_URL | Base URL for other API calls | No |
+| VITE_APP_ENV | Application environment (development, production) | No |
+| VITE_ENABLE_ANALYTICS | Enable/disable analytics (true/false) | No |
+| VITE_ENABLE_LOGGING | Enable/disable detailed logging (true/false) | No |
+
+For local development:
+1. Copy `.env.example` to `.env.local`
+2. Fill in your Supabase credentials
+3. Run the development server
 
 **Edit a file directly in GitHub**
 
@@ -59,10 +81,13 @@ This project is built with .
 - React
 - shadcn-ui
 - Tailwind CSS
+- Supabase for database and realtime features
 
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/99795928-ebcf-46fe-98ad-dd8cea9e64ed) and click on Share -> Publish.
+
+Make sure to set the required environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY) when deploying to production.
 
 ## I want to use a custom domain - is that possible?
 

@@ -3,8 +3,18 @@ import { transcriptAnalysisService } from "./TranscriptAnalysisService";
 import { WhisperTranscriptionResponse } from "@/services/WhisperService";
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from '@/integrations/supabase/types';
+import { databaseLogger as logger } from './LoggingService';
+import { errorHandler } from './ErrorHandlingService';
+import { userService } from './UserService';
 
 export class DatabaseService {
+  // Store metadata column check state with TTL
+  private metadataColumnInfo = {
+    exists: null as boolean | null,
+    lastChecked: 0, // Timestamp of last check
+    checkInterval: 3600000, // Recheck every 1 hour (in milliseconds)
+  };
+
   // Save transcript to call_transcripts table
   public async saveTranscriptToDatabase(
     result: WhisperTranscriptionResponse, 
@@ -14,11 +24,11 @@ export class DatabaseService {
   ): Promise<{ id: string; error: Error | string | null }> {
     try {
       const transcriptId = result.id || uuidv4();
-      console.log(`Saving transcript with ID: ${transcriptId}`);
+      logger.info(`Saving transcript with ID: ${transcriptId}`);
       
       // Extra validation before saving - ensure we have a valid file type
       if (file.type.includes('text/plain')) {
-        console.error(`Rejecting text/plain file before database save: ${file.name}`);
+        logger.error(`Rejecting text/plain file before database save: ${file.name}`);
         return { 
           id: transcriptId, 
           error: 'Content-Type not acceptable: text/plain. The Whisper API requires audio file formats.' 
@@ -27,7 +37,7 @@ export class DatabaseService {
       
       // Validate input data
       if (!result || !result.text) {
-        console.error('Invalid transcription result:', result);
+        logger.error('Invalid transcription result', { result });
         return { id: '', error: 'Invalid transcription result: missing text content' };
       }
       
@@ -36,12 +46,12 @@ export class DatabaseService {
       const fileName = file.name;
       const fileExtension = fileName.split('.').pop()?.toLowerCase();
       
-      console.log(`Database service verifying file: ${fileName}, type: ${fileType}, extension: ${fileExtension}`);
+      logger.debug(`Verifying file: ${fileName}, type: ${fileType}, extension: ${fileExtension}`);
       
       // If file was successfully transcribed by WhisperService, we should trust it
       // Only reject if it's explicitly a text file with no audio characteristics
       if (fileType === 'text/plain' && (!fileExtension || ['txt', 'text', 'csv', 'json'].includes(fileExtension))) {
-        console.error('Rejecting explicit text/plain file with text extension:', fileName);
+        logger.error(`Rejecting explicit text/plain file with text extension: ${fileName}`);
         return { id: '', error: 'Content-Type not acceptable: text/plain' };
       }
       
@@ -69,17 +79,21 @@ export class DatabaseService {
       // If neither is available, use 'anonymous-{randomId}' to ensure uniqueness
       let finalUserId = userId;
       if (!finalUserId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        finalUserId = user?.id || generateAnonymousUserId();
+        // Use the centralized user service instead of handling it directly
+        const user = await userService.getCurrentUser();
+        finalUserId = user.id;
+      } else {
+        // Normalize userId to ensure it's valid
+        finalUserId = userService.normalizeUserId(userId);
       }
       
-      console.log(`Saving transcript with user_id: ${finalUserId}`);
+      logger.info(`Using user_id: ${finalUserId}`);
       
       // Create timestamp for consistent usage
       const timestamp = new Date().toISOString();
       
       // Log detailed information about the file and data being saved
-      console.log('Preparing to save transcript with data:', {
+      logger.debug('Preparing to save transcript with data', {
         fileInfo: {
           name: fileName,
           type: fileType,
@@ -111,9 +125,65 @@ export class DatabaseService {
         created_at: timestamp
       };
       
+      // Add the metadata field if the column exists
+      if (metrics) {
+        logger.debug('Starting metadata check process');
+        
+        // Check if we need to verify column existence
+        const now = Date.now();
+        const shouldCheckColumn = 
+          this.metadataColumnInfo.exists === null || // Never checked before
+          (now - this.metadataColumnInfo.lastChecked > this.metadataColumnInfo.checkInterval); // TTL expired
+        
+        if (shouldCheckColumn) {
+          try {
+            logger.debug('Checking if metadata column exists');
+            // Check if metadata column exists
+            const { data: columns, error: columnsError } = await supabase
+              .from('call_transcripts')
+              .select('metadata')
+              .limit(1)
+              .maybeSingle();
+
+            logger.debug('Metadata column check query results', { columns, errorMessage: columnsError?.message });
+
+            // If no error or different error, assume column exists
+            this.metadataColumnInfo.exists = !(columnsError && columnsError.message.includes('column "metadata" does not exist'));
+            this.metadataColumnInfo.lastChecked = now;
+            
+            logger.debug(`Metadata column check result: ${this.metadataColumnInfo.exists ? 'exists' : 'does not exist'}`);
+          } catch (err) {
+            // On error checking, assume column doesn't exist, but don't cache this result for too long
+            logger.error('Error checking metadata column', err);
+            this.metadataColumnInfo.exists = false;
+            this.metadataColumnInfo.lastChecked = now;
+            this.metadataColumnInfo.checkInterval = 60000; // Retry sooner (1 minute) if there was an error
+          }
+        } else {
+          logger.debug(`Using cached metadata column check result: ${this.metadataColumnInfo.exists ? 'exists' : 'does not exist'} (last checked ${Math.round((now - this.metadataColumnInfo.lastChecked) / 1000)} seconds ago)`);
+        }
+        
+        // Only add metadata if column exists
+        if (this.metadataColumnInfo.exists) {
+          transcriptData.metadata = JSON.stringify(metrics);
+          logger.debug('Added metadata to transcript');
+        } else {
+          logger.debug('Skipping metadata field as column does not exist');
+          
+          // If the metadata property exists in the transcriptData object but the column doesn't exist in the database,
+          // we need to explicitly delete it to prevent the error
+          if ('metadata' in transcriptData) {
+            delete transcriptData.metadata;
+            logger.debug('Removed metadata field from transcriptData to prevent database error');
+          }
+        }
+        
+        logger.debug(`Final transcript data structure (keys only): ${Object.keys(transcriptData).join(', ')}`);
+      }
+      
       // Insert into database with improved error handling
       try {
-        console.log(`Executing Supabase insert for transcript ID: ${transcriptId}`);
+        logger.info(`Executing Supabase insert for transcript ID: ${transcriptId}`);
         
         // Add retry logic for database inserts
         let retryCount = 0;
@@ -140,19 +210,19 @@ export class DatabaseService {
             }
             
             // If we got a duplicate request error, wait and try again
-            console.log(`Retry ${retryCount + 1}/${maxRetries} due to duplicate request error`);
+            logger.warn(`Retry ${retryCount + 1}/${maxRetries} due to duplicate request error`);
             await new Promise(resolve => setTimeout(resolve, 1500));
             retryCount++;
           } catch (innerError) {
             // If it's a connection error or other exception, break and report
-            console.error('Exception during database insert:', innerError);
+            logger.error('Exception during database insert', innerError);
             error = innerError;
             break;
           }
         }
         
         if (error) {
-          console.error('Error inserting transcript into database:', error);
+          logger.error('Error inserting transcript into database', error);
           
           // Format error message more helpfully
           let errorMessage = '';
@@ -164,6 +234,60 @@ export class DatabaseService {
                 id: transcriptId, 
                 error: 'Request conflict: Please try again in a moment' 
               };
+            }
+            
+            // Check for metadata column errors and try to recover
+            if (errorMessage.includes('metadata') && errorMessage.includes('column') && 
+                (errorMessage.includes('does not exist') || errorMessage.includes('schema cache'))) {
+              logger.debug(`Detected metadata column error during insert with error message: ${errorMessage}`);
+              logger.debug(`Original transcript data keys: ${Object.keys(transcriptData)}`);
+              
+              // Remove the metadata field from transcriptData
+              if ('metadata' in transcriptData) {
+                logger.debug('Found metadata field in transcript data, removing it for retry');
+                delete transcriptData.metadata;
+                logger.debug(`Transcript data keys after removal: ${Object.keys(transcriptData)}`);
+                
+                // Try insert again without the metadata field
+                try {
+                  logger.debug('Attempting retry insert without metadata field');
+                  const { data: retryData, error: retryError } = await supabase
+                    .from('call_transcripts')
+                    .insert(transcriptData)
+                    .select('id')
+                    .single();
+                  
+                  logger.debug('Retry insert results', { 
+                    success: !retryError, 
+                    dataReceived: !!retryData,
+                    errorMessage: retryError?.message
+                  });
+                    
+                  if (!retryError) {
+                    logger.info(`Successfully saved transcript after removing metadata field, ID: ${retryData?.id}`);
+                    
+                    // Also update the metadata column existence cache
+                    this.metadataColumnInfo.exists = false;
+                    this.metadataColumnInfo.lastChecked = Date.now();
+                    
+                    return { id: retryData?.id || transcriptId, error: null };
+                  } else {
+                    logger.error('Failed retry even after removing metadata field', retryError);
+                    return { 
+                      id: transcriptId, 
+                      error: `Failed to save transcript even after removing metadata: ${retryError.message}` 
+                    };
+                  }
+                } catch (retryException) {
+                  logger.error('Exception during metadata-less retry', retryException);
+                  return { 
+                    id: transcriptId, 
+                    error: `Exception during metadata-less retry: ${retryException instanceof Error ? retryException.message : String(retryException)}` 
+                  };
+                }
+              } else {
+                logger.warn('Metadata field not found in transcript data object, cannot remove');
+              }
             }
           }
           
@@ -180,7 +304,7 @@ export class DatabaseService {
           return { id: transcriptId, error };
         }
         
-        console.log('Successfully inserted transcript:', data);
+        logger.info('Successfully inserted transcript', { id: data?.id || transcriptId });
         
         // Also update the calls table with enhanced metrics data
         const callData: Database['public']['Tables']['calls']['Insert'] = {
@@ -203,11 +327,19 @@ export class DatabaseService {
         
         return { id: data?.id || transcriptId, error: null };
       } catch (dbError) {
-        console.error('Database exception during transcript insert:', dbError);
+        logger.error('Database exception during transcript insert', dbError);
         return { id: transcriptId, error: dbError };
       }
     } catch (error) {
-      console.error('Error saving transcript:', error);
+      logger.error('Error saving transcript', error);
+      
+      errorHandler.handleError({
+        message: 'Failed to save transcript to database',
+        technical: error,
+        severity: 'error',
+        code: 'DB_SAVE_TRANSCRIPT_ERROR'
+      }, 'DatabaseService');
+      
       return { id: '', error };
     }
   }
@@ -215,18 +347,32 @@ export class DatabaseService {
   // Update calls table for real-time metrics
   private async updateCallsTable(callData: Database['public']['Tables']['calls']['Insert']): Promise<void> {
     try {
-      console.log('Updating calls table with data:', callData);
+      logger.debug('Updating calls table', { id: callData.id });
       const { error } = await supabase
         .from('calls')
         .insert(callData);
       
       if (error) {
-        console.error('Error updating calls table:', error);
+        logger.error('Error updating calls table', error);
+        
+        errorHandler.handleError({
+          message: 'Failed to update calls table',
+          technical: error,
+          severity: 'warning',
+          code: 'DB_UPDATE_CALLS_ERROR'
+        }, 'DatabaseService');
       } else {
-        console.log('Successfully updated calls table');
+        logger.info('Successfully updated calls table', { id: callData.id });
       }
     } catch (error) {
-      console.error('Exception updating calls table:', error);
+      logger.error('Exception updating calls table', error);
+      
+      errorHandler.handleError({
+        message: 'Exception while updating calls table',
+        technical: error,
+        severity: 'warning',
+        code: 'DB_UPDATE_CALLS_EXCEPTION'
+      }, 'DatabaseService');
     }
   }
   
@@ -238,6 +384,8 @@ export class DatabaseService {
     let category: 'positive' | 'neutral' | 'negative' = 'neutral';
     if (sentiment === 'positive') category = 'positive';
     if (sentiment === 'negative') category = 'negative';
+    
+    logger.info(`Updating keyword trends for ${keywords.length} keywords with sentiment ${sentiment}`);
     
     // Add top keywords to trends
     for (const keyword of keywords.slice(0, 5)) {
@@ -259,6 +407,8 @@ export class DatabaseService {
               last_used: new Date().toISOString()
             } as Database['public']['Tables']['keyword_trends']['Update'])
             .eq('id', data.id);
+            
+          logger.debug(`Updated existing keyword trend: ${keyword}, count: ${(data.count || 1) + 1}`);
         } else {
           // Insert new keyword with proper UUID
           const trendData: Database['public']['Tables']['keyword_trends']['Insert'] = {
@@ -271,9 +421,18 @@ export class DatabaseService {
           await supabase
             .from('keyword_trends')
             .insert(trendData);
+            
+          logger.debug(`Created new keyword trend: ${keyword}`);
         }
       } catch (error) {
-        console.error(`Error updating keyword trend for ${keyword}:`, error);
+        logger.error(`Error updating keyword trend for ${keyword}`, error);
+        
+        errorHandler.handleError({
+          message: `Failed to update keyword trend for "${keyword}"`,
+          technical: error,
+          severity: 'warning',
+          code: 'DB_UPDATE_KEYWORD_ERROR'
+        }, 'DatabaseService');
       }
     }
   }
@@ -283,21 +442,28 @@ export class DatabaseService {
     result: WhisperTranscriptionResponse, 
     userId: string | null
   ): Promise<void> {
-    const sentiment = transcriptAnalysisService.analyzeSentiment(result.text);
-    
     try {
-      const trendData: Database['public']['Tables']['sentiment_trends']['Insert'] = {
-        sentiment_label: sentiment,
-        confidence: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.7 : 0.6,
-        user_id: userId,
-        recorded_at: new Date().toISOString()
-      };
+      if (!result || !result.text) {
+        logger.warn('Invalid transcription result for sentiment trends update');
+        return;
+      }
       
-      await supabase
-        .from('sentiment_trends')
-        .insert(trendData);
+      // Normalize userId consistently
+      const normalizedUserId = userId ? userService.normalizeUserId(userId) : (await userService.getCurrentUser()).id;
+      
+      // Get sentiment from transcript
+      const sentiment = result.sentiment || 'neutral';
+      
+      // Insert sentiment trend data
+      await supabase.from('sentiment_trends').insert({
+        user_id: normalizedUserId,
+        sentiment,
+        timestamp: new Date().toISOString()
+      });
+      
+      logger.debug('Updated sentiment trends');
     } catch (error) {
-      console.error('Error updating sentiment trend:', error);
+      logger.error('Failed to update sentiment trends', error);
     }
   }
   
@@ -319,6 +485,7 @@ export class DatabaseService {
         // Estimate duration based on file size (very rough approximation)
         // Assuming 16bit 16kHz mono audio (~32kB per second)
         const estimatedSeconds = Math.round(audioFile.size / 32000);
+        logger.warn(`Failed to get audio duration from metadata, estimating from file size: ~${estimatedSeconds}s`);
         resolve(estimatedSeconds > 0 ? estimatedSeconds : 60); // Default to 60 seconds if calculation fails
       });
     });

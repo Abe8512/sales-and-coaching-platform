@@ -35,31 +35,15 @@ const RepPerformanceCards: React.FC<RepPerformanceCardsProps> = ({
   
   // Use external metrics if provided, otherwise use internal metrics
   const repMetrics = externalRepMetrics as RepMetricsData[] || internalRepMetrics;
-  const repMetricsLoading = externalLoading !== undefined ? externalLoading : internalLoading;
+  const rawLoading = externalLoading !== undefined ? externalLoading : internalLoading;
   
   // Store stable metrics to prevent UI jitter during updates
   const [stableMetrics, setStableMetrics] = useState<RepMetricsData[]>([]);
-  const [isStableLoading, setIsStableLoading] = useState(true);
   
-  // Custom stable loading state implementation
-  useEffect(() => {
-    if (repMetricsLoading) {
-      // Don't immediately show loading state, wait a bit to prevent flicker
-      const timer = setTimeout(() => {
-        setIsStableLoading(true);
-      }, 100);
-      
-      return () => clearTimeout(timer);
-    } else {
-      // Keep showing loading for a bit after data arrives
-      const timer = setTimeout(() => {
-        setIsStableLoading(false);
-      }, 800);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [repMetricsLoading]);
+  // Use standardized loading state hook
+  const isStableLoading = useStableLoadingState(rawLoading, 800);
   
+  // Only update metrics with smooth transitions when data changes
   useEffect(() => {
     if (isStableLoading) return;
     

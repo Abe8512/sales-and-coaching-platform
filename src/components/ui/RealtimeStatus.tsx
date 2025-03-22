@@ -1,12 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { realtimeService } from '@/services/RealtimeService';
+import { realtimeService, REALTIME_TABLES } from '@/services/RealtimeService';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Zap, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useConnectionStatus } from '@/services/ConnectionMonitorService';
+import { errorHandler } from '@/services/ErrorHandlingService';
 
 const RealtimeStatus = () => {
   const [tableStatus, setTableStatus] = useState<{[key: string]: boolean}>({});
@@ -16,35 +16,49 @@ const RealtimeStatus = () => {
   
   const checkRealtimeStatus = async () => {
     if (!isConnected) {
-      toast.error('Cannot check realtime status', {
-        description: 'You are not connected to the database',
-      });
+      errorHandler.handleError({
+        message: 'Cannot check realtime status',
+        technical: 'No database connection',
+        severity: 'warning',
+        code: 'REALTIME_CHECK_OFFLINE'
+      }, 'RealtimeStatus');
       return;
     }
     
     setLoading(true);
-    const tables = ['call_transcripts', 'calls', 'keyword_trends', 'sentiment_trends'];
     const statuses: {[key: string]: boolean} = {};
     
-    for (const table of tables) {
-      try {
-        const result = await realtimeService.checkRealtimeEnabled(table);
-        statuses[table] = result.enabled;
-      } catch (error) {
-        console.error(`Error checking realtime status for ${table}:`, error);
-        statuses[table] = false;
+    try {
+      const results = await realtimeService.checkRealtimeForAllTables();
+      
+      // Process results
+      for (const result of results) {
+        statuses[result.table] = result.enabled;
       }
+      
+      setTableStatus(statuses);
+    } catch (error) {
+      errorHandler.handleError({
+        message: 'Error checking realtime status',
+        technical: error,
+        severity: 'warning',
+        code: 'REALTIME_CHECK_ERROR',
+        actionable: true,
+        retry: checkRealtimeStatus
+      }, 'RealtimeStatus');
+    } finally {
+      setLoading(false);
     }
-    
-    setTableStatus(statuses);
-    setLoading(false);
   };
   
   const enableRealtime = async () => {
     if (!isConnected) {
-      toast.error('Cannot enable realtime', {
-        description: 'You are not connected to the database',
-      });
+      errorHandler.handleError({
+        message: 'Cannot enable realtime',
+        technical: 'No database connection',
+        severity: 'warning',
+        code: 'REALTIME_ENABLE_OFFLINE'
+      }, 'RealtimeStatus');
       return;
     }
     
@@ -59,17 +73,26 @@ const RealtimeStatus = () => {
         });
       } else {
         const failedTables = results.filter(r => !r.success).map(r => r.table).join(', ');
-        toast.error('Some tables failed to enable realtime', {
-          description: `Failed tables: ${failedTables}`,
-        });
+        errorHandler.handleError({
+          message: 'Some tables failed to enable realtime',
+          technical: `Failed tables: ${failedTables}`,
+          severity: 'error',
+          code: 'REALTIME_PARTIAL_FAILURE',
+          actionable: true,
+          retry: enableRealtime
+        }, 'RealtimeStatus');
       }
       
       await checkRealtimeStatus();
     } catch (error) {
-      console.error('Error enabling realtime:', error);
-      toast.error('Failed to enable realtime', {
-        description: 'Check console for details',
-      });
+      errorHandler.handleError({
+        message: 'Failed to enable realtime',
+        technical: error,
+        severity: 'error',
+        code: 'REALTIME_ENABLE_ERROR',
+        actionable: true,
+        retry: enableRealtime
+      }, 'RealtimeStatus');
     } finally {
       setEnabling(false);
     }

@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
@@ -14,7 +13,11 @@ interface SentimentData {
   total: number;
 }
 
-export const SentimentTrendsChart = () => {
+interface SentimentTrendsChartProps {
+  condensed?: boolean;
+}
+
+export const SentimentTrendsChart = ({ condensed = false }: SentimentTrendsChartProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [sentimentData, setSentimentData] = useState<SentimentData[]>([]);
   

@@ -14,6 +14,7 @@ export enum EventTypeEnum {
   PROCESSING_ERROR = 'processing-error',
   CONNECTION_RESTORED = 'connection-restored',
   CONNECTION_LOST = 'connection-lost',
+  CONNECTION_UNSTABLE = 'connection-unstable',
   BULK_UPLOAD_STARTED = 'bulk-upload-started',
   BULK_UPLOAD_COMPLETED = 'bulk-upload-completed',
   RECORDING_COMPLETED = 'recording-completed',
@@ -36,6 +37,7 @@ export type EventType =
   | 'processing-error'
   | 'connection-restored'
   | 'connection-lost'
+  | 'connection-unstable'
   | 'bulk-upload-started'
   | 'bulk-upload-completed'
   | 'recording-completed'

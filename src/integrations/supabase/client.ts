@@ -5,38 +5,54 @@ import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { errorHandler } from '@/services/ErrorHandlingService';
 import { debounce } from 'lodash';
+import { cacheService } from '@/services/CacheService';
+import { FREQUENTLY_ACCESSED_TABLES, getTableCacheTTL, TableName } from '@/constants/tables';
+import { useEventsStore } from '@/services/events';
 
-const SUPABASE_URL = "https://yfufpcxkerovnijhodrr.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdWZwY3hrZXJvdm5pamhvZHJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNjI3ODYsImV4cCI6MjA1NzgzODc4Nn0.1x7WAfVIvlm-KPy2q4eFylaVtdc5_ZJmlis5AMJ-Izc";
+// Get environment variables with fallbacks
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://yfufpcxkerovnijhodrr.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdWZwY3hrZXJvdm5pamhvZHJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNjI3ODYsImV4cCI6MjA1NzgzODc4Nn0.1x7WAfVIvlm-KPy2q4eFylaVtdc5_ZJmlis5AMJ-Izc";
+
+// Check that environment variables are set in non-development environments
+if (import.meta.env.PROD && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {
+  console.error('Supabase environment variables are not set in production mode!');
+  // In production, we'll log an error but still use the fallback values
+}
 
 // Store connection status
 let isSupabaseConnected = false;
 let connectionAttempts = 0;
+let lastConnectionStatus = null;
+let connectionStatusTimeout: ReturnType<typeof setTimeout> | null = null;
+let connectionStabilityTimeout: ReturnType<typeof setTimeout> | null = null;
+let lastConnectionCheckTime = 0;
+const CONNECTION_CHECK_INTERVAL = 30000; // 30 seconds
+const STABILITY_THRESHOLD = 5000; // 5 seconds of stable connection before state change
 const MAX_CONNECTION_ATTEMPTS = 5;
 
-// Cache for tracking recent requests to prevent duplicates
-const requestCache = new Map<string, {
-  timestamp: number; 
-  inProgress: boolean; 
-  response: Record<string, unknown> | null;
-}>();
-const REQUEST_CACHE_TTL = 5000; // Increase TTL from 2 seconds to 5 seconds for cache entries
+// Constants
+const SUPABASE_CACHE_NAMESPACE = 'supabase';
+// Remove hardcoded table names in favor of imported constants
+// const FREQUENTLY_ACCESSED_TABLES = ['calls', 'call_transcripts', 'keyword_trends', 'sentiment_trends'];
+const FREQUENT_TABLE_TTL = 2000; // 2 seconds TTL for frequently accessed tables
+const STANDARD_TABLE_TTL = 5000; // 5 seconds TTL for other tables
+const MAX_RETRY_ATTEMPTS = 3;
+const MAX_OFFLINE_QUEUE_SIZE = 100; // Limit queue size to prevent memory issues
+const MAX_OFFLINE_QUEUE_RETRY = 3; // Maximum retries for offline queue items
 
 // Queue for storing operations when offline
-const offlineQueue: { 
-  operation: string; 
-  callback: () => Promise<void>; 
-}[] = [];
+interface OfflineQueueItem {
+  operation: string;
+  callback: () => Promise<void>;
+  retryCount: number;
+  id: string; // Unique ID for tracking
+  timestamp: number; // When it was added
+}
 
-// Periodically clean up the request cache
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, value] of requestCache.entries()) {
-    if (now - value.timestamp > REQUEST_CACHE_TTL) {
-      requestCache.delete(key);
-    }
-  }
-}, 10000);
+const offlineQueue: OfflineQueueItem[] = [];
+
+// Pending request lock to prevent race conditions
+const pendingRequests = new Map<string, Promise<any>>();
 
 // Debounced log function to prevent console spam
 const debouncedLog = debounce((message: string) => {
@@ -58,482 +74,432 @@ export const supabase = createClient<Database>(
         
         // Create a cache key based on the request
         const cacheKey = `${options?.method || 'GET'}-${url.toString()}`;
+        const requestId = uuidv4();
         const isReadOperation = !options?.method || options?.method === 'GET';
         const isWriteOperation = options?.method === 'POST' || options?.method === 'PUT' || options?.method === 'PATCH';
         
-        // This is a new request, check if there's a completed request for the same URL
-        const cachedRequest = requestCache.get(cacheKey);
-        if (cachedRequest) {
-          
-          // If there's already a request in progress, handle accordingly
-          if (cachedRequest.inProgress) {
-            // Generally, we don't want duplicate simultaneous requests
-            // Different behaviors based on request type
-            if (isReadOperation) {
-              // For read operations, we can queue this request after the existing one
-              debouncedLog(`Skipping duplicate Supabase request to: ${url}`);
-              
-              // Return a pending promise for the duplicate request
-              return new Promise<Response>((resolve, reject) => {
-                // This request will be handled by the original request
-                setTimeout(() => {
-                  reject(new Error('Duplicate request cancelled'));
-                }, 100);
-              });
-            }
-          }
-          
-          // If request was recently completed (but not in progress), we have a few options:
-          // 1. For GET requests, we could consider allowing it after a certain time threshold
-          // 2. For mutation requests (POST/PUT/DELETE), we should be more careful
-          const now = Date.now();
-          const timeSinceRequest = now - cachedRequest.timestamp;
-          
-          // More lenient approach for GET requests to frequently accessed tables
-          const frequentlyAccessedTables = ['calls', 'call_transcripts', 'keyword_trends', 'sentiment_trends'];
-          const isFrequentlyAccessedTable = frequentlyAccessedTables.some(table => 
-            url.toString().includes(table)
+        // Check if we're offline before making the request
+        if (errorHandler.isOffline && !url.toString().includes('connection-check')) {
+          console.log(`Offline: Skipping request to ${url}`);
+          return Promise.reject(new Error('You are currently offline - operation queued'));
+        }
+        
+        // Determine if this request is for a frequently accessed table
+        const isFrequentlyAccessedTable = FREQUENTLY_ACCESSED_TABLES.some(table => 
+          url.toString().includes(table)
+        );
+        
+        // Set appropriate TTL
+        const ttl = isFrequentlyAccessedTable ? FREQUENT_TABLE_TTL : STANDARD_TABLE_TTL;
+        
+        // For read operations, check cache first
+        if (isReadOperation) {
+          // Check if we have a cached response
+          const cachedData = cacheService.get<Record<string, unknown>>(
+            cacheKey, 
+            { namespace: SUPABASE_CACHE_NAMESPACE, ttl }
           );
           
-          // Allow GET requests after 1 second for frequently accessed tables, 3 seconds for others
-          if (isReadOperation && ((isFrequentlyAccessedTable && timeSinceRequest > 1000) || timeSinceRequest > 3000)) {
-            console.log(`Allowing repeated GET request after ${timeSinceRequest}ms: ${url}`);
-          } else if (timeSinceRequest < 1000) {
-            // For very rapid repeats (< 1s), reject unless it's a call_transcripts write operation
-            if (isWriteOperation && url.toString().includes('call_transcripts')) {
-              console.log(`Allowing write operation for call_transcripts despite recent request: ${url}`);
-            } else if (isFrequentlyAccessedTable) {
-              // For frequently accessed tables, log but don't reject
-              console.log(`Merge duplicate request for ${url} - using previous result when ready`);
+          if (cachedData) {
+            console.log(`Using cached response for ${url}`);
+            return new Response(
+              JSON.stringify(cachedData),
+              { status: 200, headers: { 'Content-Type': 'application/json' } }
+            );
+          }
+          
+          // Check if there's already a request in progress - use lock to prevent race conditions
+          if (pendingRequests.has(cacheKey)) {
+            console.log(`Merging duplicate request for ${url} - using lock to prevent race condition`);
+            
+            try {
+              // Wait for the in-progress request to complete and return its result
+              const responseData = await pendingRequests.get(cacheKey);
               
-              // Return a promise that will resolve with the original request's result
-              return new Promise<Response>((resolve) => {
-                // Check every 100ms if the original request has completed
-                const checkInterval = setInterval(() => {
-                  const updatedRequest = requestCache.get(cacheKey);
-                  if (updatedRequest && !updatedRequest.inProgress) {
-                    clearInterval(checkInterval);
-                    // Create a clone of the cached response
-                    const clonedResponse = new Response(
-                      JSON.stringify(updatedRequest.response || { data: [], error: null }), 
-                      { 
-                        status: 200, 
-                        headers: { 'Content-Type': 'application/json' } 
-                      }
-                    );
-                    resolve(clonedResponse);
-                  }
-                }, 100);
-                
-                // Set a timeout to prevent hanging if something goes wrong
-                setTimeout(() => {
-                  clearInterval(checkInterval);
-                  const fallbackResponse = new Response(
-                    JSON.stringify({ data: [], error: null }), 
-                    { status: 200, headers: { 'Content-Type': 'application/json' } }
-                  );
-                  resolve(fallbackResponse);
-                }, 5000);
-              });
-            } else {
-              debouncedLog(`Skipping too-frequent request (${timeSinceRequest}ms) to: ${url}`);
-              return new Promise<Response>((resolve, reject) => {
-                setTimeout(() => {
-                  reject(new Error('Duplicate request cancelled - too soon after previous request'));
-                }, 100);
-              });
+              // Return a new response with the data
+              return new Response(
+                JSON.stringify(responseData),
+                { status: 200, headers: { 'Content-Type': 'application/json' } }
+              );
+            } catch (error) {
+              // If waiting for the in-progress request fails, continue with a new request
+              console.warn(`Error waiting for in-progress request: ${error instanceof Error ? error.message : String(error)}`);
+              // Fall through to make a new request
             }
           }
-        }
-        
-        // Log the request (but not duplicates)
-        console.log(`Supabase request to: ${url}`);
-        
-        // Mark this request as in progress
-        requestCache.set(cacheKey, {
-          timestamp: Date.now(),
-          inProgress: true,
-          response: null
-        });
-        
-        // Enhancement to prevent Content-Type not acceptable errors
-        if (!options?.headers) {
-          options.headers = {};
-        }
-
-        // Explicitly set needed headers for JSON operations when needed
-        if (!options.headers['Content-Type'] && 
-            (options.method === 'POST' || options.method === 'PUT' || options.method === 'PATCH') &&
-            typeof options.body === 'string') {
-          try {
-            // Check if body looks like JSON
-            JSON.parse(options.body);
-            options.headers['Content-Type'] = 'application/json';
-            console.log('Added missing Content-Type: application/json header');
-          } catch (e) {
-            // Not JSON, don't set content type, let browser determine it
-          }
-        }
-
-        // Make sure Accept header is always set for GET requests to avoid text/plain responses
-        if (options.method === 'GET' || !options.method) {
-          options.headers['Accept'] = 'application/json';
-        }
-        
-        const enhancedOptions = {
-          ...options,
-          headers: {
-            ...options.headers,
-            'apikey': SUPABASE_PUBLISHABLE_KEY,
-            'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`
-          }
-        };
-        
-        // Check if we're offline before attempting the request
-        if (errorHandler.isOffline) {
-          console.warn(`Offline: Skipping request to ${url}`);
           
-          // Store operation in queue for later execution
-          return new Promise<Response>((resolve, reject) => {
-            offlineQueue.push({
-              operation: `${options?.method || 'GET'} ${url}`,
-              callback: async () => {
-                try {
-                  const response = await fetch(url, enhancedOptions);
-                  resolve(response);
-                } catch (error) {
-                  reject(error);
-                }
-              }
-            });
-            
-            throw new Error('You are currently offline - operation queued');
-          });
-        }
-        
-        try {
-          // Implement retries with exponential backoff
-          const maxRetries = 3;
-          let retryCount = 0;
-          let lastError;
-          
-          while (retryCount < maxRetries) {
+          // Create a lock for this request
+          const requestPromise = (async () => {
             try {
-              const response = await fetch(url, enhancedOptions);
+              // Use the native fetch function
+              const response = await fetch(url, options);
               
-              // Log successful requests
+              // For successful operations, parse and return the data
               if (response.ok) {
-                console.log(`Supabase request successful: ${url}`);
+                const responseData = await response.json();
                 
-                // Mark request as completed and store response data
-                const responseClone = response.clone();
+                // Cache the result
+                cacheService.set(
+                  cacheKey, 
+                  responseData, 
+                  { namespace: SUPABASE_CACHE_NAMESPACE, ttl }
+                );
                 
-                try {
-                  // Read the JSON data once and store it in the cache
-                  const jsonData = await responseClone.json();
-                  
-                  if (requestCache.has(cacheKey)) {
-                    requestCache.set(cacheKey, {
-                      timestamp: Date.now(),
-                      inProgress: false,
-                      response: {
-                        data: jsonData,
-                        error: null
-                      }
-                    });
-                  }
-                } catch (jsonError) {
-                  console.warn('Failed to parse response as JSON:', jsonError);
-                  // Still mark as not in progress even if JSON parsing fails
-                  if (requestCache.has(cacheKey)) {
-                    requestCache.set(cacheKey, {
-                      timestamp: Date.now(),
-                      inProgress: false,
-                      response: null
-                    });
-                  }
-                }
-                
-                if (!isSupabaseConnected) {
-                  isSupabaseConnected = true;
-                  connectionAttempts = 0; // Reset connection attempts on success
-                  // Dispatch a connection restored event
-                  window.dispatchEvent(new CustomEvent('supabase-connection-restored'));
-                }
-                return response;
+                return responseData;
               } else {
-                console.warn(`Supabase request failed with status ${response.status}: ${url}`);
-                // Only log the first few characters of the response for debugging
-                const responseText = await response.clone().text();
-                console.warn(`Response preview: ${responseText.substring(0, 200)}${responseText.length > 200 ? '...' : ''}`);
-                
-                // Handle invalid UUID format errors specifically
-                if (responseText.includes("invalid input syntax for type uuid")) {
-                  errorHandler.handleError({
-                    message: 'Data format error',
-                    technical: `UUID format error: ${responseText}`,
-                    severity: 'error',
-                    code: 'UUID_FORMAT_ERROR'
-                  });
-                  // Don't retry UUID errors as they require code fixes
-                  throw new Error(`UUID format error: ${responseText}`);
-                }
-                
-                // Handle specific error status codes
-                if (response.status === 401 || response.status === 403) {
-                  errorHandler.handleError({
-                    message: 'Authentication error',
-                    technical: `Status ${response.status}: ${responseText}`,
-                    severity: 'warning',
-                    code: 'AUTH_ERROR'
-                  });
-                } else if (response.status >= 500) {
-                  errorHandler.handleError({
-                    message: 'Server error',
-                    technical: `Status ${response.status}: ${responseText}`,
-                    severity: 'error',
-                    code: 'SERVER_ERROR'
-                  });
-                }
-                
-                // If we get a 429 (too many requests), wait longer before retrying
-                if (response.status === 429) {
-                  await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
-                  retryCount++;
-                  continue;
-                }
-                
-                // Return the error response to be handled by the caller
-                return response;
+                throw new Error(`Request failed with status ${response.status}`);
               }
             } catch (error) {
-              console.error(`Supabase fetch attempt ${retryCount + 1} failed:`, error);
-              lastError = error;
-              isSupabaseConnected = false;
-              
-              // Check if error is a CORS error
-              const errorMsg = error instanceof Error ? error.message : String(error);
-              if (errorMsg.includes('CORS') || errorMsg.includes('cross-origin')) {
-                console.warn('CORS error detected. Adding no-cors mode for retry');
-                // Try again with no-cors mode
-                try {
-                  // Note: no-cors means we can't read the response content
-                  await fetch(url, {
-                    ...enhancedOptions,
-                    mode: 'no-cors',
-                    headers: {
-                      ...enhancedOptions.headers,
-                      'apikey': SUPABASE_PUBLISHABLE_KEY,
-                      'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`
-                    }
-                  });
-                  
-                  // If we get here without an error, we likely have some access
-                  isSupabaseConnected = true;
-                  window.dispatchEvent(new CustomEvent('supabase-connection-restored'));
-                  
-                  // However, we still need to return a valid response for the original request
-                  break; // Exit retry loop
-                } catch (corsError) {
-                  console.error('Still failed with no-cors mode:', corsError);
-                }
+              // Remove this request from pending map
+              pendingRequests.delete(cacheKey);
+              throw error;
+            }
+          })();
+          
+          // Store the promise for other requests to use
+          pendingRequests.set(cacheKey, requestPromise);
+          
+          // Set a timeout to remove the lock to prevent memory leaks
+          setTimeout(() => {
+            pendingRequests.delete(cacheKey);
+          }, ttl + 1000); // Use TTL plus buffer time
+          
+          try {
+            // Wait for the request to complete
+            const responseData = await requestPromise;
+            
+            // Return a new response with the data
+            return new Response(
+              JSON.stringify(responseData),
+              { status: 200, headers: { 'Content-Type': 'application/json' } }
+            );
+          } catch (error) {
+            // Remove this request from pending map
+            pendingRequests.delete(cacheKey);
+            throw error;
+          }
+        } else if (isWriteOperation) {
+          // For write operations, clear any cached read results for this table
+          // This ensures that subsequent reads will fetch fresh data
+          const tableMatch = FREQUENTLY_ACCESSED_TABLES.find(table => 
+            url.toString().includes(table)
+          );
+          if (tableMatch) {
+            // Clear cached entries for this table
+            const tablePattern = new RegExp(`GET.*${tableMatch}`);
+            const cacheKeys = Array.from(cacheService['caches'].get(SUPABASE_CACHE_NAMESPACE)?.keys() || []);
+            
+            for (const key of cacheKeys) {
+              if (tablePattern.test(key)) {
+                cacheService.delete(key, { namespace: SUPABASE_CACHE_NAMESPACE });
               }
-              
-              // Dispatch a connection lost event
-              window.dispatchEvent(new CustomEvent('supabase-connection-lost', { 
-                detail: { error, retryCount } 
-              }));
-              
-              // Exponential backoff
-              const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
-              await new Promise(resolve => setTimeout(resolve, delay));
-              retryCount++;
+            }
+            
+            // Also clear any pending requests to avoid race conditions
+            for (const [key, _] of pendingRequests.entries()) {
+              if (tablePattern.test(key)) {
+                pendingRequests.delete(key);
+              }
             }
           }
-          
-          // If we've exhausted retries, throw the last error
-          connectionAttempts++; // Increment overall connection attempts
-          
-          // If we've exceeded max attempts, show a more permanent error
-          if (connectionAttempts >= MAX_CONNECTION_ATTEMPTS) {
-            errorHandler.handleError({
-              message: 'Unable to connect to the server',
-              technical: lastError instanceof Error ? lastError.message : String(lastError),
-              severity: 'critical',
-              code: 'CONNECTION_FAILED',
-              actionable: true,
-              retry: async () => {
-                connectionAttempts = 0; // Reset counter when user manually retries
-                return checkSupabaseConnection();
-              }
-            });
-          }
-          
-          // Create a fallback response to satisfy the Response type requirement
-          return new Response(JSON.stringify({ error: 'Connection failed after retries' }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        } catch (error) {
-          console.error(`Supabase request failed after retries: ${url}`, error);
-          
-          errorHandler.handleError({
-            message: 'Database connection failed',
-            technical: error instanceof Error ? error.message : String(error),
-            severity: 'error',
-            code: 'SUPABASE_CONNECTION',
-            actionable: true,
-            retry: async () => {
-              // Try to ping the database again
-              return checkSupabaseConnection();
-            }
-          });
-          
-          // Create a fallback response to satisfy the Response type requirement
-          return new Response(JSON.stringify({ error: 'Network request failed' }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' }
-          });
         }
-      }
-    },
-    db: {
-      schema: 'public',
+        
+        // Add our own retry logic to handle network failures
+        let attempt = 1;
+        
+        while (attempt <= MAX_RETRY_ATTEMPTS) {
+          try {
+            // Use the native fetch function
+            const response = await fetch(url, options);
+            
+            // Return the response
+            return response;
+          } catch (error) {
+            // If this is the last attempt, or if we're offline, fail
+            if (attempt === MAX_RETRY_ATTEMPTS || errorHandler.isOffline) {
+              console.error(`Supabase fetch attempt ${attempt} failed:`, error);
+              throw error;
+            }
+            
+            // Exponential backoff for retries
+            const backoffMs = Math.pow(2, attempt) * 100;
+            console.log(`Fetch attempt ${attempt} failed, retrying in ${backoffMs}ms...`);
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+            attempt++;
+          }
+        }
+        
+        // This code should never be reached due to the throw in the catch block
+        throw new Error('Unexpected end of fetch function');
+      },
     },
   }
 );
 
-// Process queued operations when we're back online
+// Register auth state change listener
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log('Auth state changed:', event);
+  
+  if (event === 'SIGNED_IN') {
+    console.log('User signed in');
+    connectionAttempts = 0;
+    checkSupabaseConnection();
+  } else if (event === 'SIGNED_OUT') {
+    console.log('User signed out');
+    updateConnectionStatus(false);
+  }
+});
+
+// Process offline queue when back online
 const processOfflineQueue = async () => {
-  if (offlineQueue.length === 0) return;
+  if (offlineQueue.length === 0 || errorHandler.isOffline) {
+    return;
+  }
   
-  console.log(`Processing ${offlineQueue.length} queued operations`);
-  toast.info(`Syncing ${offlineQueue.length} offline changes...`);
+  console.log(`Processing offline queue (${offlineQueue.length} operations)`);
   
-  // Take a copy of the queue and clear it
-  const queueToProcess = [...offlineQueue];
-  offlineQueue.length = 0;
+  // Sort by timestamp (oldest first)
+  const operations = [...offlineQueue].sort((a, b) => a.timestamp - b.timestamp);
+  offlineQueue.length = 0; // Clear the queue
   
-  let successCount = 0;
-  let failureCount = 0;
+  // Group operations by type to optimize processing
+  const operationGroups: { [key: string]: OfflineQueueItem[] } = {};
+  for (const item of operations) {
+    const opType = item.operation.split(':')[0]; // Extract operation type
+    if (!operationGroups[opType]) {
+      operationGroups[opType] = [];
+    }
+    operationGroups[opType].push(item);
+  }
   
-  for (const item of queueToProcess) {
-    try {
-      console.log(`Processing queued operation: ${item.operation}`);
-      await item.callback();
-      successCount++;
-    } catch (error) {
-      console.error(`Failed to process queued operation: ${item.operation}`, error);
-      failureCount++;
-      // Re-queue for next time if it's a temporary failure
-      if (!(error instanceof Error) || !error.message.includes('UUID format error')) {
-        offlineQueue.push(item);
+  // Process each group in order
+  for (const [opType, items] of Object.entries(operationGroups)) {
+    console.log(`Processing ${items.length} operations of type ${opType}`);
+    
+    for (const item of items) {
+      try {
+        console.log(`Executing queued operation: ${item.operation} (attempt ${item.retryCount + 1})`);
+        await item.callback();
+      } catch (error) {
+        console.error(`Failed to execute queued operation ${item.operation}:`, error);
+        
+        // If we've gone offline while processing, re-queue the remaining operations
+        if (errorHandler.isOffline) {
+          console.log('Back offline, re-queuing remaining operations');
+          
+          // Re-queue current item if it hasn't exceeded retry count
+          if (item.retryCount < MAX_OFFLINE_QUEUE_RETRY) {
+            offlineQueue.push({
+              ...item,
+              retryCount: item.retryCount + 1,
+              timestamp: Date.now() // Update timestamp
+            });
+          }
+          
+          // Re-queue remaining operations
+          const remainingItems = items.slice(items.indexOf(item) + 1);
+          offlineQueue.push(...remainingItems);
+          
+          // Re-queue operations from other groups
+          for (const [otherType, otherItems] of Object.entries(operationGroups)) {
+            if (otherType !== opType) {
+              offlineQueue.push(...otherItems);
+            }
+          }
+          
+          break;
+        } else if (item.retryCount < MAX_OFFLINE_QUEUE_RETRY) {
+          // If failed but we're still online, re-queue with incremented retry count
+          offlineQueue.push({
+            ...item,
+            retryCount: item.retryCount + 1,
+            timestamp: Date.now() // Update timestamp
+          });
+        } else {
+          console.error(`Operation ${item.operation} exceeded maximum retry count, abandoning`);
+          // Could dispatch an event or notification here
+        }
       }
     }
-  }
-  
-  if (successCount > 0) {
-    toast.success(`${successCount} offline changes synced successfully.`);
-  }
-  
-  if (failureCount > 0) {
-    toast.error(`Failed to sync ${failureCount} changes. Will retry later.`);
+    
+    // If we went offline, stop processing
+    if (errorHandler.isOffline) {
+      break;
+    }
   }
 };
 
-// Listen for online/offline events
-if (typeof window !== 'undefined') {
-  // Track last connection status for debouncing rapid changes
-  let lastConnectionStatus = isSupabaseConnected;
-  let connectionStatusTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  // Debounced function to update connection status
-  const updateConnectionStatus = (online: boolean) => {
-    // Don't set the same status twice and debounce rapid changes
-    if (online === lastConnectionStatus) {
-      return;
-    }
-    
-    // Cancel any pending status changes
-    if (connectionStatusTimeout) {
-      clearTimeout(connectionStatusTimeout);
-    }
-    
-    // Set a timeout to allow for fast toggling to settle
-    connectionStatusTimeout = setTimeout(() => {
+// Debounced function to update connection status
+const updateConnectionStatus = debounce((online: boolean) => {
+  console.log(`[CONNECTION DEBUG] updateConnectionStatus called with online=${online}, last status was ${lastConnectionStatus}`);
+  
+  // Check if the errorHandler's offline state matches what we expect
+  const currentOfflineState = errorHandler.isOffline;
+  
+  // Don't update if the status hasn't changed and errorHandler state is correct
+  if (lastConnectionStatus === online && currentOfflineState === !online) {
+    console.log(`[CONNECTION DEBUG] Connection status unchanged, skipping update`);
+    return;
+  } else if (lastConnectionStatus === online && currentOfflineState !== !online) {
+    console.log(`[CONNECTION DEBUG] Connection status unchanged, but errorHandler state needs sync`);
+    // Update errorHandler state to match our expected state
+    errorHandler.setOffline(!online);
+    return;
+  }
+  
+  // Clear any pending stability timeout
+  if (connectionStabilityTimeout) {
+    clearTimeout(connectionStabilityTimeout);
+    connectionStabilityTimeout = null;
+  }
+  
+  // Set a timeout to allow for connection to stabilize
+  connectionStabilityTimeout = setTimeout(() => {
+    // Recheck conditions after stability period
+    if (lastConnectionStatus !== online) {
+      console.log(`[CONNECTION DEBUG] Updating connection status after stability period: ${online ? 'online' : 'offline'}`);
       isSupabaseConnected = online;
       lastConnectionStatus = online;
       
       console.log(`Connection status updated: ${online ? 'online' : 'offline'}`);
       
-      // Only notify if status actually changed
       if (online) {
+        console.log('[CONNECTION DEBUG] Setting errorHandler.isOffline to false');
         errorHandler.setOffline(false);
         // Process any queued operations when coming back online
         processOfflineQueue();
+        
+        // Check localStorage for any pending uploads that need processing
+        try {
+          const pendingUploads = localStorage.getItem('pendingUploads');
+          if (pendingUploads) {
+            // Don't process here, just dispatch event to notify upload processor
+            console.log('[CONNECTION DEBUG] Found pending uploads in localStorage, dispatching event');
+            window.dispatchEvent(new CustomEvent('pending-uploads-check', {
+              detail: { count: JSON.parse(pendingUploads).length }
+            }));
+          }
+        } catch (e) {
+          console.error('[CONNECTION DEBUG] Error checking for pending uploads:', e);
+        }
       } else {
+        console.log('[CONNECTION DEBUG] Setting errorHandler.isOffline to true');
         errorHandler.setOffline(true);
       }
       
-      connectionStatusTimeout = null;
-    }, 500); // 500ms debounce
-  };
-  
-  // Listen for connection status events with the debounced handler
-  window.addEventListener('supabase-connection-restored', () => {
-    updateConnectionStatus(true);
-  });
-  
-  window.addEventListener('supabase-connection-lost', () => {
-    updateConnectionStatus(false);
-  });
+      try {
+        // Dispatch a single event instead of multiple
+        const eventName = online ? 'connection-restored' : 'connection-lost';
+        console.log(`[CONNECTION DEBUG] Dispatching event: ${eventName}`);
+        // Dispatch both events - the legacy supabase event and our custom event
+        window.dispatchEvent(new Event(`supabase-${eventName}`));
+        
+        // Also dispatch our custom event for the application
+        const { dispatchEvent } = useEventsStore.getState();
+        dispatchEvent(eventName, { 
+          timestamp: Date.now(),
+          retryCount: connectionAttempts,
+          backoffTime: online ? 0 : Math.min(300000, Math.pow(2, connectionAttempts) * 1000)
+        });
+      } catch (error) {
+        console.error('[CONNECTION DEBUG] Error dispatching connection event:', error);
+      }
+      
+      // Remove any console.log warnings if the connection is successful
+      if (online) {
+        try {
+          const warningElements = document.querySelectorAll('[data-testid="toast-warning"]');
+          if (warningElements.length > 0) {
+            console.log('[CONNECTION DEBUG] Removing connection warning toasts');
+            warningElements.forEach(el => {
+              if (el.textContent?.includes('Connection')) {
+                el.remove();
+              }
+            });
+          }
+        } catch (error) {
+          console.error('[CONNECTION DEBUG] Error removing toast warnings:', error);
+        }
+      }
+    } else {
+      console.log(`[CONNECTION DEBUG] Connection status unchanged during stability period`);
+    }
+    
+    // Need to explicitly declare as null, not reassign
+    window.setTimeout(() => {
+      connectionStabilityTimeout = null;
+    }, 0);
+  }, STABILITY_THRESHOLD);
+}, 2000, { leading: false, trailing: true }); // 2 second debounce with trailing edge execution
 
-  // Don't block the app initialization, run connection check asynchronously
-  setTimeout(() => {
-    checkSupabaseConnection();
-  }, 1000);
-}
-
-// Connection checker
+/**
+ * A more resilient connection check that doesn't depend on specific tables or RPC
+ * @returns Promise<boolean> - true if connected, false otherwise
+ */
 export const checkSupabaseConnection = async (): Promise<boolean> => {
   try {
-    // Create a fresh client for this check to avoid cached responses
-    const { data, error } = await supabase.from('calls').select('*').limit(1);
+    console.log('[CONNECTION DEBUG] Starting connection check, current status:', {
+      isSupabaseConnected,
+      connectionAttempts,
+      lastConnectionStatus,
+      isOffline: errorHandler.isOffline,
+      browserOnline: typeof navigator !== 'undefined' && navigator.onLine
+    });
     
-    if (error) {
-      // The error variable contains a lot of useful details, but don't access its message
-      console.error('Supabase connection check failed:', {
-        status: error.code,
-        hint: error.hint,
-        details: error.details
-      });
-      
-      errorHandler.setOffline(true);
-      toast.error('Database connection failed', {
-        description: 'Could not connect to the database.'
-      });
+    // If the browser reports we're offline, don't even try
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      console.log('[CONNECTION DEBUG] Browser reports offline, skipping connection check');
+      updateConnectionStatus(false);
       return false;
     }
     
-    // Successfully connected
-    console.log('Supabase connection check successful');
-    errorHandler.setOffline(false);
+    // Check if the Supabase server is reachable using a simple HEAD request
+    console.log('[CONNECTION DEBUG] Attempting HEAD request to Supabase');
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/`, {
+      method: 'HEAD',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_PUBLISHABLE_KEY,
+        // Add required headers for Supabase
+        'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`
+      }
+    });
     
-    // Only show a success toast if we were previously offline
-    if (errorHandler.isOffline) {
-      toast.success('Database connection restored', {
-        description: 'You can now resume using all features.'
-      });
+    console.log('[CONNECTION DEBUG] Supabase HEAD response:', {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Array.from(response.headers.entries())
+    });
+    
+    // Consider connected if the server responds with any status < 500 (server error)
+    const isConnected = response.status < 500;
+    
+    console.log('[CONNECTION DEBUG] Connection check result:', {
+      isConnected,
+      status: response.status,
+      previousStatus: isSupabaseConnected
+    });
+    
+    // Update internal states
+    if (isConnected) {
+      // Reset connection attempts on success
+      connectionAttempts = 0;
+      // Skip warning message on successful connection
+      console.log('[CONNECTION DEBUG] Connection check successful');
+    } else {
+      connectionAttempts++;
+      console.log(`[CONNECTION DEBUG] Connection attempt ${connectionAttempts} failed`);
     }
     
-    return true;
+    // Always update connection status based on the result
+    updateConnectionStatus(isConnected);
+    return isConnected;
   } catch (error) {
-    // Error object may be safe to use directly here since we're not reading an already consumed response
-    console.error('Supabase connection check failed:', error);
-    errorHandler.setOffline(true);
-    toast.error('Database connection failed', {
-      description: error instanceof Error ? error.message : 'Could not connect to the database.'
-    });
+    console.error('[CONNECTION DEBUG] Supabase connection check failed with exception:', error);
+    isSupabaseConnected = false;
+    connectionAttempts++;
+    console.log(`[CONNECTION DEBUG] Connection attempt ${connectionAttempts} failed with exception`);
+    updateConnectionStatus(false);
     return false;
   }
 };
@@ -543,9 +509,7 @@ export const isConnected = () => isSupabaseConnected;
 
 // Generate a proper anonymous user ID using the uuid library
 export const generateAnonymousUserId = () => {
-  // Generate a unique identifier using UUID v4
   const anonymousId = `anonymous-${uuidv4()}`;
-  console.log('Generated anonymous user ID:', anonymousId);
   return anonymousId;
 };
 
@@ -603,3 +567,22 @@ export const preloadAudioFile = async (bucketName: string, filePath: string): Pr
     return null;
   }
 };
+
+// Start periodic connection checks
+let connectionCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+const startConnectionChecks = () => {
+  if (connectionCheckInterval) {
+    clearInterval(connectionCheckInterval);
+  }
+  
+  connectionCheckInterval = setInterval(() => {
+    checkSupabaseConnection();
+  }, CONNECTION_CHECK_INTERVAL);
+  
+  // Initial check
+  checkSupabaseConnection();
+};
+
+// Start connection checks
+startConnectionChecks();

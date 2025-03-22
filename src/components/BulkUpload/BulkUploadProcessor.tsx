@@ -11,6 +11,7 @@ import { EventTypeEnum } from '@/services/events/types';
 import { useBulkUploadService, BulkUploadFilter } from '@/services/BulkUploadService';
 import { Progress } from "@/components/ui/progress";
 import { useWhisperService } from '@/services/WhisperService';
+import { refreshMetrics } from '@/services/DataSyncService';
 
 interface CSVData {
   filename: string;
@@ -117,6 +118,15 @@ const BulkUploadProcessor: React.FC = () => {
       // Force refresh of transcript data
       await refreshTranscripts({ force: true });
       
+      // Sync metrics automatically after upload
+      try {
+        console.log('Automatically syncing metrics after file upload...');
+        await refreshMetrics();
+      } catch (metricsError) {
+        console.error('Error syncing metrics after upload:', metricsError);
+        // Non-blocking - continue even if metrics sync fails
+      }
+      
       // Trigger UI update
       window.dispatchEvent(new CustomEvent('transcriptions-updated'));
       
@@ -217,6 +227,15 @@ const BulkUploadProcessor: React.FC = () => {
       // Force refresh of transcript data
       await refreshTranscripts({ force: true });
       
+      // Sync metrics automatically after upload
+      try {
+        console.log('Automatically syncing metrics after file upload...');
+        await refreshMetrics();
+      } catch (metricsError) {
+        console.error('Error syncing metrics after upload:', metricsError);
+        // Non-blocking - continue even if metrics sync fails
+      }
+      
       // Trigger UI update
       window.dispatchEvent(new CustomEvent('transcriptions-updated'));
       
@@ -249,13 +268,32 @@ const BulkUploadProcessor: React.FC = () => {
       });
       await refreshTranscripts({ force: force });
       toast({
-        title: "Data refreshed",
-        description: "Successfully refreshed transcript data.",
+        description: "Transcripts refreshed successfully",
       });
     } catch (error) {
+      console.error('Error refreshing data:', error);
       toast({
         variant: "destructive",
         title: "Refresh error",
+        description: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  };
+  
+  const refreshMetrics = async () => {
+    try {
+      toast({
+        description: "Syncing metrics data...",
+      });
+      await refreshMetrics();
+      toast({
+        description: "Metrics synced successfully",
+      });
+    } catch (error) {
+      console.error('Error syncing metrics:', error);
+      toast({
+        variant: "destructive",
+        title: "Metrics sync error",
         description: error instanceof Error ? error.message : "Unknown error"
       });
     }
@@ -350,6 +388,23 @@ const BulkUploadProcessor: React.FC = () => {
           variant="outline"
         >
           Refresh Data
+        </Button>
+      </div>
+
+      <div className="flex justify-end gap-2 mt-4">
+        <Button 
+          variant="outline" 
+          onClick={() => refreshData(true)}
+          disabled={isUploading}
+        >
+          Refresh Transcripts
+        </Button>
+        <Button 
+          variant="secondary" 
+          onClick={refreshMetrics}
+          disabled={isUploading}
+        >
+          Sync Metrics
         </Button>
       </div>
     </div>

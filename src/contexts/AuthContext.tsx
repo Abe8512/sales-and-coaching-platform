@@ -1,6 +1,7 @@
-
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { getStoredTeamMembers, TeamMember as LocalTeamMember } from '@/services/TeamService';
 
 // Define user type with extended properties
 export interface User {
@@ -11,6 +12,16 @@ export interface User {
   managedTeams?: string[];  // For managers: IDs of teams they manage
   teamId?: string;         // For reps: ID of their team
   managerId?: string;      // For reps: ID of their manager
+}
+
+// Define team member type
+interface TeamMember {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  role: string;
+  created_at: string;
 }
 
 // Define the auth context type
@@ -25,6 +36,9 @@ interface AuthContextType {
   signup: (email: string, password: string, name: string) => Promise<void>;
   logout: () => void;
   getManagedUsers: () => User[];
+  addTeamMember: (userData: { name: string; email: string; role: string }) => Promise<void>;
+  removeTeamMember: (memberId: string) => Promise<void>;
+  refreshTeamMembers: () => Promise<void>;
 }
 
 // Create the auth context
@@ -86,6 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
   // Check for existing session on mount
   useEffect(() => {
@@ -206,6 +221,140 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  // Team management functions
+  const addTeamMember = async (userData: { name: string; email: string; role: string }) => {
+    if (!user) {
+      throw new Error("You must be logged in to add team members");
+    }
+
+    try {
+      // Create a new user account
+      const { data, error } = await supabase.auth.admin.createUser({
+        email: userData.email,
+        password: generateTemporaryPassword(), // Generate a secure temporary password
+        email_confirm: true, // Auto-confirm the email
+        user_metadata: {
+          name: userData.name,
+          role: userData.role,
+          managedBy: user.id
+        }
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      // Also add the user to the team_members table for easier querying
+      if (data.user) {
+        const { error: teamError } = await supabase
+          .from('team_members')
+          .insert({
+            id: data.user.id,
+            user_id: user.id, // Current user as the manager
+            name: userData.name,
+            email: userData.email,
+            role: userData.role,
+            created_at: new Date().toISOString()
+          });
+
+        if (teamError) {
+          console.error("Error adding team member to database:", teamError);
+          // We don't throw here because the user is already created
+        }
+      }
+
+      await refreshTeamMembers();
+      return data;
+    } catch (error) {
+      console.error("Error adding team member:", error);
+      throw error;
+    }
+  };
+
+  // Generate a secure temporary password
+  const generateTemporaryPassword = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
+    let password = "";
+    for (let i = 0; i < 12; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+  };
+
+  // Remove a team member
+  const removeTeamMember = async (memberId: string): Promise<void> => {
+    if (!user) {
+      throw new Error("You must be logged in to remove team members");
+    }
+
+    try {
+      // First remove from the team_members table
+      const { error: teamError } = await supabase
+        .from('team_members')
+        .delete()
+        .eq('id', memberId)
+        .eq('user_id', user.id); // Ensure the member belongs to this user
+
+      if (teamError) {
+        throw teamError;
+      }
+
+      // Optionally, you could also disable the user's auth account
+      const { error: authError } = await supabase.auth.admin.updateUserById(
+        memberId,
+        { user_metadata: { isActive: false, removedAt: new Date().toISOString() } }
+      );
+
+      if (authError) {
+        console.error("Error updating user status:", authError);
+        // We don't throw here because the team member was already removed
+      }
+
+      await refreshTeamMembers();
+    } catch (error) {
+      console.error("Error removing team member:", error);
+      throw error;
+    }
+  };
+
+  // Refresh the list of team members
+  const refreshTeamMembers = async () => {
+    if (!user) return;
+
+    try {
+      // Try to get team members from the team_members table
+      const { data, error } = await supabase
+        .from('team_members')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (error) {
+        if (error.message && error.message.includes('does not exist')) {
+          // Table doesn't exist, use local storage data from TeamService instead
+          console.log('team_members table does not exist, using local data instead');
+          const localMembers = getStoredTeamMembers();
+          setTeamMembers(localMembers as unknown as TeamMember[]);
+          
+          // Add a delay to prevent constant retries
+          await new Promise(resolve => setTimeout(resolve, 30000)); // 30 second delay
+        } else {
+          console.error("Database error refreshing team members:", error);
+        }
+      } else {
+        setTeamMembers(data || []);
+      }
+    } catch (error) {
+      console.error("Error refreshing team members:", error);
+      
+      // Fall back to local storage in case of any error
+      const localMembers = getStoredTeamMembers();
+      setTeamMembers(localMembers as unknown as TeamMember[]);
+      
+      // Add a delay to prevent constant retries in case of errors
+      await new Promise(resolve => setTimeout(resolve, 10000)); // 10 second delay
+    }
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, 
@@ -217,7 +366,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       login, 
       signup, 
       logout,
-      getManagedUsers
+      getManagedUsers,
+      addTeamMember,
+      removeTeamMember,
+      refreshTeamMembers
     }}>
       {children}
     </AuthContext.Provider>

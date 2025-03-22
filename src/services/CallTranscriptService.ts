@@ -4,6 +4,7 @@ import { useEventsStore } from '@/services/events';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { errorHandler } from './ErrorHandlingService';
 import { useDebounce } from '@/hooks/useDebounce';
+import { rateLimiter } from '@/utils/RateLimiter';
 
 export interface CallTranscript {
   id: string;
@@ -34,6 +35,14 @@ export interface CallTranscriptFilter {
 }
 
 const PAGE_SIZE = 10;
+
+// Utility function to create default date range (last 30 days)
+const getDefaultDateRange = () => {
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 30);
+  return { startDate, endDate };
+};
 
 // Create a central request state storage to prevent duplicate requests across component instances
 const globalRequestState = {
@@ -77,12 +86,18 @@ export const useCallTranscripts = (filters?: CallTranscriptFilter) => {
 
   const fetchTranscripts = useCallback(
     async (newFilters?: CallTranscriptFilter) => {
-      // Skip if dates are undefined and this is not a forced request
-      if (!newFilters?.force && 
-          (!newFilters?.startDate || !newFilters?.endDate) && 
-          (!filters?.startDate || !filters?.endDate)) {
-        console.log('Skipping fetch - date range is undefined');
-        return;
+      // Apply default date range if none provided and not a forced request
+      let filtersToUse = { ...newFilters };
+      let defaultsApplied = false;
+
+      if (!filtersToUse?.force && 
+          (!filtersToUse?.startDate || !filtersToUse?.endDate)) {
+        const defaults = getDefaultDateRange();
+        if (!filtersToUse) filtersToUse = {};
+        if (!filtersToUse.startDate) filtersToUse.startDate = defaults.startDate;
+        if (!filtersToUse.endDate) filtersToUse.endDate = defaults.endDate;
+        defaultsApplied = true;
+        console.log('Applied default date range:', defaults.startDate, 'to', defaults.endDate);
       }
       
       // Skip if a request is already in progress for this component
@@ -91,128 +106,167 @@ export const useCallTranscripts = (filters?: CallTranscriptFilter) => {
         return;
       }
       
-      // Skip if loading is already true (prevents double requests)
-      if (loading) {
-        console.log('Skipping fetch - already loading');
-        return;
-      }
-      
-      // Skip if a global request is in progress or too soon after last request
-      const now = Date.now();
-      const timeSinceLastRequest = now - globalRequestState.lastRequestTime;
-      const componentTimeSinceLastRequest = now - lastRequestTime.current;
-      const requestKey = getRequestFingerprint(newFilters);
-      
-      // Allow forced requests to bypass in-progress checks if they've been waiting for more than 5 seconds
-      const bypassInProgress = newFilters?.force && 
-                               globalRequestState.isFetching && 
-                               (now - globalRequestState.lastRequestTime > 5000);
-      
-      if (globalRequestState.isFetching && !bypassInProgress) {
-        console.log('Skipping fetch - global request already in progress');
-        return;
-      }
-      
-      // Skip if this exact request was made too recently, unless it's forced and more than 1 second has passed
-      if (!newFilters?.force && 
-          timeSinceLastRequest < globalRequestState.minimumRequestInterval && 
-          globalRequestState.lastRequestKey === requestKey) {
-        console.log(`Skipping fetch - too soon after last request (${timeSinceLastRequest}ms)`);
-        return;
-      }
-      
-      // Skip if this component made a request too recently, unless it's forced
-      if (!newFilters?.force && componentTimeSinceLastRequest < 2500) { 
-        console.log(`Skipping fetch - too soon after component's last request (${componentTimeSinceLastRequest}ms)`);
-        return;
-      }
-      
-      // Check if this request is a duplicate of a recent request, unless forced
-      if (!newFilters?.force && globalRequestState.requestHashes.has(requestKey)) {
-        console.log('Skipping fetch - duplicate request hash detected');
-        return;
-      }
-      
-      // Set up request hash tracking if not already set
-      if (!globalRequestState.clearRequestHashInterval) {
-        globalRequestState.clearRequestHashInterval = setInterval(() => {
-          globalRequestState.requestHashes.clear();
-        }, 5000); // Clear hashes every 5 seconds
-      }
-      
-      // Update request tracking
-      requestInProgress.current = true;
-      globalRequestState.isFetching = true;
-      globalRequestState.lastRequestTime = now;
-      lastRequestTime.current = now;
-      globalRequestState.lastRequestKey = requestKey;
-      globalRequestState.requestHashes.add(requestKey);
-      
-      setLoading(true);
-      setError(null);
-
-      const startDate = newFilters?.startDate || filters?.startDate;
-      const endDate = newFilters?.endDate || filters?.endDate;
-      const searchTerm = newFilters?.searchTerm || filters?.searchTerm;
-      const sentimentFilter = newFilters?.sentimentFilter || filters?.sentimentFilter;
-      const limit = newFilters?.limit || PAGE_SIZE;
-      const sortBy = newFilters?.sortBy || 'created_at';
-      const sortOrder = newFilters?.sortOrder || 'desc';
-      const page = newFilters?.page || currentPage;
-      
-      // Only update current page if explicitly provided in filters
-      if (newFilters?.page) {
-        setCurrentPage(page);
-      }
-
-      let query = supabase
-        .from('call_transcripts')
-        .select('*', { count: 'exact' })
-        .range((page - 1) * limit, page * limit - 1)
-        .order(sortBy, { ascending: sortOrder === 'asc' });
-
-      if (searchTerm) {
-        query = query.ilike('text', `%${searchTerm}%`);
-      }
-
-      if (startDate) {
-        query = query.gte('created_at', startDate.toISOString());
-      }
-
-      if (endDate) {
-        query = query.lte('created_at', endDate.toISOString());
-      }
-
-      if (sentimentFilter && sentimentFilter.length > 0) {
-        query = query.in('sentiment', sentimentFilter);
-      }
-
+      // Use the rate limiter to prevent excessive API calls
       try {
-        console.log(`Executing Supabase query with dates: ${startDate?.toISOString() || 'none'} - ${endDate?.toISOString() || 'none'}`);
-        const { data, error, count } = await query;
+        return await rateLimiter.executeWithRateLimit(
+          'transcript-fetch',
+          async () => {
+            // Skip if loading is already true (prevents double requests)
+            if (loading) {
+              console.log('Skipping fetch - already loading');
+              return;
+            }
+            
+            // Skip if a global request is in progress or too soon after last request
+            const now = Date.now();
+            const timeSinceLastRequest = now - globalRequestState.lastRequestTime;
+            const componentTimeSinceLastRequest = now - lastRequestTime.current;
+            const requestKey = getRequestFingerprint(filtersToUse);
+            
+            // Allow forced requests to bypass in-progress checks if they've been waiting for more than 5 seconds
+            const bypassInProgress = filtersToUse?.force && 
+                                    globalRequestState.isFetching && 
+                                    (now - globalRequestState.lastRequestTime > 5000);
+            
+            if (globalRequestState.isFetching && !bypassInProgress) {
+              console.log('Skipping fetch - global request already in progress');
+              return;
+            }
+            
+            // Skip if this exact request was made too recently, unless it's forced
+            if (!filtersToUse?.force && 
+                timeSinceLastRequest < globalRequestState.minimumRequestInterval && 
+                globalRequestState.lastRequestKey === requestKey) {
+              console.log(`Skipping fetch - too soon after last request (${timeSinceLastRequest}ms)`);
+              return;
+            }
+            
+            // Skip if this component made a request too recently, unless it's forced
+            if (!filtersToUse?.force && componentTimeSinceLastRequest < 2500) { 
+              console.log(`Skipping fetch - too soon after component's last request (${componentTimeSinceLastRequest}ms)`);
+              return;
+            }
+            
+            // Check if this request is a duplicate of a recent request, unless forced
+            if (!filtersToUse?.force && globalRequestState.requestHashes.has(requestKey)) {
+              console.log('Skipping fetch - duplicate request hash detected');
+              return;
+            }
+            
+            // Update request tracking
+            requestInProgress.current = true;
+            globalRequestState.isFetching = true;
+            globalRequestState.lastRequestTime = now;
+            lastRequestTime.current = now;
+            globalRequestState.lastRequestKey = requestKey;
+            globalRequestState.requestHashes.add(requestKey);
+            
+            setLoading(true);
+            setError(null);
+            
+            // Use provided filters or apply defaults from the higher scope filters
+            const mergedFilters = { ...filters, ...filtersToUse };
+            if (!mergedFilters.startDate || !mergedFilters.endDate) {
+              const defaults = getDefaultDateRange();
+              if (!mergedFilters.startDate) mergedFilters.startDate = defaults.startDate;
+              if (!mergedFilters.endDate) mergedFilters.endDate = defaults.endDate;
+              defaultsApplied = true;
+            }
 
-        if (error) {
-          console.error('Error fetching transcripts:', error);
-          setError(error.message);
-          errorHandler.handleError(error, 'CallTranscriptService.fetchTranscripts');
-        } else {
-          setTranscripts(data || []);
-          setTotalCount(count || 0);
-        }
-      } catch (err) {
-        console.error('Unexpected error fetching transcripts:', err);
-        setError('An unexpected error occurred.');
-        errorHandler.handleError(err, 'CallTranscriptService.fetchTranscripts');
+            const startDate = mergedFilters.startDate;
+            const endDate = mergedFilters.endDate;
+            const searchTerm = mergedFilters.searchTerm;
+            const sentimentFilter = mergedFilters.sentimentFilter;
+            const limit = mergedFilters.limit || PAGE_SIZE;
+            const sortBy = mergedFilters.sortBy || 'created_at';
+            const sortOrder = mergedFilters.sortOrder || 'desc';
+            const page = mergedFilters.page || currentPage;
+            
+            // Only update current page if explicitly provided in filters
+            if (filtersToUse?.page) {
+              setCurrentPage(page);
+            }
+
+            let query = supabase
+              .from('call_transcripts')
+              .select('*', { count: 'exact' })
+              .range((page - 1) * limit, page * limit - 1)
+              .order(sortBy, { ascending: sortOrder === 'asc' });
+
+            if (searchTerm) {
+              query = query.ilike('text', `%${searchTerm}%`);
+            }
+
+            if (startDate) {
+              query = query.gte('created_at', startDate.toISOString());
+            }
+
+            if (endDate) {
+              query = query.lte('created_at', endDate.toISOString());
+            }
+
+            if (sentimentFilter && sentimentFilter.length > 0) {
+              query = query.in('sentiment', sentimentFilter);
+            }
+
+            try {
+              console.log(`Executing Supabase query with dates: ${startDate?.toISOString() || 'none'} - ${endDate?.toISOString() || 'none'} (defaults applied: ${defaultsApplied})`);
+              const { data, error, count } = await query;
+
+              if (error) {
+                console.error('Error fetching transcripts:', error);
+                setError(error.message);
+                errorHandler.handleError(error, 'CallTranscriptService.fetchTranscripts');
+              } else {
+                setTranscripts(data || []);
+                setTotalCount(count || 0);
+              }
+            } catch (err) {
+              console.error('Unexpected error fetching transcripts:', err);
+              setError('An unexpected error occurred.');
+              errorHandler.handleError(err, 'CallTranscriptService.fetchTranscripts');
+            } finally {
+              // Wait a short time before allowing more requests
+              setTimeout(() => {
+                setLoading(false);
+                requestInProgress.current = false;
+                globalRequestState.isFetching = false;
+              }, 500); // Increased from 200ms to 500ms
+            }
+            
+            // IMPORTANT: Make sure to clean up at the end of the function
+            return {
+              // function result
+            };
+          },
+          {
+            // Configure rate limiting specifically for transcript fetches
+            bucketSize: 5,    // Allow 5 requests in burst
+            refillRate: 1,    // Refill at rate of 1 per second
+            name: 'transcript-fetch'
+          }
+        );
+      } catch (error) {
+        // Handle rate limiting errors
+        console.error('Error fetching transcripts:', error);
+        setError('Too many requests - please try again later');
+        setLoading(false);
+        requestInProgress.current = false;
+        globalRequestState.isFetching = false;
       } finally {
-        // Wait a short time before allowing more requests
-        setTimeout(() => {
+        // Cleanup in case of unexpected errors
+        if (loading) {
           setLoading(false);
+        }
+        if (requestInProgress.current) {
           requestInProgress.current = false;
+        }
+        if (globalRequestState.isFetching) {
           globalRequestState.isFetching = false;
-        }, 500); // Increased from 200ms to 500ms
+        }
       }
     },
-    [filters, loading, supabase, errorHandler, currentPage]
+    [filters, debouncedFilters, loading, setTranscripts, setTotalCount, setLoading, setCurrentPage, setError, isConnected]
   );
 
   useEffect(() => {
@@ -234,14 +288,19 @@ export const useCallTranscripts = (filters?: CallTranscriptFilter) => {
       return;
     }
 
-    // Skip if no date range is provided (prevents initial undefined fetches) unless force is true
-    if (!filters?.force && (!filters?.startDate || !filters?.endDate)) {
-      console.log('Skipping fetchTranscripts - date range is undefined');
-      return;
+    // Instead of skipping, create filters with default date range when none is provided
+    let filtersToUse = { ...filters };
+    
+    if (!filtersToUse?.force && (!filtersToUse?.startDate || !filtersToUse?.endDate)) {
+      const defaults = getDefaultDateRange();
+      filtersToUse = { ...filtersToUse };
+      if (!filtersToUse.startDate) filtersToUse.startDate = defaults.startDate;
+      if (!filtersToUse.endDate) filtersToUse.endDate = defaults.endDate;
+      console.log('Using default date range for initial fetch:', defaults.startDate, 'to', defaults.endDate);
     }
     
-    console.log('Fetching transcripts with filters:', filters);
-    fetchTranscripts(filters);
+    console.log('Fetching transcripts with filters:', filtersToUse);
+    fetchTranscripts(filtersToUse);
   }, [debouncedFilters, isConnected, fetchTranscripts, filters?.force, loading]);
 
   // Cleanup request hash interval on unmount

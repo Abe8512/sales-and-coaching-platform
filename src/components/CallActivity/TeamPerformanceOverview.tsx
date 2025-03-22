@@ -3,9 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Phone, Activity, Clock, AlertCircle, TrendingUp } from "lucide-react";
 import ContentLoader from "@/components/ui/ContentLoader";
-import { useSharedTeamMetrics, TeamMetricsData, useSharedKeywordData } from '@/services/SharedDataService';
+import { useSharedTeamMetrics, TeamMetricsData, useKeywordTrends } from '@/services/SharedDataService';
 import ExpandableChart from '@/components/ui/ExpandableChart';
 import { useSharedFilters } from "@/contexts/SharedFilterContext";
+import { useStableLoadingState } from '@/hooks/useStableLoadingState';
 
 export interface TeamPerformanceOverviewProps {
   dateRange?: {
@@ -36,45 +37,20 @@ export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = (
     dateRange: finalDateRange
   });
   
-  // Also fetch shared keyword data to ensure consistency across components
-  const { keywordsByCategory } = useSharedKeywordData({
+  // Also fetch keyword trends data to ensure consistency across components
+  const { keywordData, isLoading: keywordsLoading } = useKeywordTrends({
     dateRange: finalDateRange
   });
   
   // Use external metrics if provided, otherwise use internal metrics
   const teamMetrics = externalTeamMetrics || internalTeamMetrics;
-  const metricsLoading = externalLoading !== undefined ? externalLoading : internalLoading;
+  const rawLoading = externalLoading !== undefined ? externalLoading : internalLoading || keywordsLoading;
   
-  // Get all keywords from all categories for display
-  const allKeywords = [
-    ...(keywordsByCategory?.positive || []),
-    ...(keywordsByCategory?.neutral || []),
-    ...(keywordsByCategory?.negative || [])
-  ];
+  // Get all keywords from keyword data for display
+  const topKeywords = keywordData?.slice(0, 10).map(item => item.keyword) || [];
   
-  // Get top keywords (limit to 10)
-  const topKeywords = allKeywords.slice(0, 10);
-  
-  // Custom stable loading state to prevent UI flicker
-  const [isStableLoading, setIsStableLoading] = useState(true);
-  
-  useEffect(() => {
-    if (metricsLoading) {
-      // Don't immediately show loading state, wait a bit to prevent flicker
-      const timer = setTimeout(() => {
-        setIsStableLoading(true);
-      }, 100);
-      
-      return () => clearTimeout(timer);
-    } else {
-      // Keep showing loading for a bit after data arrives
-      const timer = setTimeout(() => {
-        setIsStableLoading(false);
-      }, 800);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [metricsLoading]);
+  // Use the stable loading state hook for consistent loading behavior
+  const isStableLoading = useStableLoadingState(rawLoading, 800);
   
   return (
     <Card className="mb-6">

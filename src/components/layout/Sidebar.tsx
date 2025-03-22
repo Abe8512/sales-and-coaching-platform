@@ -1,7 +1,6 @@
-
 import React from "react";
 import { Link } from "react-router-dom";
-import { Activity, BarChart3, Bot, FileText, Home, LineChart, MessageSquare, Settings, Users, GitCompare, Brain } from "lucide-react";
+import { Activity, BarChart3, Bot, FileText, Home, LineChart, MessageSquare, Settings, Users, GitCompare, Brain, Shield, PieChart } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SidebarItemProps {
@@ -87,6 +86,13 @@ const Sidebar = ({ isDarkMode }: SidebarProps) => {
             isDarkMode={isDarkMode} 
           />
           <SidebarItem 
+            icon={PieChart} 
+            label="Analytics Hub" 
+            path="/analytics" 
+            active={path === "/analytics"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
             icon={Activity} 
             label="Call Activity" 
             path="/call-activity" 
@@ -115,13 +121,6 @@ const Sidebar = ({ isDarkMode }: SidebarProps) => {
             isDarkMode={isDarkMode} 
           />
           <SidebarItem 
-            icon={BarChart3} 
-            label="Analytics" 
-            path="/analytics" 
-            active={path === "/analytics"} 
-            isDarkMode={isDarkMode} 
-          />
-          <SidebarItem 
             icon={Users} 
             label="Team" 
             path="/team" 
@@ -146,13 +145,22 @@ const Sidebar = ({ isDarkMode }: SidebarProps) => {
       </nav>
       
       <div className={`p-6 border-t ${isDarkMode ? "border-white/5" : "border-gray-200"}`}>
-        <SidebarItem 
-          icon={Settings} 
-          label="Settings" 
-          path="/settings" 
-          active={path === "/settings"} 
-          isDarkMode={isDarkMode} 
-        />
+        <ul className="space-y-2">
+          <SidebarItem 
+            icon={Settings} 
+            label="Settings" 
+            path="/settings" 
+            active={path === "/settings"} 
+            isDarkMode={isDarkMode} 
+          />
+          <SidebarItem 
+            icon={Shield} 
+            label="Admin" 
+            path="/admin" 
+            active={path === "/admin"} 
+            isDarkMode={isDarkMode} 
+          />
+        </ul>
       </div>
     </aside>
   );

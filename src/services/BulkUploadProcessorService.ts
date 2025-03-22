@@ -118,11 +118,11 @@ export class BulkUploadProcessorService {
       try {
         // Call the transcribeAudio method which now has its own retry logic
         console.log(`Calling transcribeAudio for file ${file.name}`);
-        const result = await this.whisperService.transcribeAudio(file);
+      const result = await this.whisperService.transcribeAudio(file);
         
         console.log(`Transcription result for ${file.name}:`, result ? 'success' : 'failed');
 
-        if (!result) {
+      if (!result) {
           throw new Error("Transcription failed to return a result.");
         }
         
@@ -130,23 +130,23 @@ export class BulkUploadProcessorService {
         if (statusUpdateInterval) {
           clearInterval(statusUpdateInterval);
           statusUpdateInterval = null;
-        }
-        
-        // Phase 2: Process transcription
-        console.log('Processing transcription...');
+      }
+      
+      // Phase 2: Process transcription
+      console.log('Processing transcription...');
         updateStatus('processing', 70, result.text, undefined);
-        
-        // Process and save transcript data
-        await this.processTranscriptData(result, file, updateStatus);
-        
-        // Calculate processing time
-        const processingTime = Math.round((performance.now() - startTime) / 1000);
-        console.log(`Completed processing ${file.name} in ${processingTime} seconds`);
+      
+      // Process and save transcript data
+      await this.processTranscriptData(result, file, updateStatus);
+      
+      // Calculate processing time
+      const processingTime = Math.round((performance.now() - startTime) / 1000);
+      console.log(`Completed processing ${file.name} in ${processingTime} seconds`);
         
         // If we got here, the process was successful
         this.successCount++;
-        
-        return null;
+      
+      return null;
       } catch (transcriptionError) {
         console.error(`Transcription error for ${file.name}:`, transcriptionError);
         
@@ -290,41 +290,35 @@ export class BulkUploadProcessorService {
     };
   }
   
-  // Process transcript data and save to database
+  /**
+   * Process the transcript data by validating, enriching, and saving to the database
+   */
   private async processTranscriptData(
-    result: WhisperTranscriptionResponse,
+    result: WhisperTranscriptionResponse, 
     file: File,
     updateStatus: (status: UploadStatus, progress: number, result?: string, error?: string, transcriptId?: string) => void
   ): Promise<void> {
     try {
-      // First, ensure the file has the correct MIME type before processing
-      const extension = file.name.split('.').pop()?.toLowerCase();
-      const fileToProcess = file;
+      console.log(`[PROCESSOR_DEBUG] Starting to process transcript data for ${file.name}`);
+      updateStatus('processing', 75, undefined, 'Saving transcript...');
       
-      // Extra check to reject plain text files before attempting to save
-      if (file.type === 'text/plain' || file.type.includes('text/')) {
-        console.error(`Rejecting text file: ${file.name} with MIME type ${file.type}`);
-        updateStatus('error', 0, undefined, `Unsupported file type: ${file.type}. The database requires valid audio files.`);
-        throw new Error(`Content-Type error: text/plain files are not supported. Please upload audio files only.`);
-      }
+      // Create a copy of the file to avoid modifying the original
+      const fileToProcess = new File([file], file.name, { type: file.type });
       
-      // Validate the result object
+      // Validate the result
       const validatedResult = this.validateTranscriptionResult(result);
-      
-      // Verify quality of result based on text length
-      if (validatedResult.text.length < 5) {
-        console.warn(`Very short transcript (${validatedResult.text.length} chars) detected`);
-        updateStatus('processing', 75, validatedResult.text, 'Warning: Very short transcript detected, but continuing to save.');
+      if (!validatedResult) {
+        console.error(`[PROCESSOR_DEBUG] Invalid transcription result for ${file.name}`, result);
+        updateStatus('error', 0, undefined, 'Invalid transcription result');
+        return;
       }
-      
-      // Update status to saving
-      updateStatus('processing', 80, validatedResult.text, undefined);
-      
-      // Save to database
-      console.log('Saving transcript to database...');
       
       // Add a retry with a different approach if we get content-type errors
       try {
+        console.log(`[PROCESSOR_DEBUG] Attempting to save transcript for ${file.name} to database`);
+        // Check connection status before attempting to save
+        console.log(`[PROCESSOR_DEBUG] Connection status before save: ${errorHandler.isOffline ? 'offline' : 'online'}`);
+        
         // First attempt - try to save as-is
         const saveResult = await databaseService.saveTranscriptToDatabase(
           validatedResult, 
@@ -332,7 +326,7 @@ export class BulkUploadProcessorService {
           this.assignedUserId,
           this.whisperService.getNumSpeakers()
         );
-        
+          
         // Check for errors
         let transcriptId = saveResult.id;
         const error = saveResult.error;
@@ -343,6 +337,8 @@ export class BulkUploadProcessorService {
             ? (error as Error).message || error.toString() 
             : String(error || 'Unknown database error');
           
+          console.error(`[PROCESSOR_DEBUG] Database save error for ${file.name}: ${errorMessage}`);
+          
           // Log detailed error information
           console.error(`Database save error for ${file.name}:`, {
             error,
@@ -352,99 +348,91 @@ export class BulkUploadProcessorService {
             resultSnippet: validatedResult.text.substring(0, 100) + '...'
           });
           
-          // Handle content-type errors specifically
-          if (errorMessage.includes('Content-Type') || errorMessage.includes('content-type')) {
-            // Try one more time with an explicit audio MIME type
-            if (extension && ['wav', 'mp3', 'm4a', 'ogg', 'webm', 'mp4'].includes(extension)) {
-              console.log(`Attempting one more save with explicitly fixed MIME type`);
+          // Check if this is an offline error
+          if (errorMessage.includes('offline') || errorMessage.includes('network') || errorHandler.isOffline) {
+            console.log(`[PROCESSOR_DEBUG] Offline error detected for ${file.name}`);
+            
+            // Add to offline queue instead of failing immediately
+            try {
+              console.log(`[PROCESSOR_DEBUG] Adding save operation to offline queue for ${file.name}`);
               
-              // Force an audio MIME type based on extension
-              const forcedAudioType = extension === 'mp3' ? 'audio/mpeg' : 
-                                    extension === 'wav' ? 'audio/wav' :
-                                    extension === 'm4a' ? 'audio/mp4' :
-                                    extension === 'mp4' ? 'audio/mp4' :
-                                    extension === 'ogg' ? 'audio/ogg' :
-                                    extension === 'webm' ? 'audio/webm' :
-                                    'audio/mpeg';
-              
-              // Create new file with correct MIME type and a slightly different name to avoid duplicate detection
-              const uniqueSuffix = Date.now().toString().slice(-4);
-              const fixedFileName = fileToProcess.name.replace(/\.([^.]+)$/, `-${uniqueSuffix}.$1`);
-              const fixedFile = new File([fileToProcess], fixedFileName, { type: forcedAudioType });
-              
-              console.log(`Created fixed file with name ${fixedFileName} and type ${forcedAudioType}`);
-              
-              // Add a delay to avoid duplicate request detection
-              await new Promise(resolve => setTimeout(resolve, 1500));
-              
-              // Slightly modify the transcript text to make it unique for the database
-              const uniqueResult = {
-                ...validatedResult,
-                text: validatedResult.text.trim() + ' '  // Add a space to make it unique
+              // Create a copy of the validatedResult to avoid reference issues
+              const offlineData = { 
+                file: fileToProcess,
+                result: JSON.parse(JSON.stringify(validatedResult)),
+                userId: this.assignedUserId,
+                timestamp: Date.now()
               };
               
-              console.log(`Retrying database save with modified request to avoid duplicate detection`);
+              // Store in localStorage for recovery on reconnection
+              const pendingUploads = JSON.parse(localStorage.getItem('pendingUploads') || '[]');
+              pendingUploads.push({
+                id: `${Date.now()}-${file.name}`,
+                data: offlineData,
+                retryCount: 0
+              });
+              localStorage.setItem('pendingUploads', JSON.stringify(pendingUploads));
               
-              // Try again with fixed file
-              const retryResult = await databaseService.saveTranscriptToDatabase(
-                uniqueResult, 
-                fixedFile,
-                this.assignedUserId,
-                this.whisperService.getNumSpeakers()
-              );
+              console.log(`[PROCESSOR_DEBUG] Saved to pending uploads queue. Current queue size: ${pendingUploads.length}`);
               
-              if (retryResult.error) {
-                console.error(`Retry save failed with error:`, retryResult.error);
-                throw new Error(`Content-type error: Transcription succeeded but database save failed. Please try a different audio format.`);
-              } else {
-                // Success on retry! Use this ID
-                transcriptId = retryResult.id;
-                console.log(`Retry successful with ID: ${transcriptId}`);
-              }
-            } else {
-              throw new Error(`Content-type error: The file was transcribed but couldn't be saved to the database. Please try a different audio format.`);
+              // Update status to reflect offline state but with a more helpful message
+              updateStatus('queued', 0, undefined, `Network error: Your upload has been queued and will resume when connection is restored.`);
+              
+              // Track the error but continue processing other files
+              errorHandler.handleError(new Error(`Failed to save transcript, queued for retry: ${errorMessage}`), 'BulkUploadProcessorService.processTranscriptData');
+              
+              // Don't throw, instead return normally to allow processing to continue
+              return;
+            } catch (queueError) {
+              console.error(`[PROCESSOR_DEBUG] Failed to queue upload for offline processing: ${queueError instanceof Error ? queueError.message : String(queueError)}`);
+              
+              // If queuing fails, fall back to the standard error
+              updateStatus('error', 0, undefined, `Network error: You appear to be offline. Please check your connection.`);
+              
+              // Rethrow to be handled by caller
+              throw new Error(`Failed to save transcript: ${errorMessage}`);
             }
           } else {
             throw new Error(`Failed to save transcript: ${errorMessage}`);
           }
         }
         
-        console.log(`Successfully saved transcript to database with ID: ${transcriptId}`);
-        
-        // Update status to indicate processing trends
+        console.log(`[PROCESSOR_DEBUG] Successfully saved transcript to database with ID: ${transcriptId}`);
+      
+      // Update status to indicate processing trends
         updateStatus('processing', 90, validatedResult.text, undefined, transcriptId);
-        
-        // Update trends data - use Promise.allSettled to ensure both operations run
-        // even if one of them fails, and we capture any errors
-        const [keywordResults, sentimentResults] = await Promise.allSettled([
+      
+      // Update trends data - use Promise.allSettled to ensure both operations run
+      // even if one of them fails, and we capture any errors
+      const [keywordResults, sentimentResults] = await Promise.allSettled([
           databaseService.updateKeywordTrends(validatedResult),
           databaseService.updateSentimentTrends(validatedResult, this.assignedUserId)
-        ]);
-        
-        // Log any errors in the background processes
-        if (keywordResults.status === 'rejected') {
-          console.error("Error updating keyword trends:", keywordResults.reason);
-          errorHandler.handleError(keywordResults.reason, 'BulkUploadProcessorService.updateKeywordTrends');
-        }
-        
-        if (sentimentResults.status === 'rejected') {
-          console.error("Error updating sentiment trends:", sentimentResults.reason);
-          errorHandler.handleError(sentimentResults.reason, 'BulkUploadProcessorService.updateSentimentTrends');
-        }
-        
+      ]);
+
+      // Log any errors in the background processes
+      if (keywordResults.status === 'rejected') {
+        console.error("Error updating keyword trends:", keywordResults.reason);
+        errorHandler.handleError(keywordResults.reason, 'BulkUploadProcessorService.updateKeywordTrends');
+      }
+
+      if (sentimentResults.status === 'rejected') {
+        console.error("Error updating sentiment trends:", sentimentResults.reason);
+        errorHandler.handleError(sentimentResults.reason, 'BulkUploadProcessorService.updateSentimentTrends');
+      }
+      
         // Set final status as complete
         updateStatus('complete', 100, validatedResult.text, undefined, transcriptId);
-        
-        // Force a refresh of the local storage transcriptions
-        this.whisperService.forceRefreshTranscriptions();
-        
-        // Dispatch event to notify components
-        this.dispatchEvent('transcript-created', { 
+      
+      // Force a refresh of the local storage transcriptions
+      this.whisperService.forceRefreshTranscriptions();
+      
+      // Dispatch event to notify components
+      this.dispatchEvent('transcript-created', { 
           id: transcriptId,
-          filename: file.name,
-          duration: await databaseService.calculateAudioDuration(file)
-        });
-        
+        filename: file.name,
+        duration: await databaseService.calculateAudioDuration(file)
+      });
+      
         return;
       } catch (dbError) {
         // Improve error tracking for database-specific issues
@@ -453,19 +441,105 @@ export class BulkUploadProcessorService {
       }
     } catch (error) {
       // Enhanced error handling with more detailed logging
-      const errorMessage = error instanceof Error ? error.message : String(error || 'Unknown error');
-      console.error(`Error processing transcript data for ${file.name}:`, {
-        error,
-        errorMessage,
-        fileType: file.type,
-        fileName: file.name
-      });
+      let errorMessage = error instanceof Error ? error.message : String(error || 'Unknown error');
+      
+      // Look for specific metadata column error
+      if (errorMessage.includes('metadata') && errorMessage.includes('column') && errorMessage.includes('does not exist')) {
+        // For metadata column errors, try to save again with explicit handling
+        if (!errorMessage.includes('retry_attempted')) {
+          console.log(`[DEBUG] Detected metadata column error for ${file.name}. Full error message:`, errorMessage);
+          console.log(`[DEBUG] Attempting retry with metadata field excluded.`);
+          
+          try {
+            // Wait a bit to avoid potential race conditions
+            console.log(`[DEBUG] Waiting 1 second before retry`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Clone the result object to avoid modifying the original
+            const retryResult = { ...result };
+            console.log(`[DEBUG] Created retry result object with keys:`, Object.keys(retryResult));
+            
+            // Check the structure of the retryResult object
+            console.log(`[DEBUG] Retry result structure:`, {
+              hasText: !!retryResult.text,
+              textLength: retryResult.text?.length || 0,
+              hasSegments: Array.isArray(retryResult.segments),
+              segmentsCount: Array.isArray(retryResult.segments) ? retryResult.segments.length : 0,
+              hasId: !!retryResult.id,
+              id: retryResult.id
+            });
+            
+            // Make another attempt to save the transcript but mark that we've already attempted a retry
+            // to avoid infinite loops if something else is wrong
+            console.log(`[DEBUG] Calling databaseService.saveTranscriptToDatabase with retry attempt`);
+            const saveResult = await databaseService.saveTranscriptToDatabase(
+              retryResult, 
+              file,
+              this.assignedUserId,
+              this.whisperService.getNumSpeakers()
+            );
+            
+            console.log(`[DEBUG] Save result from retry:`, { 
+              success: !saveResult.error,
+              id: saveResult.id,
+              errorMessage: saveResult.error ? (typeof saveResult.error === 'string' ? saveResult.error : saveResult.error.message) : null
+            });
+            
+            if (!saveResult.error) {
+              // Success on retry!
+              console.log(`[DEBUG] Successfully saved transcript on retry with ID: ${saveResult.id}`);
+              
+              // Set final status as complete
+              updateStatus('complete', 100, result.text, undefined, saveResult.id);
+              console.log(`[DEBUG] Updated status to complete for file ${file.name}`);
+              
+              // Force a refresh of the local storage transcriptions
+              this.whisperService.forceRefreshTranscriptions();
+              console.log(`[DEBUG] Refreshed local transcriptions`);
+              
+              // Dispatch event to notify components
+              this.dispatchEvent('transcript-created', { 
+                id: saveResult.id,
+                filename: file.name,
+                duration: await databaseService.calculateAudioDuration(file)
+              });
+              console.log(`[DEBUG] Dispatched transcript-created event for file ${file.name}`);
+              
+              return;
+            } else {
+              // Still failed, use a more specific error message
+              console.log(`[DEBUG] Retry still failed with error:`, saveResult.error);
+              errorMessage = `Metadata column error: Even after retry, couldn't save transcript due to schema issues. Error: ${saveResult.error}`;
+            }
+          } catch (retryError) {
+            // If the retry also fails, update the error message
+            console.error(`[DEBUG] Exception during retry save for ${file.name}:`, retryError);
+            const errorDetails = retryError instanceof Error 
+              ? { message: retryError.message, stack: retryError.stack }
+              : String(retryError);
+            console.error(`[DEBUG] Error details:`, errorDetails);
+            errorMessage = `Metadata column error: Attempted to retry saving without metadata, but still failed: ${retryError instanceof Error ? retryError.message : String(retryError)}`;
+          }
+        } else {
+          console.log(`[DEBUG] Already attempted a retry for this error, not retrying again`);
+          errorMessage = "Database schema issue: The metadata column doesn't exist. Please go to the Admin page (/admin) to fix this issue, or contact your administrator.";
+        }
+        
+        console.error(`[DEBUG] Metadata column missing error for ${file.name}. Using friendly message: ${errorMessage}`);
+      } else {
+        console.error(`Error processing transcript data for ${file.name}:`, {
+          error,
+          errorMessage,
+          fileType: file.type,
+          fileName: file.name
+        });
+      }
       
       // Update status with error
       updateStatus('error', 0, undefined, errorMessage);
       
       // Rethrow to be handled by caller
-      throw error;
+      throw new Error(errorMessage);
     }
   }
 

@@ -1,5 +1,5 @@
-
 import type { Config } from "tailwindcss";
+import tailwindAnimate from "tailwindcss-animate";
 
 export default {
 	darkMode: ["class"],
@@ -95,8 +95,8 @@ export default {
 					to: { height: '0' }
 				},
 				'pulse-slow': {
-					'0%, 100%': { opacity: 1 },
-					'50%': { opacity: 0.5 }
+					'0%, 100%': { opacity: '1' },
+					'50%': { opacity: '0.5' }
 				},
 				'glow': {
 					'0%, 100%': { boxShadow: '0 0 5px 0 rgba(0, 240, 255, 0.3)' },
@@ -130,5 +130,5 @@ export default {
 			}
 		}
 	},
-	plugins: [require("tailwindcss-animate")],
+	plugins: [tailwindAnimate],
 } satisfies Config;

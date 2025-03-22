@@ -1,4 +1,3 @@
-
 import React, { useContext } from "react";
 import { ThemeContext } from "@/App";
 import { Button } from "@/components/ui/button";
@@ -6,6 +5,7 @@ import { Moon, Sun, Menu } from "lucide-react";
 import UserDropdown from "./UserDropdown";
 import { useIsMobile } from "@/hooks/use-mobile";
 import NotificationCenter from "../NotificationCenter/NotificationCenter";
+import ConnectionStatus from "../ui/ConnectionStatus";
 
 interface TopBarProps {
   setSidebarOpen: (open: boolean) => void;
@@ -23,6 +23,8 @@ const TopBar = ({ setSidebarOpen }: TopBarProps) => {
             <Menu className="h-5 w-5" />
           </Button>
         )}
+        
+        <ConnectionStatus showDetails />
         
         <Button 
           variant="ghost" 

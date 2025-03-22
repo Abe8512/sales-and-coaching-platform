@@ -1,340 +1,295 @@
 import { toast } from 'sonner';
 import { PostgrestError, PostgrestSingleResponse } from '@supabase/supabase-js';
+import { eventHandlerService } from './EventHandlerService';
 
 export type ErrorSeverity = 'info' | 'warning' | 'error' | 'critical';
 
 export interface ErrorDetails {
   message: string;
-  technical?: string;
+  technical?: string | Error | unknown;
   severity?: ErrorSeverity;
   code?: string;
   actionable?: boolean;
   retry?: () => Promise<unknown>;
 }
 
-/**
- * Centralized error handling service that provides consistent error management
- * throughout the application with appropriate user feedback
- */
-class ErrorHandlingService {
-  /**
-   * Records of recent errors to prevent duplicate notifications
-   */
-  private recentErrors: Map<string, number> = new Map();
-  
-  /**
-   * Connection status tracking
-   */
-  private _isOffline: boolean = false;
-  private _connectionListeners: Set<(online: boolean) => void> = new Set();
-  
-  /**
-   * Network latency tracker
-   */
-  private _networkLatency: number = 0;
-  private _latencyChecks: number[] = [];
-  
-  constructor() {
-    // Monitor online/offline status
-    if (typeof window !== 'undefined') {
-      window.addEventListener('online', this.handleOnlineStatus);
-      window.addEventListener('offline', this.handleOnlineStatus);
-      
-      // Initial check
-      this._isOffline = !navigator.onLine;
-      
-      // Listen for Supabase specific connection events
-      window.addEventListener('supabase-connection-restored', () => {
-        this._isOffline = false;
-        this._connectionListeners.forEach(listener => listener(true));
-      });
-      
-      window.addEventListener('supabase-connection-lost', () => {
-        // Only mark as offline after multiple failures to avoid false positives
-        const detail = (event as CustomEvent).detail;
-        if (detail && detail.retryCount >= 2) {
-          this._isOffline = true;
-          this._connectionListeners.forEach(listener => listener(false));
-        }
-      });
-      
-      // Periodically check network latency
-      this.measureNetworkLatency();
-      setInterval(() => this.measureNetworkLatency(), 30000); // Check every 30 seconds
-    }
+// Configuration for error handling
+const ERROR_CONFIG = {
+  // Enable/disable detailed logging in development mode
+  detailedLogging: import.meta.env.DEV || import.meta.env.VITE_ENABLE_LOGGING === 'true',
+  // Toast display duration in milliseconds
+  toastDuration: {
+    info: 3000,
+    warning: 5000,
+    error: 6000,
+    critical: 8000
   }
+};
+
+// Add error tracking to prevent infinite loops
+let errorCount = 0;
+const ERROR_THRESHOLD = 10;
+const ERROR_RESET_INTERVAL = 30000; // 30 seconds
+let errorResetTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// Reset error count after interval
+const resetErrorCount = () => {
+  errorCount = 0;
   
+  // Schedule next reset
+  if (errorResetTimeout) {
+    clearTimeout(errorResetTimeout);
+  }
+  errorResetTimeout = setTimeout(resetErrorCount, ERROR_RESET_INTERVAL);
+};
+
+// Schedule initial reset
+if (typeof window !== 'undefined') {
+  errorResetTimeout = setTimeout(resetErrorCount, ERROR_RESET_INTERVAL);
+}
+
+/**
+ * Centralized error handler for consistent error processing throughout the application
+ */
+export const errorHandler = {
   /**
-   * Measure network latency to help diagnose connection issues
+   * Handle a simple error with logging and optional UI feedback
+   * @deprecated Use handleError instead for more consistent error handling
+   * @param error The error to handle
+   * @param options Options for error handling
    */
-  private measureNetworkLatency = async () => {
-    if (typeof window === 'undefined' || this._isOffline) return;
+  handle: (error: Error | string | unknown, options?: { showToast?: boolean }) => {
+    console.warn('Using deprecated errorHandler.handle() method. Please migrate to errorHandler.handleError()');
     
-    try {
-      // Use a tiny request to measure latency
-      const start = performance.now();
-      
-      // Use a relative URL to avoid CORS issues
-      await fetch('/api/ping', { 
-        method: 'HEAD',
-        cache: 'no-store'
-      }).catch(async () => {
-        // Fallback: if we can't reach our own server, try a simple image request
-        await fetch('/assets/favicon.ico', { 
-          method: 'HEAD',
-          cache: 'no-store'
-        });
-      });
-      
-      const end = performance.now();
-      const latency = Math.round(end - start);
-      
-      // Keep a record of recent latency measurements (last 5)
-      this._latencyChecks.push(latency);
-      if (this._latencyChecks.length > 5) {
-        this._latencyChecks.shift();
-      }
-      
-      // Calculate average latency
-      this._networkLatency = Math.round(
-        this._latencyChecks.reduce((sum, val) => sum + val, 0) / 
-        this._latencyChecks.length
-      );
-      
-      console.log(`Network latency: ${this._networkLatency}ms`);
-      
-      // If latency is extremely high, issue a warning
-      if (this._networkLatency > 2000) {
-        this.handleError({
-          message: 'Slow network connection',
-          technical: `High latency: ${this._networkLatency}ms`,
-          severity: 'warning',
-          code: 'HIGH_LATENCY'
-        });
-      }
-    } catch (error) {
-      console.warn('Failed to measure network latency:', error);
-      // Don't trigger an error for this failure
+    // Log to console
+    console.error('Application error:', error);
+    
+    // Basic message extraction
+    let message: string;
+    if (error instanceof Error) {
+      message = error.message;
+    } else if (typeof error === 'string') {
+      message = error;
+    } else {
+      message = 'An unknown error occurred';
     }
-  };
+    
+    // Show toast if requested
+    if (options?.showToast) {
+      toast.error(message);
+    }
+    
+    // Return formatted error info
+    return {
+      message,
+      originalError: error,
+      timestamp: new Date().toISOString()
+    };
+  },
 
   /**
-   * Handle online/offline status changes
+   * Check if an error is network related
+   * @param error The error to check
    */
-  private handleOnlineStatus = () => {
-    const isOnline = navigator.onLine;
-    const wasOffline = this._isOffline;
-    this._isOffline = !isOnline;
+  isNetworkError: (error: Error | string | unknown): boolean => {
+    if (error instanceof Error) {
+      return error.message.includes('network') || 
+        error.message.includes('connection') ||
+        error.name === 'NetworkError';
+    }
+    if (typeof error === 'string') {
+      return error.includes('network') || error.includes('connection');
+    }
+    return !navigator.onLine;
+  },
+  
+  /**
+   * Enhanced error handler with proper categorization
+   * @param details Error details object
+   * @param context Optional context to identify where the error occurred
+   */
+  handleError: (details: ErrorDetails, context?: string) => {
+    // Prevent infinite loops by tracking error frequency
+    errorCount++;
     
-    // Only notify if status changed
-    if (wasOffline !== this._isOffline) {
-      if (this._isOffline) {
-        toast.error("You're offline", {
-          description: "Connection lost. Some features may be unavailable.",
-          duration: 5000,
+    // If we hit the threshold, throttle errors and return basic info
+    if (errorCount > ERROR_THRESHOLD) {
+      console.warn(`Error threshold exceeded (${errorCount} errors). Throttling error handling.`);
+      
+      // Only log the error but don't process further to break potential loops
+      if (errorCount === ERROR_THRESHOLD + 1) {
+        // Dispatch a specialized event for error flooding
+        eventHandlerService.dispatchEvent('api-error', {
+          source: 'error-handler',
+          data: {
+            message: 'Too many errors, some errors are being throttled',
+            errorCount
+          }
         });
-      } else {
-        toast.success("You're back online", {
-          description: "Connection restored. Syncing data...",
-          duration: 3000,
+        
+        // Show a single toast about the flooding instead of individual error toasts
+        toast.error('Multiple errors detected. Check console for details.', {
+          description: 'Error handling is temporarily throttled',
+          duration: 5000
         });
       }
       
-      // Notify listeners
-      this._connectionListeners.forEach(listener => listener(isOnline));
+      return {
+        id: `throttled-${Date.now().toString(36)}`,
+        severity: 'error',
+        message: 'Error throttled due to high frequency',
+        context,
+        timestamp: new Date().toISOString()
+      };
     }
-  };
+    
+    const severity = details.severity || 'error';
+    const errorId = `${context || 'app'}-${Date.now().toString(36)}`;
+    
+    // Format technical details to handle different types
+    let technicalDetails: string;
+    if (typeof details.technical === 'string') {
+      technicalDetails = details.technical;
+    } else if (details.technical instanceof Error) {
+      const errorObj = details.technical as Error;
+      technicalDetails = `${errorObj.name}: ${errorObj.message}`;
+      if (errorObj.stack && ERROR_CONFIG.detailedLogging) {
+        technicalDetails += `\n${errorObj.stack}`;
+      }
+    } else if (details.technical) {
+      try {
+        technicalDetails = JSON.stringify(details.technical);
+      } catch (e) {
+        technicalDetails = 'Error serializing technical details';
+      }
+    } else {
+      technicalDetails = 'No technical details provided';
+    }
+    
+    // Log to console with context and error ID for easier debugging
+    if (ERROR_CONFIG.detailedLogging) {
+      console.error(`Error [${context || 'app'}] [${errorId}]:`, {
+        ...details,
+        technicalDetails,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.error(`Error [${context || 'app'}] [${errorId}]: ${details.message}`);
+    }
+    
+    // Handle connection-related errors by updating offline status
+    if (technicalDetails.includes('network') || 
+        technicalDetails.includes('connection') ||
+        details.message.includes('offline') ||
+        details.message.includes('connection')) {
+      errorHandler.setOffline(true);
+    }
+    
+    // Dispatch standard event for all errors
+    eventHandlerService.dispatchEvent('api-error', {
+      source: context || 'unknown',
+      data: {
+        message: details.message,
+        errorId,
+        severity,
+        technical: technicalDetails
+      }
+    });
+    
+    // Show toast based on severity with appropriate styling and duration
+    const toastDuration = ERROR_CONFIG.toastDuration[severity];
+    
+    switch (severity) {
+      case 'info':
+        toast.info(details.message, { duration: toastDuration });
+        break;
+      case 'warning':
+        toast.warning(details.message, { duration: toastDuration });
+        break;
+      case 'critical':
+        toast.error(details.message, {
+          description: 'Please contact support if this persists',
+          duration: toastDuration
+        });
+        break;
+      case 'error':
+      default:
+        if (details.actionable && details.retry) {
+          toast.error(details.message, {
+            action: {
+              label: 'Retry',
+              onClick: () => details.retry?.(),
+            },
+            duration: toastDuration
+          });
+        } else {
+          toast.error(details.message, { duration: toastDuration });
+        }
+        break;
+    }
+    
+    // Return error info for possible further processing
+    return {
+      id: errorId,
+      severity,
+      message: details.message,
+      context,
+      timestamp: new Date().toISOString()
+    };
+  },
+
+  // Connection status and listeners
+  _isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
+  _connectionListeners: new Set<(online: boolean) => void>(),
 
   /**
    * Subscribe to connection status changes
+   * @param callback Function to call when connection status changes
+   * @returns Function to unsubscribe
    */
-  public onConnectionChange(callback: (online: boolean) => void): () => void {
-    this._connectionListeners.add(callback);
+  onConnectionChange: (callback: (online: boolean) => void): (() => void) => {
+    errorHandler._connectionListeners.add(callback);
     // Return unsubscribe function
     return () => {
-      this._connectionListeners.delete(callback);
+      errorHandler._connectionListeners.delete(callback);
     };
-  }
+  },
+
+  /**
+   * Set the offline status and notify listeners
+   * @param offline Whether the application is offline
+   */
+  setOffline: (offline: boolean): void => {
+    if (errorHandler._isOffline !== offline) {
+      console.log(`Setting connection status to: ${offline ? 'offline' : 'online'}`);
+      errorHandler._isOffline = offline;
+      
+      // Notify all listeners
+      errorHandler._connectionListeners.forEach(listener => {
+        try {
+          listener(!offline); // Pass online status (inverse of offline)
+        } catch (error) {
+          console.error('Error in connection status listener:', error);
+        }
+      });
+      
+      // Dispatch event for other components to listen for
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(
+          offline ? 'supabase-connection-lost' : 'supabase-connection-restored',
+          { detail: { type: 'connection-status-change' } }
+        ));
+      }
+    }
+  },
 
   /**
    * Get the current offline status
    */
   get isOffline(): boolean {
-    return this._isOffline;
+    return errorHandler._isOffline;
   }
-  
-  /**
-   * Set the offline status and notify listeners
-   * @param offline Whether the application is offline
-   */
-  public setOffline(offline: boolean): void {
-    if (this._isOffline !== offline) {
-      console.log(`Setting connection status to: ${offline ? 'offline' : 'online'}`);
-      this._isOffline = offline;
-      this._connectionListeners.forEach(listener => listener(!offline));
-      
-      // Dispatch event for other components to listen for
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent(
-          offline ? 'supabase-connection-lost' : 'supabase-connection-restored'
-        ));
-      }
-    }
-  }
-  
-  /**
-   * Get current network latency
-   */
-  public get networkLatency(): number {
-    return this._networkLatency;
-  }
-
-  /**
-   * Handle and process errors with appropriate user feedback
-   */
-  public handleError(error: Error | ErrorDetails, context?: string): void {
-    // Normalize error format
-    const errorDetails = this.normalizeError(error, context);
-    const errorKey = `${errorDetails.code || ''}:${errorDetails.message}`;
-    
-    // Prevent duplicate notifications within a short timeframe
-    const now = Date.now();
-    const lastShown = this.recentErrors.get(errorKey) || 0;
-    
-    if (now - lastShown > 5000) { // Show same error once per 5 seconds max
-      this.recentErrors.set(errorKey, now);
-      
-      // Clean up old entries from recentErrors map
-      this.cleanupRecentErrors();
-      
-      // Log technical details to console
-      if (errorDetails.technical) {
-        console.error(`Error [${context}]:`, errorDetails.technical, error);
-      }
-      
-      // Show user-friendly notification based on severity
-      this.showErrorNotification(errorDetails);
-    }
-  }
-  
-  /**
-   * Clean up old error records to prevent memory leaks
-   */
-  private cleanupRecentErrors(): void {
-    const now = Date.now();
-    for (const [key, timestamp] of this.recentErrors.entries()) {
-      if (now - timestamp > 30000) { // Remove entries older than 30 seconds
-        this.recentErrors.delete(key);
-      }
-    }
-  }
-  
-  /**
-   * Convert any error to a standardized ErrorDetails format
-   */
-  private normalizeError(error: Error | ErrorDetails, context?: string): ErrorDetails {
-    // Check if it's an Error instance
-    if (error instanceof Error) {
-      return {
-        message: this.getUserFriendlyMessage(error.message),
-        technical: error.stack || error.message,
-        severity: 'error',
-        code: context ? `${context}:${error.name}` : error.name,
-      };
-    } 
-    // It's already an ErrorDetails object
-    else if ('message' in error && typeof error.message === 'string') {
-      return error as ErrorDetails;
-    } 
-    // Unknown error format
-    else {
-      return {
-        message: 'An unexpected error occurred',
-        technical: JSON.stringify(error),
-        severity: 'error',
-        code: 'UNKNOWN',
-      };
-    }
-  }
-  
-  /**
-   * Convert technical error messages into user-friendly language
-   */
-  private getUserFriendlyMessage(technicalMessage: string): string {
-    // Database connection errors
-    if (technicalMessage.includes('Failed to fetch') || 
-        technicalMessage.includes('NetworkError') ||
-        technicalMessage.includes('Network request failed')) {
-      return 'Unable to connect to the server';
-    }
-    
-    // Database errors
-    if (technicalMessage.includes('invalid input syntax for type uuid')) {
-      return 'Data format error';
-    }
-    
-    // Authentication errors
-    if (technicalMessage.includes('JWT expired')) {
-      return 'Your session has expired. Please sign in again';
-    }
-    
-    // Permission errors
-    if (technicalMessage.includes('Permission denied')) {
-      return 'You don\'t have permission to perform this action';
-    }
-    
-    // Validation errors
-    if (technicalMessage.includes('violates check constraint') || 
-        technicalMessage.includes('validation failed')) {
-      return 'Invalid data format';
-    }
-    
-    // Keep original message if no specific user-friendly version is available
-    return technicalMessage.length > 100 
-      ? technicalMessage.substring(0, 100) + '...' 
-      : technicalMessage;
-  }
-  
-  /**
-   * Display the appropriate notification to the user based on error severity
-   */
-  private showErrorNotification(error: ErrorDetails): void {
-    switch (error.severity) {
-      case 'info':
-        toast.info(error.message);
-        break;
-      case 'warning':
-        toast.warning(error.message);
-        break;
-      case 'critical':
-        toast.error(error.message, {
-          duration: 8000, // Keep critical errors visible longer
-          description: 'Please contact support if this persists',
-        });
-        break;
-      case 'error':
-      default:
-        // Include retry button if the error is actionable and has a retry function
-        if (error.actionable && error.retry) {
-          toast.error(error.message, {
-            duration: 5000,
-            action: {
-              label: 'Retry',
-              onClick: () => error.retry!(),
-            },
-          });
-        } else {
-          toast.error(error.message, {
-            duration: 5000,
-          });
-        }
-        break;
-    }
-  }
-}
-
-// Export singleton instance
-export const errorHandler = new ErrorHandlingService();
+};
 
 /**
  * Utility function to wrap async operations with consistent error handling
@@ -365,17 +320,22 @@ export const withErrorHandling = async <T>(
   }
 };
 
-// Function to handle and log errors
+/**
+ * Helper function to use the consistent error handling format
+ * @deprecated Use errorHandler.handleError directly
+ */
 export function handleError(
   error: unknown, 
   context: string, 
   errorDetails: {
     message: string, 
     technical?: unknown, 
-    severity: 'warning' | 'error' | 'info', 
+    severity: 'warning' | 'error' | 'info' | 'critical', 
     code: string
   }
 ) {
+  console.warn('Using deprecated handleError function. Please migrate to errorHandler.handleError()');
+  
   // Ensure we have a technical details object
   if (!errorDetails.technical) {
     errorDetails.technical = {};
@@ -396,5 +356,11 @@ export function handleError(
     console.error(`Error [${context}]:`, error);
   }
   
-  // Rest of the error handling code follows...
+  // Use the error handler
+  errorHandler.handleError({
+    message: errorDetails.message,
+    technical: JSON.stringify(errorDetails.technical),
+    severity: errorDetails.severity,
+    code: errorDetails.code
+  }, context);
 }

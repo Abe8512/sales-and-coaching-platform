@@ -1,17 +1,9 @@
-
 import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
-
-interface TeamMember {
-  id: number;
-  name: string;
-  performance: number;
-  calls: number;
-  conversion: number;
-}
+import { TeamMember } from '@/services/TeamService';
 
 interface TeamPerformanceComparisonProps {
   teamMembers: TeamMember[];

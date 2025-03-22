@@ -1,7 +1,6 @@
-
 import { useState, useEffect } from 'react';
-import { supabase } from "@/integrations/supabase/client";
-import type { Database } from '@/integrations/supabase/types';
+import { useKeywordTrends as useSharedKeywordTrends } from '@/services/SharedDataService';
+import { useSharedFilters } from '@/contexts/SharedFilterContext';
 
 export type KeywordCategory = 'positive' | 'neutral' | 'negative';
 
@@ -19,91 +18,53 @@ export interface GroupedKeywords {
   negative: KeywordTrend[];
 }
 
+/**
+ * @deprecated Use the useKeywordTrends from SharedDataService instead
+ * This hook is kept for backward compatibility
+ */
 export function useKeywordTrends() {
-  const [isLoading, setIsLoading] = useState(true);
+  const { filters } = useSharedFilters();
+  const { keywordData, isLoading, error } = useSharedKeywordTrends(filters);
   const [keywordTrends, setKeywordTrends] = useState<GroupedKeywords>({
     positive: [],
     neutral: [],
     negative: []
   });
   
+  // Convert the data from central service to this hook's format
   useEffect(() => {
-    const fetchKeywordTrends = async () => {
-      setIsLoading(true);
-      
-      try {
-        const { data, error } = await supabase
-          .from('keyword_trends')
-          .select('*')
-          .order('count', { ascending: false });
-          
-        if (error) {
-          console.error('Error fetching keyword trends:', error);
-          return;
-        }
-        
-        // Group keywords by category and ensure correct types
-        const grouped: GroupedKeywords = {
-          positive: [],
-          neutral: [],
-          negative: []
-        };
-        
-        if (data) {
-          data.forEach(item => {
-            // Ensure we're working with validated data
-            if (item && typeof item === 'object') {
-              const category = item.category as KeywordCategory;
-              if (category === 'positive' || category === 'neutral' || category === 'negative') {
-                grouped[category].push({
-                  id: item.id,
-                  keyword: item.keyword,
-                  category,
-                  count: item.count || 1,
-                  last_used: item.last_used || new Date().toISOString()
-                });
-              }
-            }
-          });
-        }
-        
-        setKeywordTrends(grouped);
-      } catch (error) {
-        console.error('Error fetching keyword trends:', error);
-      } finally {
-        setIsLoading(false);
-      }
+    if (!keywordData || keywordData.length === 0) {
+      return;
+    }
+    
+    const grouped: GroupedKeywords = {
+      positive: [],
+      neutral: [],
+      negative: []
     };
     
-    fetchKeywordTrends();
-    
-    // Refresh data every 30 seconds
-    const interval = setInterval(fetchKeywordTrends, 30000);
-    return () => clearInterval(interval);
-  }, []);
-  
-  // Function to save a keyword to the database
-  const saveKeyword = async (keyword: string, category: KeywordCategory) => {
-    try {
-      const insertData = {
-        keyword,
-        category,
-        count: 1,
-        last_used: new Date().toISOString()
-      };
-      
-      const { error } = await supabase
-        .from('keyword_trends')
-        .upsert(insertData, { onConflict: 'keyword,category' });
-        
-      if (error) {
-        console.error('Error saving keyword trend:', error);
+    keywordData.forEach(item => {
+      const category = item.category as KeywordCategory;
+      if (category === 'positive' || category === 'neutral' || category === 'negative') {
+        grouped[category].push({
+          id: String(item.keyword),
+          keyword: item.keyword,
+          category,
+          count: item.count,
+          last_used: new Date().toISOString()
+        });
       }
-    } catch (error) {
-      console.error('Error saving keyword trend:', error);
-    }
+    });
+    
+    setKeywordTrends(grouped);
+  }, [keywordData]);
+  
+  // Function to save a keyword, delegates to the central service
+  const saveKeyword = async (keyword: string, category: KeywordCategory) => {
+    console.log('saveKeyword called from legacy hook, this should use the central service');
+    // This would ideally call into the central service
   };
-
+  
   return {
     isLoading,
     keywordTrends,

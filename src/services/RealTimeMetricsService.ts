@@ -49,9 +49,9 @@ export const useRealTimeTeamMetrics = (filters?: DataFilters): [TeamMetrics, boo
     };
   }, [metrics]);
   
-  // Add data validation in development mode
+  // Add data validation in all environments, not just development
   useEffect(() => {
-    if (process.env.NODE_ENV !== 'production' && metrics) {
+    if (metrics) {
       // Throttle validation to improve performance
       const throttledValidation = animationUtils.throttle(() => {
         validateMetricConsistency('Performance Score', [metrics.performanceScore]);

@@ -2,16 +2,385 @@ import { toast } from 'sonner';
 import { PostgrestError, PostgrestSingleResponse } from '@supabase/supabase-js';
 import { eventHandlerService } from './EventHandlerService';
 
+/**
+ * ErrorHandlingService - Main implementation for application-wide error handling.
+ * This service is the preferred error handling mechanism for the application.
+ */
+
+/**
+ * Error severity levels
+ */
 export type ErrorSeverity = 'info' | 'warning' | 'error' | 'critical';
 
-export interface ErrorDetails {
+/**
+ * Error category types
+ */
+export enum ErrorCategory {
+  AUTHENTICATION = 'authentication',
+  AUTHORIZATION = 'authorization', 
+  VALIDATION = 'validation',
+  API = 'api',
+  DATABASE = 'database',
+  NETWORK = 'network',
+  INTERNAL = 'internal',
+  RUNTIME = 'runtime',
+  UNKNOWN = 'unknown'
+}
+
+/**
+ * Additional error context
+ */
+export interface ErrorContext {
+  message?: string;
+  category?: ErrorCategory;
+  severity?: ErrorSeverity;
+  source?: string;
+  timestamp?: Date;
+  operationId?: string;
+  userId?: string;
+  silent?: boolean;
+  metadata?: Record<string, any>;
+  [key: string]: any;
+}
+
+/**
+ * Main error handling service class
+ */
+export class ErrorHandlingService extends EventTarget {
+  private static instance: ErrorHandlingService;
+  private errorCount: Record<ErrorCategory, number> = {
+    [ErrorCategory.AUTHENTICATION]: 0,
+    [ErrorCategory.AUTHORIZATION]: 0,
+    [ErrorCategory.VALIDATION]: 0,
+    [ErrorCategory.API]: 0,
+    [ErrorCategory.DATABASE]: 0,
+    [ErrorCategory.NETWORK]: 0,
+    [ErrorCategory.INTERNAL]: 0,
+    [ErrorCategory.RUNTIME]: 0,
+    [ErrorCategory.UNKNOWN]: 0
+  };
+  
+  private constructor() {
+    super();
+    this.setupGlobalHandlers();
+  }
+  
+  /**
+   * Get singleton instance
+   */
+  public static getInstance(): ErrorHandlingService {
+    if (!this.instance) {
+      this.instance = new ErrorHandlingService();
+    }
+    return this.instance;
+  }
+  
+  /**
+   * Main error handling method
+   */
+  public handleError(error: unknown, context: ErrorContext = {}): Error {
+    // Normalize error to Error object
+    const normalizedError = this.normalizeError(error);
+    
+    // Enhance with context
+    const enhancedError = this.enhanceError(normalizedError, context);
+    
+    // Determine the error category
+    const category = context.category || this.determineErrorCategory(enhancedError);
+    
+    // Increment error count
+    this.errorCount[category]++;
+    
+    // Don't log or emit if silent is true
+    if (!context.silent) {
+      // Log the error
+      this.logError(enhancedError, category, context.severity || 'error');
+      
+      // Dispatch error event
+      this.dispatchErrorEvent(enhancedError, category, context);
+      
+      // Track error (could send to analytics service, etc.)
+      this.trackError(enhancedError, category, context);
+    }
+    
+    return enhancedError;
+  }
+  
+  /**
+   * Get error counts by category
+   */
+  public getErrorCounts(): Record<ErrorCategory, number> {
+    return { ...this.errorCount };
+  }
+  
+  /**
+   * Reset error counts
+   */
+  public resetErrorCounts(): void {
+    Object.keys(this.errorCount).forEach(key => {
+      this.errorCount[key as ErrorCategory] = 0;
+    });
+  }
+  
+  /**
+   * Clear any registered error handlers
+   */
+  public clearErrorHandlers(): void {
+    // EventTarget doesn't have a clear method, so this would require additional tracking
+    console.warn('ErrorHandlingService.clearErrorHandlers: Not implemented');
+  }
+  
+  /**
+   * Normalize any error type to an Error object
+   */
+  private normalizeError(error: unknown): Error {
+    if (error instanceof Error) {
+      return error;
+    }
+    
+    if (typeof error === 'string') {
+      return new Error(error);
+    }
+    
+    if (typeof error === 'object' && error !== null) {
+      const message = (error as any).message || 'Unknown error object';
+      const newError = new Error(message);
+      Object.assign(newError, error);
+      return newError;
+    }
+    
+    return new Error(`Unknown error: ${String(error)}`);
+  }
+  
+  /**
+   * Enhance the error with additional context
+   */
+  private enhanceError(error: Error, context: ErrorContext): Error {
+    // Add metadata to the error
+    (error as any).metadata = {
+      ...(error as any).metadata || {},
+      ...context,
+      timestamp: context.timestamp || new Date()
+    };
+    
+    // Override error message if provided
+    if (context.message) {
+      error.message = context.message;
+    }
+    
+    return error;
+  }
+  
+  /**
+   * Determine the category of an error
+   */
+  private determineErrorCategory(error: Error): ErrorCategory {
+    const errorString = error.toString().toLowerCase();
+    const stack = error.stack || '';
+    
+    // Network errors
+    if (
+      errorString.includes('network') ||
+      errorString.includes('connection') ||
+      errorString.includes('offline') ||
+      errorString.includes('timeout')
+    ) {
+      return ErrorCategory.NETWORK;
+    }
+    
+    // Authentication errors
+    if (
+      errorString.includes('auth') ||
+      errorString.includes('login') ||
+      errorString.includes('credentials') ||
+      errorString.includes('token') ||
+      errorString.includes('unauthorized') ||
+      errorString.includes('not logged in')
+    ) {
+      return ErrorCategory.AUTHENTICATION;
+    }
+    
+    // Authorization errors
+    if (
+      errorString.includes('permission') ||
+      errorString.includes('access denied') ||
+      errorString.includes('forbidden') ||
+      errorString.includes('not allowed')
+    ) {
+      return ErrorCategory.AUTHORIZATION;
+    }
+    
+    // Validation errors
+    if (
+      errorString.includes('validation') ||
+      errorString.includes('invalid') ||
+      errorString.includes('required') ||
+      errorString.includes('must be')
+    ) {
+      return ErrorCategory.VALIDATION;
+    }
+    
+    // API errors
+    if (
+      errorString.includes('api') ||
+      errorString.includes('endpoint') ||
+      errorString.includes('response') ||
+      stack.includes('fetch') ||
+      stack.includes('axios')
+    ) {
+      return ErrorCategory.API;
+    }
+    
+    // Database errors
+    if (
+      errorString.includes('database') ||
+      errorString.includes('db') ||
+      errorString.includes('query') ||
+      errorString.includes('sql') ||
+      errorString.includes('record') ||
+      errorString.includes('supabase')
+    ) {
+      return ErrorCategory.DATABASE;
+    }
+    
+    // Runtime errors (rendering, parsing, etc.)
+    if (
+      stack.includes('react') ||
+      stack.includes('render') ||
+      errorString.includes('parsing') ||
+      errorString.includes('undefined is not an object') ||
+      errorString.includes('cannot read property')
+    ) {
+      return ErrorCategory.RUNTIME;
+    }
+    
+    // Internal application errors
+    if (
+      stack.includes('/src/') ||
+      stack.includes('/services/') ||
+      stack.includes('/utils/') ||
+      stack.includes('/helpers/')
+    ) {
+      return ErrorCategory.INTERNAL;
+    }
+    
+    return ErrorCategory.UNKNOWN;
+  }
+  
+  /**
+   * Log error to console
+   */
+  private logError(error: Error, category: ErrorCategory, severity: ErrorSeverity): void {
+    const metadata = (error as any).metadata || {};
+    const timestamp = metadata.timestamp ? metadata.timestamp.toISOString() : new Date().toISOString();
+    
+    // Format the logs based on severity
+    const messagePrefix = `[${timestamp}] [${severity.toUpperCase()}] [${category}]`;
+    
+    switch (severity) {
+      case 'critical':
+        console.error(`${messagePrefix} CRITICAL ERROR:`, error);
+        console.error('Error Details:', metadata);
+        break;
+        
+      case 'error':
+        console.error(`${messagePrefix} ERROR:`, error);
+        console.error('Stack:', error.stack);
+        break;
+        
+      case 'warning':
+        console.warn(`${messagePrefix} WARNING:`, error.message);
+        console.warn('Stack:', error.stack);
+        break;
+        
+      case 'info':
+        console.info(`${messagePrefix} INFO:`, error.message);
+        break;
+        
+      default:
+        console.log(`${messagePrefix}:`, error);
+    }
+  }
+  
+  /**
+   * Dispatch a custom error event
+   */
+  private dispatchErrorEvent(error: Error, category: ErrorCategory, context: ErrorContext): void {
+    const event = new CustomEvent('error', {
+      detail: {
+        error,
+        category,
+        ...context,
+        timestamp: context.timestamp || new Date()
+      },
+      bubbles: false,
+      cancelable: true
+    });
+    
+    this.dispatchEvent(event);
+  }
+  
+  /**
+   * Track error (for analytics, monitoring, etc.)
+   */
+  private trackError(error: Error, category: ErrorCategory, context: ErrorContext): void {
+    // Integration point for error tracking services like Sentry, LogRocket, etc.
+    // This is just a placeholder for now
+    if (process.env.NODE_ENV === 'production' && window.errorTrackingService) {
+      try {
+        (window as any).errorTrackingService.captureException(error, {
+          tags: { category },
+          extra: { ...context }
+        });
+      } catch (trackingError) {
+        console.error('Failed to track error:', trackingError);
+      }
+    }
+  }
+  
+  /**
+   * Set up global error handlers
+   */
+  private setupGlobalHandlers(): void {
+    if (typeof window !== 'undefined') {
+      // Handle unhandled promise rejections
+      window.addEventListener('unhandledrejection', (event) => {
+        this.handleError(event.reason, {
+          message: 'Unhandled Promise Rejection',
+          severity: 'error'
+        });
+      });
+      
+      // Handle global errors
+      window.addEventListener('error', (event) => {
+        this.handleError(event.error || new Error(event.message), {
+          message: 'Uncaught Error',
+          source: event.filename,
+          severity: 'error',
+          metadata: {
+            lineNumber: event.lineno,
+            columnNumber: event.colno
+          }
+        });
+        
+        // Don't prevent default error handling
+        return false;
+      });
+    }
+  }
+}
+
+// Export a singleton instance for convenience
+export const errorHandlingService = ErrorHandlingService.getInstance();
+
+export type ErrorDetails = {
   message: string;
   technical?: string | Error | unknown;
   severity?: ErrorSeverity;
   code?: string;
   actionable?: boolean;
   retry?: () => Promise<unknown>;
-}
+};
 
 // Configuration for error handling
 const ERROR_CONFIG = {

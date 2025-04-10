@@ -1,6 +1,5 @@
 import React, { useContext, useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import DashboardLayout from "@/components/layout/DashboardLayout";
 import { ThemeContext } from "@/App";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -347,231 +346,229 @@ const Transcripts: React.FC = () => {
   }, [analyticsTranscripts]);
   
   return (
-    <DashboardLayout>
-      <div className="container mx-auto p-6 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">Call Transcripts</h1>
-            <p className="text-muted-foreground">
-              Review, analyze and search through your call transcriptions
-            </p>
-          </div>
-          
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              size="icon"
-              onClick={handleRefresh}
-              disabled={transcriptsLoading}
-            >
-              <RefreshCw className={`h-4 w-4 ${transcriptsLoading ? "animate-spin" : ""}`} />
-            </Button>
-            <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
-          </div>
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">Call Transcripts</h1>
+          <p className="text-muted-foreground">
+            Review, analyze and search through your call transcriptions
+          </p>
         </div>
         
-        <BulkUploadModal 
-          isOpen={isBulkUploadOpen} 
-          onClose={() => setIsBulkUploadOpen(false)} 
-        />
-        
-        {activeTranscript ? (
-          <div className="grid grid-cols-1 gap-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle>Transcript Details</CardTitle>
-                  <CardDescription>
-                    {activeTranscript.filename 
-                      ? activeTranscript.filename 
-                      : `Call with ${getSpeakerName(activeTranscript)}`
-                    } • {
-                      activeTranscript.date
-                        ? (() => {
-                            try {
-                              return format(parseISO(activeTranscript.date), 'PPp');
-                            } catch (error) {
-                              console.error('Error formatting date:', error);
-                              return 'Unknown date';
-                            }
-                          })()
-                        : 'Unknown date'
-                    } • {formatDuration(activeTranscript.duration)}
-                  </CardDescription>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => {
-                    setActiveTranscript(null);
-                    setSearchParams({});
-                  }}
-                >
-                  Back to List
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <TranscriptDetail transcript={activeTranscript} />
-              </CardContent>
-            </Card>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-6">
-            <Tabs defaultValue="transcripts">
-              <TabsList>
-                <TabsTrigger value="transcripts">All Transcripts</TabsTrigger>
-                <TabsTrigger value="bulkuploads">Bulk Upload History</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="transcripts">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex flex-col md:flex-row md:justify-between gap-4">
-                      <div className="flex flex-col md:flex-row md:items-center gap-3">
-                        <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
-                          <TabsList>
-                            <TabsTrigger value="all">All</TabsTrigger>
-                            <TabsTrigger value="positive">Positive</TabsTrigger>
-                            <TabsTrigger value="neutral">Neutral</TabsTrigger>
-                            <TabsTrigger value="negative">Negative</TabsTrigger>
-                          </TabsList>
-                        </Tabs>
-                        
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            type="search"
-                            placeholder="Search transcripts..."
-                            className="pl-8 w-full md:w-[250px]"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                          />
-                        </div>
-                      </div>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="icon"
+            onClick={handleRefresh}
+            disabled={transcriptsLoading}
+          >
+            <RefreshCw className={`h-4 w-4 ${transcriptsLoading ? "animate-spin" : ""}`} />
+          </Button>
+          <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
+        </div>
+      </div>
+      
+      <BulkUploadModal 
+        isOpen={isBulkUploadOpen} 
+        onClose={() => setIsBulkUploadOpen(false)} 
+      />
+      
+      {activeTranscript ? (
+        <div className="grid grid-cols-1 gap-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <div>
+                <CardTitle>Transcript Details</CardTitle>
+                <CardDescription>
+                  {activeTranscript.filename 
+                    ? activeTranscript.filename 
+                    : `Call with ${getSpeakerName(activeTranscript)}`
+                  } • {
+                    activeTranscript.date
+                      ? (() => {
+                          try {
+                            return format(parseISO(activeTranscript.date), 'PPp');
+                          } catch (error) {
+                            console.error('Error formatting date:', error);
+                            return 'Unknown date';
+                          }
+                        })()
+                      : 'Unknown date'
+                  } • {formatDuration(activeTranscript.duration)}
+                </CardDescription>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  setActiveTranscript(null);
+                  setSearchParams({});
+                }}
+              >
+                Back to List
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <TranscriptDetail transcript={activeTranscript} />
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6">
+          <Tabs defaultValue="transcripts">
+            <TabsList>
+              <TabsTrigger value="transcripts">All Transcripts</TabsTrigger>
+              <TabsTrigger value="bulkuploads">Bulk Upload History</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="transcripts">
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex flex-col md:flex-row md:justify-between gap-4">
+                    <div className="flex flex-col md:flex-row md:items-center gap-3">
+                      <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
+                        <TabsList>
+                          <TabsTrigger value="all">All</TabsTrigger>
+                          <TabsTrigger value="positive">Positive</TabsTrigger>
+                          <TabsTrigger value="neutral">Neutral</TabsTrigger>
+                          <TabsTrigger value="negative">Negative</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
                       
-                      <div className="flex items-center gap-2">
-                        <Tabs defaultValue="local" value={activeSource} onValueChange={(value) => setActiveSource(value as 'db' | 'local')}>
-                          <TabsList>
-                            <TabsTrigger value="local">
-                              <Phone className="h-4 w-4 mr-2" />
-                              Local Storage
-                            </TabsTrigger>
-                            <TabsTrigger value="database">
-                              <Database className="h-4 w-4 mr-2" />
-                              Database
-                            </TabsTrigger>
-                          </TabsList>
-                        </Tabs>
-                        
-                        <Button variant="outline" size="sm">
-                          <Filter className="h-4 w-4 mr-2" />
-                          Filters
-                        </Button>
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          type="search"
+                          placeholder="Search transcripts..."
+                          className="pl-8 w-full md:w-[250px]"
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                        />
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    {filteredTranscripts.length > 0 ? (
-                      <div className="space-y-2">
-                        {filteredTranscripts.map((transcript) => (
-                          <div 
-                            key={transcript.id}
-                            className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent cursor-pointer"
-                            onClick={() => handleTranscriptClick(transcript)}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className={`w-10 h-10 rounded-full ${
-                                transcript.sentiment === 'positive' ? 'bg-neon-green/20' : 
-                                transcript.sentiment === 'negative' ? 'bg-neon-red/20' : 'bg-neon-blue/20'
-                              } flex items-center justify-center`}>
-                                <Phone className={`h-5 w-5 ${
-                                  transcript.sentiment === 'positive' ? 'text-neon-green' : 
-                                  transcript.sentiment === 'negative' ? 'text-neon-red' : 'text-neon-blue'
-                                }`} />
+                    
+                    <div className="flex items-center gap-2">
+                      <Tabs defaultValue="local" value={activeSource} onValueChange={(value) => setActiveSource(value as 'db' | 'local')}>
+                        <TabsList>
+                          <TabsTrigger value="local">
+                            <Phone className="h-4 w-4 mr-2" />
+                            Local Storage
+                          </TabsTrigger>
+                          <TabsTrigger value="database">
+                            <Database className="h-4 w-4 mr-2" />
+                            Database
+                          </TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                      
+                      <Button variant="outline" size="sm">
+                        <Filter className="h-4 w-4 mr-2" />
+                        Filters
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {filteredTranscripts.length > 0 ? (
+                    <div className="space-y-2">
+                      {filteredTranscripts.map((transcript) => (
+                        <div 
+                          key={transcript.id}
+                          className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent cursor-pointer"
+                          onClick={() => handleTranscriptClick(transcript)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-full ${
+                              transcript.sentiment === 'positive' ? 'bg-neon-green/20' : 
+                              transcript.sentiment === 'negative' ? 'bg-neon-red/20' : 'bg-neon-blue/20'
+                            } flex items-center justify-center`}>
+                              <Phone className={`h-5 w-5 ${
+                                transcript.sentiment === 'positive' ? 'text-neon-green' : 
+                                transcript.sentiment === 'negative' ? 'text-neon-red' : 'text-neon-blue'
+                              }`} />
+                            </div>
+                            <div>
+                              <div className="font-medium">
+                                {activeSource === 'local' 
+                                  ? getSpeakerName(transcript)
+                                  : transcript.filename || 'Untitled Recording'
+                                }
                               </div>
-                              <div>
-                                <div className="font-medium">
-                                  {activeSource === 'local' 
-                                    ? getSpeakerName(transcript)
-                                    : transcript.filename || 'Untitled Recording'
+                              <div className="text-sm text-muted-foreground flex items-center gap-2">
+                                <Calendar className="h-3 w-3" />
+                                {(() => {
+                                  try {
+                                    const dateStr = activeSource === 'local' ? transcript.date : transcript.created_at;
+                                    return format(parseISO(dateStr), 'PPp');
+                                  } catch (error) {
+                                    console.error('Error formatting date in list:', error);
+                                    return 'Unknown date';
                                   }
-                                </div>
-                                <div className="text-sm text-muted-foreground flex items-center gap-2">
-                                  <Calendar className="h-3 w-3" />
-                                  {(() => {
-                                    try {
-                                      const dateStr = activeSource === 'local' ? transcript.date : transcript.created_at;
-                                      return format(parseISO(dateStr), 'PPp');
-                                    } catch (error) {
-                                      console.error('Error formatting date in list:', error);
-                                      return 'Unknown date';
-                                    }
-                                  })()}
-                                  <span>•</span>
-                                  <Clock className="h-3 w-3" />
-                                  {formatDuration(transcript.duration)}
-                                </div>
+                                })()}
+                                <span>•</span>
+                                <Clock className="h-3 w-3" />
+                                {formatDuration(transcript.duration)}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <AIWaveform 
+                                barCount={5} 
+                                color={
+                                  transcript.sentiment === 'positive' ? "green" : 
+                                  transcript.sentiment === 'negative' ? "pink" : "blue"
+                                } 
+                                className="h-6" 
+                              />
+                              <div className="text-sm">
+                                Score: <span className={`font-medium ${
+                                  (activeSource === 'local' ? transcript.callScore : transcript.call_score || 0) >= 80 ? 'text-neon-green' : 
+                                  (activeSource === 'local' ? transcript.callScore : transcript.call_score || 0) >= 60 ? 'text-neon-blue' : 'text-neon-red'
+                                }`}>
+                                  {activeSource === 'local' ? transcript.callScore : transcript.call_score || 50}
+                                </span>
                               </div>
                             </div>
                             
-                            <div className="flex items-center gap-4">
-                              <div className="flex items-center gap-2">
-                                <AIWaveform 
-                                  barCount={5} 
-                                  color={
-                                    transcript.sentiment === 'positive' ? "green" : 
-                                    transcript.sentiment === 'negative' ? "pink" : "blue"
-                                  } 
-                                  className="h-6" 
-                                />
-                                <div className="text-sm">
-                                  Score: <span className={`font-medium ${
-                                    (activeSource === 'local' ? transcript.callScore : transcript.call_score || 0) >= 80 ? 'text-neon-green' : 
-                                    (activeSource === 'local' ? transcript.callScore : transcript.call_score || 0) >= 60 ? 'text-neon-blue' : 'text-neon-red'
-                                  }`}>
-                                    {activeSource === 'local' ? transcript.callScore : transcript.call_score || 50}
-                                  </span>
-                                </div>
-                              </div>
-                              
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="text-neon-blue hover:text-neon-blue/80 hover:bg-neon-blue/10"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleTranscriptClick(transcript);
-                                }}
-                              >
-                                <FileCheck className="h-4 w-4 mr-1" />
-                                View
-                              </Button>
-                            </div>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-neon-blue hover:text-neon-blue/80 hover:bg-neon-blue/10"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTranscriptClick(transcript);
+                              }}
+                            >
+                              <FileCheck className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-10">
-                        <FileCheck className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-30" />
-                        <h3 className="text-lg font-medium mb-2">No transcripts found</h3>
-                        <p className="text-muted-foreground mb-4">
-                          {searchTerm ? "No results match your search criteria." : "Upload audio files to see transcripts here."}
-                        </p>
-                        <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              <TabsContent value="bulkuploads">
-                <BulkUploadHistory />
-              </TabsContent>
-            </Tabs>
-          </div>
-        )}
-      </div>
-    </DashboardLayout>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-10">
+                      <FileCheck className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-30" />
+                      <h3 className="text-lg font-medium mb-2">No transcripts found</h3>
+                      <p className="text-muted-foreground mb-4">
+                        {searchTerm ? "No results match your search criteria." : "Upload audio files to see transcripts here."}
+                      </p>
+                      <BulkUploadButton onClick={() => setIsBulkUploadOpen(true)} />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="bulkuploads">
+              <BulkUploadHistory />
+            </TabsContent>
+          </Tabs>
+        </div>
+      )}
+    </div>
   );
 };
 

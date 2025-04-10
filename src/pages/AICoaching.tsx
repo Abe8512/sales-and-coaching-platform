@@ -1,6 +1,4 @@
-
 import React from "react";
-import DashboardLayout from "../components/layout/DashboardLayout";
 import { useContext } from "react";
 import { ThemeContext } from "@/App";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +12,7 @@ const AICoaching = () => {
   const { isDarkMode } = useContext(ThemeContext);
 
   return (
-    <DashboardLayout>
+    <>
       <div className="mb-8">
         <div className="flex items-center gap-2">
           <h1 className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mb-1`}>
@@ -159,7 +157,7 @@ const AICoaching = () => {
           </Card>
         </TabsContent>
       </Tabs>
-    </DashboardLayout>
+    </>
   );
 };
 

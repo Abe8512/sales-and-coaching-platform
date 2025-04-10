@@ -1,17 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useContext } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
 import 'react-circular-progressbar/dist/styles.css';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { ThemeContext } from "@/App";
-import { useContext } from 'react';
-import { useCallTranscripts, CallTranscript } from '@/services/CallTranscriptService';
-import { useSharedFilters } from '@/contexts/SharedFilterContext';
-import ContentLoader from '@/components/ui/ContentLoader';
-import KeywordTrendsChart from '../CallAnalysis/KeywordTrendsChart';
+import { useAnalyticsTranscripts } from '@/services/AnalyticsHubService';
+import { Transcript } from '@/services/repositories/TranscriptsRepository';
 import { SentimentTrendsChart } from '../CallAnalysis/SentimentTrendsChart';
 import { ArrowUpRight, TrendingUp, Zap, BarChart3 } from 'lucide-react';
+import ContentLoader from '../../components/ui/ContentLoader';
+import KeywordTrendsChart from '../CallAnalysis/KeywordTrendsChart';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface CallAnalysisSectionProps {
   isLoading?: boolean;
@@ -23,272 +23,118 @@ interface DayValue {
 }
 
 // Extended CallTranscript interface to include potential analytics metrics
-interface ExtendedCallTranscript extends CallTranscript {
+interface ExtendedCallTranscript extends Transcript {
   // These properties might not exist on the base CallTranscript
   engagementScore?: number;
   sentimentScore?: number;
   keywordScore?: number;
 }
 
-const CallAnalysisSection: React.FC<CallAnalysisSectionProps> = ({ isLoading = false }) => {
+// Helper function for aggregating volume
+const aggregateVolumeByDate = (transcripts: Transcript[] | null): { name: string; calls: number }[] => {
+  if (!transcripts) return [];
+  const volumeMap: { [key: string]: number } = {};
+  transcripts.forEach(t => {
+    const date = t.created_at.split('T')[0];
+    volumeMap[date] = (volumeMap[date] || 0) + 1;
+  });
+  return Object.entries(volumeMap).map(([date, calls]) => ({ name: date, calls })).sort((a, b) => a.name.localeCompare(b.name));
+};
+
+// Implement CallVolumeChart directly here
+const CallVolumeChart = ({ transcripts }: { transcripts: Transcript[] | null }) => {
+  const data = aggregateVolumeByDate(transcripts);
+  if (!data || data.length === 0) return <div className="h-[300px] w-full flex items-center justify-center bg-muted rounded"><p className="text-muted-foreground">Volume Data Unavailable</p></div>;
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="name" />
+        <YAxis allowDecimals={false} />
+        <Tooltip />
+        <Bar dataKey="calls" fill="#8884d8" />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+};
+
+// Placeholder component for Keyword display
+const KeywordDisplayComponent = ({ transcripts }: { transcripts: Transcript[] | null }) => {
+   const getTopKeywords = (transcripts: Transcript[] | null): { keyword: string; count: number }[] => {
+       if (!transcripts) return [];
+       const keywordMap: { [key: string]: number } = {};
+       transcripts.forEach(t => {
+           (t.keywords ?? []).forEach(kw => {
+               keywordMap[kw] = (keywordMap[kw] || 0) + 1;
+           });
+       });
+       return Object.entries(keywordMap)
+              .map(([keyword, count]) => ({ keyword, count }))
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 10);
+   };
+   const topKeywords = getTopKeywords(transcripts);
+   if (!topKeywords || topKeywords.length === 0) return <p className="text-sm text-muted-foreground">No keywords data available.</p>;
+   return (
+       <div className="flex flex-wrap gap-2">
+           {topKeywords.map(kw => (
+               <span key={kw.keyword} className="px-2 py-1 bg-muted text-muted-foreground rounded text-xs">
+                   {kw.keyword} ({kw.count})
+               </span>
+           ))}
+       </div>
+   );
+};
+
+const CallAnalysisSection = () => {
   const { isDarkMode } = useContext(ThemeContext);
-  const { filters } = useSharedFilters();
-  const [activeTab, setActiveTab] = useState('engagement');
-  const [analysisData, setAnalysisData] = useState({
-    engagement: {
-      score: 78,
-      change: 5,
-      data: Array.from({ length: 14 }, (_, i) => ({
-        day: i + 1,
-        value: 65 + Math.floor(Math.random() * 25)
-      }))
-    },
-    sentiment: {
-      score: 82,
-      change: 3,
-      data: Array.from({ length: 14 }, (_, i) => ({
-        day: i + 1,
-        value: 70 + Math.floor(Math.random() * 20)
-      }))
-    },
-    keywords: {
-      score: 65,
-      change: -2,
-      data: Array.from({ length: 14 }, (_, i) => ({
-        day: i + 1,
-        value: 55 + Math.floor(Math.random() * 30)
-      }))
-    }
-  });
+  const { transcripts, isLoading, error } = useAnalyticsTranscripts();
 
-  const { transcripts } = useCallTranscripts({
-    startDate: filters.dateRange?.from,
-    endDate: filters.dateRange?.to
-  });
-
-  // Calculate real engagement, sentiment, and keyword scores when transcripts are loaded
-  useEffect(() => {
-    if (transcripts && transcripts.length > 0) {
-      // Process real data to calculate scores
-      // This is a simplified example - adjust according to your actual data structure
-      const calculateScores = () => {
-        const latestTranscripts = transcripts.slice(0, 10) as ExtendedCallTranscript[]; // Focus on most recent calls
-        
-        // Calculate engagement score (based on call duration, speaker ratio, etc)
-        const engagementScore = Math.min(
-          95,
-          Math.round(
-            latestTranscripts.reduce((acc, t) => {
-              // Use call_score or default value
-              const score = t.call_score || 60;
-              return acc + score;
-            }, 0) / latestTranscripts.length
-          )
-        );
-        
-        // Calculate sentiment score (based on sentiment analysis)
-        const sentimentScore = Math.min(
-          95,
-          Math.round(
-            latestTranscripts.reduce((acc, t) => {
-              // Calculate sentiment score based on sentiment value
-              let score = 70; // default
-              if (t.sentiment === 'positive') score = 85;
-              else if (t.sentiment === 'negative') score = 40;
-              else if (t.sentiment === 'neutral') score = 60;
-              return acc + score;
-            }, 0) / latestTranscripts.length
-          )
-        );
-        
-        // Calculate keyword score (based on matched keywords)
-        const keywordScore = Math.min(
-          95,
-          Math.round(
-            latestTranscripts.reduce((acc, t) => {
-              // Calculate score based on number of keywords
-              const score = t.keywords && t.keywords.length > 0 
-                ? Math.min(95, 50 + t.keywords.length * 5) 
-                : 65;
-              return acc + score;
-            }, 0) / latestTranscripts.length
-          )
-        );
-        
-        // Generate realistic looking trend data
-        const generateTrendData = (baseScore: number) => {
-          return Array.from({ length: 14 }, (_, i) => ({
-            day: i + 1,
-            value: Math.max(50, Math.min(98, baseScore - 10 + Math.floor(Math.random() * 20)))
-          }));
-        };
-        
-        setAnalysisData({
-          engagement: {
-            score: engagementScore,
-            change: Math.round(Math.random() * 10) - 3, // Random change between -3 and +7
-            data: generateTrendData(engagementScore)
-          },
-          sentiment: {
-            score: sentimentScore,
-            change: Math.round(Math.random() * 8) - 2, // Random change between -2 and +6
-            data: generateTrendData(sentimentScore)
-          },
-          keywords: {
-            score: keywordScore,
-            change: Math.round(Math.random() * 6) - 3, // Random change between -3 and +3
-            data: generateTrendData(keywordScore)
-          }
-        });
-      };
-      
-      calculateScores();
-    }
-  }, [transcripts]);
-
-  const getScoreColor = (score: number) => {
-    if (score < 60) return '#ef4444'; // red
-    if (score < 75) return '#f59e0b'; // amber
-    return '#10b981'; // green
-  };
-
-  const getChangeColor = (change: number) => {
-    if (change < 0) return 'text-red-500';
-    if (change === 0) return 'text-gray-500';
-    return 'text-green-500';
-  };
-
-  const renderAnalysisCard = (title: string, score: number, change: number, data: DayValue[], icon: React.ReactNode) => {
-    const scoreColor = getScoreColor(score);
-    const changeColorClass = getChangeColor(change);
-    
+  if (error) {
     return (
-      <Card className={`overflow-hidden ${isDarkMode ? 'bg-dark-card border-dark-border' : 'bg-white'} h-full`}>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg font-medium flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {icon}
-              {title}
-            </div>
-            <div className={`flex items-center text-sm ${changeColorClass}`}>
-              {change > 0 ? '+' : ''}{change}%
-              {change !== 0 && <ArrowUpRight className={`h-3.5 w-3.5 ml-1 ${change < 0 ? 'transform rotate-180' : ''}`} />}
-            </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="grid grid-cols-3 gap-4 items-center">
-            <div className="col-span-1">
-              <div className="w-24 h-24 mx-auto">
-                <CircularProgressbar
-                  value={score}
-                  text={`${score}%`}
-                  styles={buildStyles({
-                    rotation: 0.25,
-                    strokeLinecap: 'round',
-                    textSize: '1.25rem',
-                    pathTransitionDuration: 0.5,
-                    pathColor: scoreColor,
-                    textColor: isDarkMode ? '#fff' : '#334155',
-                    trailColor: isDarkMode ? '#2d3748' : '#f1f5f9',
-                  })}
-                />
-              </div>
-            </div>
-            <div className="col-span-2 h-24">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#e2e8f0'} />
-                  <XAxis 
-                    dataKey="day"
-                    stroke={isDarkMode ? '#94a3b8' : '#64748b'}
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 10 }}
-                  />
-                  <YAxis 
-                    stroke={isDarkMode ? '#94a3b8' : '#64748b'}
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 10 }}
-                    domain={[50, 100]} 
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: isDarkMode ? '#1e293b' : '#fff',
-                      border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
-                      borderRadius: '4px',
-                      color: isDarkMode ? '#fff' : '#000',
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    stroke={scoreColor}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </CardContent>
+      <Card>
+        <CardHeader><CardTitle>Call Analysis</CardTitle></CardHeader>
+        <CardContent><p className="text-red-500">Error loading analysis data: {error.message}</p></CardContent>
       </Card>
     );
-  };
+  }
 
   return (
-    <div className="mb-6">
-      <h2 className={`text-xl font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-800'} flex items-center`}>
-        <BarChart3 className="mr-2 h-5 w-5 text-neon-purple" />
-        Trend Analysis
-      </h2>
-      
-          <ContentLoader 
-            isLoading={isLoading} 
-        height={400}
-            skeletonCount={1}
-            preserveHeight={true}
-          >
-        <Tabs defaultValue="engagement" className="w-full" onValueChange={setActiveTab}>
-          <TabsList className="mb-4 flex overflow-x-auto bg-background/90 dark:bg-dark-purple/90 backdrop-blur-sm p-1 rounded-lg">
-            <TabsTrigger value="engagement" className="flex items-center gap-1">
-              <Zap className="h-3.5 w-3.5" />
-              Engagement
-            </TabsTrigger>
-            <TabsTrigger value="sentiment" className="flex items-center gap-1">
-              <TrendingUp className="h-3.5 w-3.5" />
-              Sentiment
-            </TabsTrigger>
-            <TabsTrigger value="keywords" className="flex items-center gap-1">
-              <BarChart3 className="h-3.5 w-3.5" />
-              Keywords
-            </TabsTrigger>
-            <TabsTrigger value="allcharts">All Charts</TabsTrigger>
+    <Card>
+      <CardHeader>
+        <CardTitle>Call Analysis</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="volume">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="volume"><BarChart3 className="h-4 w-4 mr-1" />Call Volume</TabsTrigger>
+            <TabsTrigger value="sentiment"><TrendingUp className="h-4 w-4 mr-1" />Sentiment Trend</TabsTrigger>
+            <TabsTrigger value="keywords"><Zap className="h-4 w-4 mr-1" />Top Keywords</TabsTrigger>
           </TabsList>
-          
-          <TabsContent value="engagement">
-            {renderAnalysisCard('Engagement Score', analysisData.engagement.score, analysisData.engagement.change, analysisData.engagement.data, <Zap className="h-4 w-4 text-neon-blue" />)}
+          <TabsContent value="volume" className="mt-4">
+            {isLoading ? (
+              <Skeleton className="h-[300px] w-full" />
+            ) : (
+              <CallVolumeChart transcripts={transcripts} />
+            )}
           </TabsContent>
-          
-          <TabsContent value="sentiment">
-            {renderAnalysisCard('Sentiment Score', analysisData.sentiment.score, analysisData.sentiment.change, analysisData.sentiment.data, <TrendingUp className="h-4 w-4 text-neon-green" />)}
+          <TabsContent value="sentiment" className="mt-4">
+             {isLoading ? (
+              <Skeleton className="h-[300px] w-full" />
+            ) : (
+              <SentimentTrendsChart /> 
+            )}
           </TabsContent>
-          
-          <TabsContent value="keywords">
-            {renderAnalysisCard('Keyword Score', analysisData.keywords.score, analysisData.keywords.change, analysisData.keywords.data, <BarChart3 className="h-4 w-4 text-neon-purple" />)}
-          </TabsContent>
-          
-          <TabsContent value="allcharts">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <KeywordTrendsChart />
-              <SentimentTrendsChart />
-            </div>
+          <TabsContent value="keywords" className="mt-4">
+            {isLoading ? (
+              <Skeleton className="h-[100px] w-full" />
+            ) : (
+               <KeywordDisplayComponent transcripts={transcripts} /> 
+            )}
           </TabsContent>
         </Tabs>
-          </ContentLoader>
-        </div>
+      </CardContent>
+    </Card>
   );
 };
 

@@ -6,6 +6,8 @@ import type { Database } from '@/integrations/supabase/types';
 import { databaseLogger as logger } from './LoggingService';
 import { errorHandler } from './ErrorHandlingService';
 import { userService } from './UserService';
+import { reportError, ErrorCategory } from './ErrorBridgeService';
+import { analyticsRepository } from "./repositories/AnalyticsRepository";
 
 export class DatabaseService {
   // Store metadata column check state with TTL
@@ -55,291 +57,68 @@ export class DatabaseService {
         return { id: '', error: 'Content-Type not acceptable: text/plain' };
       }
       
-      // Process the transcription into segments by speaker
       const transcriptSegments = numSpeakers > 1 
         ? transcriptAnalysisService.splitBySpeaker(result.text, result.segments, numSpeakers)
-        : undefined;
+        : result.segments; // Keep original segments if only one speaker
       
-      // Calculate duration if possible
-      const duration = await this.calculateAudioDuration(file);
+      const duration = result.duration || await this.calculateAudioDuration(file);
       
-      // Extract all sales metrics using the enhanced analysis service
-      const metrics = transcriptAnalysisService.calculateCallMetrics(
-        result.text, 
-        result.segments || [], 
-        duration || 0
-      );
-      
-      // Generate sentiment and keywords (now also included in metrics)
-      const sentiment = metrics.sentiment;
-      const keywords = transcriptAnalysisService.extractKeywords(result.text);
-      const callScore = transcriptAnalysisService.generateCallScore(result.text, sentiment);
-      
-      // If no assigned userId, try to get current user from auth
-      // If neither is available, use 'anonymous-{randomId}' to ensure uniqueness
-      let finalUserId = userId;
+      let finalUserId = userId ? userService.normalizeUserId(userId) : null;
       if (!finalUserId) {
-        // Use the centralized user service instead of handling it directly
-        const user = await userService.getCurrentUser();
-        finalUserId = user.id;
-      } else {
-        // Normalize userId to ensure it's valid
-        finalUserId = userService.normalizeUserId(userId);
+          const currentUser = await userService.getCurrentUser();
+          finalUserId = currentUser?.id || generateAnonymousUserId(); 
       }
-      
       logger.info(`Using user_id: ${finalUserId}`);
       
-      // Create timestamp for consistent usage
       const timestamp = new Date().toISOString();
       
-      // Log detailed information about the file and data being saved
-      logger.debug('Preparing to save transcript with data', {
-        fileInfo: {
-          name: fileName,
-          type: fileType,
-          size: file.size
-        },
-        textLength: result.text.length,
-        transcriptId,
-        userId: finalUserId,
-        metrics: {
-          duration: metrics.duration,
-          talkRatio: metrics.talkRatio,
-          speakingSpeed: metrics.speakingSpeed,
-          fillerWords: metrics.fillerWords.count,
-          objections: metrics.objections.count
-        }
-      });
-      
-      // Prepare data with proper typing
+      // Prepare data with ONLY the fields available directly from transcription
+      // Analysis fields (sentiment, keywords, scores, etc.) will be populated later by Edge Function/Trigger
       const transcriptData: Database['public']['Tables']['call_transcripts']['Insert'] = {
-        id: transcriptId, // Explicitly set ID to ensure consistency
+        id: transcriptId,
         user_id: finalUserId,
-        filename: fileName,
+        filename: file.name,
         text: result.text,
-        duration: metrics.duration,
-        call_score: callScore,
-        sentiment,
-        keywords,
-        transcript_segments: transcriptSegments ? JSON.stringify(transcriptSegments) : null,
-        created_at: timestamp
+        duration: duration ?? null,
+        language: result.language, // Keep language if Whisper provides it
+        transcript_segments: transcriptSegments ? transcriptSegments : null, // Store raw segments if available
+        created_at: timestamp,
+        // Initialize analysis fields as NULL 
+        sentiment: null,
+        sentiment_score: null,
+        keywords: null,
+        call_score: null,
+        talk_ratio_agent: null,
+        talk_ratio_customer: null,
+        metadata: null 
       };
       
-      // Add the metadata field if the column exists
-      if (metrics) {
-        logger.debug('Starting metadata check process');
-        
-        // Check if we need to verify column existence
-        const now = Date.now();
-        const shouldCheckColumn = 
-          this.metadataColumnInfo.exists === null || // Never checked before
-          (now - this.metadataColumnInfo.lastChecked > this.metadataColumnInfo.checkInterval); // TTL expired
-        
-        if (shouldCheckColumn) {
-          try {
-            logger.debug('Checking if metadata column exists');
-            // Check if metadata column exists
-            const { data: columns, error: columnsError } = await supabase
-              .from('call_transcripts')
-              .select('metadata')
-              .limit(1)
-              .maybeSingle();
+      // Remove undefined keys just in case
+      Object.keys(transcriptData).forEach(key => transcriptData[key] === undefined && delete transcriptData[key]);
 
-            logger.debug('Metadata column check query results', { columns, errorMessage: columnsError?.message });
-
-            // If no error or different error, assume column exists
-            this.metadataColumnInfo.exists = !(columnsError && columnsError.message.includes('column "metadata" does not exist'));
-            this.metadataColumnInfo.lastChecked = now;
-            
-            logger.debug(`Metadata column check result: ${this.metadataColumnInfo.exists ? 'exists' : 'does not exist'}`);
-          } catch (err) {
-            // On error checking, assume column doesn't exist, but don't cache this result for too long
-            logger.error('Error checking metadata column', err);
-            this.metadataColumnInfo.exists = false;
-            this.metadataColumnInfo.lastChecked = now;
-            this.metadataColumnInfo.checkInterval = 60000; // Retry sooner (1 minute) if there was an error
-          }
-        } else {
-          logger.debug(`Using cached metadata column check result: ${this.metadataColumnInfo.exists ? 'exists' : 'does not exist'} (last checked ${Math.round((now - this.metadataColumnInfo.lastChecked) / 1000)} seconds ago)`);
-        }
+      // Insert base transcript data into database
+      logger.debug(`Attempting to insert base transcript data for ID: ${transcriptId}`);
+      const { data, error } = await supabase
+        .from('call_transcripts')
+        .insert(transcriptData)
+        .select('id') // Select only ID, as other fields might be updated by trigger/function
+        .single();
         
-        // Only add metadata if column exists
-        if (this.metadataColumnInfo.exists) {
-          transcriptData.metadata = JSON.stringify(metrics);
-          logger.debug('Added metadata to transcript');
-        } else {
-          logger.debug('Skipping metadata field as column does not exist');
-          
-          // If the metadata property exists in the transcriptData object but the column doesn't exist in the database,
-          // we need to explicitly delete it to prevent the error
-          if ('metadata' in transcriptData) {
-            delete transcriptData.metadata;
-            logger.debug('Removed metadata field from transcriptData to prevent database error');
-          }
-        }
-        
-        logger.debug(`Final transcript data structure (keys only): ${Object.keys(transcriptData).join(', ')}`);
+      if (error) {
+        logger.error('Error inserting base transcript into database', error);
+        return { id: transcriptId, error };
       }
       
-      // Insert into database with improved error handling
-      try {
-        logger.info(`Executing Supabase insert for transcript ID: ${transcriptId}`);
-        
-        // Add retry logic for database inserts
-        let retryCount = 0;
-        const maxRetries = 2;
-        let data = null;
-        let error = null;
-        
-        while (retryCount <= maxRetries) {
-          try {
-            // Add a unique timestamp as a query param to avoid duplicate request detection
-            const uniqueTimestamp = Date.now();
-            const { data: responseData, error: responseError } = await supabase
-              .from('call_transcripts')
-              .insert(transcriptData)
-              .select('id')
-              .single();
-              
-            data = responseData;
-            error = responseError;
-            
-            // If successful or non-duplicate error, break the retry loop
-            if (!error || (error && !error.message?.includes('Duplicate request cancelled'))) {
-              break;
-            }
-            
-            // If we got a duplicate request error, wait and try again
-            logger.warn(`Retry ${retryCount + 1}/${maxRetries} due to duplicate request error`);
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            retryCount++;
-          } catch (innerError) {
-            // If it's a connection error or other exception, break and report
-            logger.error('Exception during database insert', innerError);
-            error = innerError;
-            break;
-          }
-        }
-        
-        if (error) {
-          logger.error('Error inserting transcript into database', error);
-          
-          // Format error message more helpfully
-          let errorMessage = '';
-          if (typeof error === 'object' && error !== null) {
-            errorMessage = error.message || error.toString();
-            // Handle specific error types more gracefully
-            if (errorMessage.includes('Duplicate request cancelled')) {
-              return { 
-                id: transcriptId, 
-                error: 'Request conflict: Please try again in a moment' 
-              };
-            }
-            
-            // Check for metadata column errors and try to recover
-            if (errorMessage.includes('metadata') && errorMessage.includes('column') && 
-                (errorMessage.includes('does not exist') || errorMessage.includes('schema cache'))) {
-              logger.debug(`Detected metadata column error during insert with error message: ${errorMessage}`);
-              logger.debug(`Original transcript data keys: ${Object.keys(transcriptData)}`);
-              
-              // Remove the metadata field from transcriptData
-              if ('metadata' in transcriptData) {
-                logger.debug('Found metadata field in transcript data, removing it for retry');
-                delete transcriptData.metadata;
-                logger.debug(`Transcript data keys after removal: ${Object.keys(transcriptData)}`);
-                
-                // Try insert again without the metadata field
-                try {
-                  logger.debug('Attempting retry insert without metadata field');
-                  const { data: retryData, error: retryError } = await supabase
-                    .from('call_transcripts')
-                    .insert(transcriptData)
-                    .select('id')
-                    .single();
-                  
-                  logger.debug('Retry insert results', { 
-                    success: !retryError, 
-                    dataReceived: !!retryData,
-                    errorMessage: retryError?.message
-                  });
-                    
-                  if (!retryError) {
-                    logger.info(`Successfully saved transcript after removing metadata field, ID: ${retryData?.id}`);
-                    
-                    // Also update the metadata column existence cache
-                    this.metadataColumnInfo.exists = false;
-                    this.metadataColumnInfo.lastChecked = Date.now();
-                    
-                    return { id: retryData?.id || transcriptId, error: null };
-                  } else {
-                    logger.error('Failed retry even after removing metadata field', retryError);
-                    return { 
-                      id: transcriptId, 
-                      error: `Failed to save transcript even after removing metadata: ${retryError.message}` 
-                    };
-                  }
-                } catch (retryException) {
-                  logger.error('Exception during metadata-less retry', retryException);
-                  return { 
-                    id: transcriptId, 
-                    error: `Exception during metadata-less retry: ${retryException instanceof Error ? retryException.message : String(retryException)}` 
-                  };
-                }
-              } else {
-                logger.warn('Metadata field not found in transcript data object, cannot remove');
-              }
-            }
-          }
-          
-          // Check for content-type issues in error message
-          if (error.message && 
-             (error.message.includes('Content-Type') || 
-              error.message.includes('content-type'))) {
-            return { 
-              id: transcriptId, 
-              error: 'Content-Type not acceptable: The file was transcribed but database rejected it.' 
-            };
-          }
-          
-          return { id: transcriptId, error };
-        }
-        
-        logger.info('Successfully inserted transcript', { id: data?.id || transcriptId });
-        
-        // Also update the calls table with enhanced metrics data
-        const callData: Database['public']['Tables']['calls']['Insert'] = {
-          id: transcriptId, // Use same ID to link records
-          user_id: finalUserId,
-          duration: metrics.duration,
-          sentiment_agent: sentiment === 'positive' ? 0.8 : sentiment === 'negative' ? 0.3 : 0.5,
-          sentiment_customer: sentiment === 'positive' ? 0.7 : sentiment === 'negative' ? 0.2 : 0.5,
-          talk_ratio_agent: metrics.talkRatio.agent,
-          talk_ratio_customer: metrics.talkRatio.customer,
-          key_phrases: keywords || [],
-          speaking_speed: metrics.speakingSpeed.overall,
-          filler_word_count: metrics.fillerWords.count,
-          objection_count: metrics.objections.count,
-          customer_engagement: metrics.customerEngagement,
-          created_at: timestamp // Use the same timestamp for consistency
-        };
-        
-        await this.updateCallsTable(callData);
-        
-        return { id: data?.id || transcriptId, error: null };
-      } catch (dbError) {
-        logger.error('Database exception during transcript insert', dbError);
-        return { id: transcriptId, error: dbError };
-      }
+      logger.info('Successfully inserted base transcript', { id: data?.id || transcriptId });
+      
+      // IMPORTANT: Trigger analysis function here IF using direct invocation (Option 2)
+      // Example: await supabase.functions.invoke('analyze-transcript', { body: { record: { id: transcriptId, text: result.text } } })
+      
+      return { id: data?.id || transcriptId, error: null };
+      
     } catch (error) {
-      logger.error('Error saving transcript', error);
-      
-      errorHandler.handleError({
-        message: 'Failed to save transcript to database',
-        technical: error,
-        severity: 'error',
-        code: 'DB_SAVE_TRANSCRIPT_ERROR'
-      }, 'DatabaseService');
-      
+      logger.error('Error in saveTranscriptToDatabase', error);
+      errorHandler.handleError({ message: 'Failed to save transcript', technical: error, severity: 'error'}, 'DatabaseService');
       return { id: '', error };
     }
   }

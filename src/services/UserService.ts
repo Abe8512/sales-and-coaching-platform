@@ -1,6 +1,15 @@
-import { supabase } from "@/integrations/supabase/client";
+import { getSupabaseClient } from "@/integrations/supabase/customClient";
+import { reportError, ErrorCategory } from './ErrorBridgeService';
 import { v4 as uuidv4 } from 'uuid';
 import { userLogger as logger } from './LoggingService';
+
+/**
+ * Standardized response type for service methods
+ */
+export interface ServiceResponse<T> {
+  data: T | null;
+  error: Error | null;
+}
 
 /**
  * User type with consistent structure across the application
@@ -22,27 +31,43 @@ export const userService = {
    * Get the current user with consistent format
    * Tries authenticated user first, then falls back to anonymous user
    */
-  getCurrentUser: async (): Promise<User> => {
+  getCurrentUser: async (): Promise<ServiceResponse<User>> => {
+    const supabase = getSupabaseClient(); // Get client instance
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        logger.debug('Retrieved authenticated user', { userId: user.id });
-        return {
-          id: user.id,
-          isAnonymous: false,
-          email: user.email,
-          createdAt: user.created_at,
-          name: user.user_metadata?.name,
-          metadata: user.user_metadata
-        };
-      }
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        if (authError) {
+            // Handle potential Supabase auth errors specifically
+            throw authError;
+        }
+
+        if (user) {
+          logger.debug('Retrieved authenticated user', { userId: user.id });
+          const userData: User = {
+            id: user.id,
+            isAnonymous: false,
+            email: user.email,
+            createdAt: user.created_at,
+            name: user.user_metadata?.name,
+            metadata: user.user_metadata
+          };
+          return { data: userData, error: null };
+        }
+        
+        // Fall back to anonymous user if no authenticated user
+        const anonymousUser = userService.createAnonymousUser();
+        return { data: anonymousUser, error: null };
     } catch (error) {
-      logger.error('Error getting authenticated user', error);
+        reportError(error, ErrorCategory.AUTHENTICATION, {
+            action: 'UserService.getCurrentUser',
+            message: 'Failed to get current user, falling back to anonymous'
+        });
+        // Fallback: Return anonymous user even on error
+        return { 
+            data: userService.createAnonymousUser(), 
+            error: error instanceof Error ? error : new Error('Failed to retrieve user')
+        };
     }
-    
-    // Fall back to anonymous user
-    return userService.createAnonymousUser();
   },
   
   /**
@@ -79,13 +104,25 @@ export const userService = {
    * If the provided ID is invalid, create a new anonymous one
    */
   normalizeUserId: (userId: string | null | undefined): string => {
-    if (userService.isValidUserId(userId)) {
-      return userId as string;
+    try {
+      if (userService.isValidUserId(userId)) {
+        return userId as string;
+      }
+      
+      // Create a new anonymous ID if invalid
+      logger.warn('Invalid user ID format, creating anonymous ID', { originalId: userId });
+      return userService.createAnonymousUser().id;
+    } catch (error) {
+      // Report the error using the new service
+      reportError(error, ErrorCategory.VALIDATION, { // Use VALIDATION category
+          action: 'UserService.normalizeUserId',
+          originalId: userId,
+          message: 'Error normalizing user ID'
+      });
+      
+      // Always return a valid ID
+      return userService.createAnonymousUser().id;
     }
-    
-    // Create a new anonymous ID if invalid
-    logger.warn('Invalid user ID format, creating anonymous ID', { originalId: userId });
-    return userService.createAnonymousUser().id;
   },
   
   /**

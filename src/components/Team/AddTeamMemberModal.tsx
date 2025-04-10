@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { 
   Dialog, 
@@ -26,7 +25,7 @@ interface AddTeamMemberModalProps {
 const AddTeamMemberModal = ({ isOpen, onClose, onAddMember }: AddTeamMemberModalProps) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('Sales Rep');
+  const [role, setRole] = useState('rep');
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +42,7 @@ const AddTeamMemberModal = ({ isOpen, onClose, onAddMember }: AddTeamMemberModal
     // Reset form
     setName('');
     setEmail('');
-    setRole('Sales Rep');
+    setRole('rep');
     
     onClose();
   };
@@ -92,17 +91,15 @@ const AddTeamMemberModal = ({ isOpen, onClose, onAddMember }: AddTeamMemberModal
                 Role
               </Label>
               <Select 
-                value={role} 
+                value={role}
                 onValueChange={setRole}
               >
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Junior Sales Rep">Junior Sales Rep</SelectItem>
-                  <SelectItem value="Sales Rep">Sales Rep</SelectItem>
-                  <SelectItem value="Senior Sales Rep">Senior Sales Rep</SelectItem>
-                  <SelectItem value="Sales Manager">Sales Manager</SelectItem>
+                  <SelectItem value="rep">Sales Rep</SelectItem>
+                  <SelectItem value="manager">Sales Manager</SelectItem>
                 </SelectContent>
               </Select>
             </div>

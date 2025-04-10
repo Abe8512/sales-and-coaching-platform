@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { CallTranscript, CallTranscriptFilter } from './CallTranscriptService';
+import { Transcript, TranscriptFilter } from './repositories/TranscriptsRepository';
 import { EventType } from './events/types';
 import { toast } from 'sonner';
 import { errorHandler } from './ErrorHandlingService';
+import { useAuth } from '@/contexts/AuthContext';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 // Reconnection configuration
 const RECONNECT_BASE_DELAY = 1000; // Start with 1 second
@@ -14,12 +16,12 @@ const RECONNECT_RESET_TIMEOUT = 60000; // Reset attempt counter after 60 seconds
 // Setup real-time subscriptions for transcript changes with improved error handling and reconnection
 export const useTranscriptRealtimeSubscriptions = (
   isConnected: boolean,
-  fetchTranscripts: (filters?: CallTranscriptFilter) => Promise<void>,
+  fetchTranscripts: (filters?: TranscriptFilter) => Promise<void>,
   dispatchEvent: (type: EventType, data?: any) => void
 ) => {
   // Keep track of subscription attempts and state
   const reconnectAttemptsRef = useRef(0);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const resetAttemptsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSubscribeTimeRef = useRef<number>(0);
@@ -125,7 +127,7 @@ export const useTranscriptRealtimeSubscriptions = (
               typeof payload.new === 'object' && 
               'id' in payload.new) {
             
-            const newTranscript = payload.new as CallTranscript;
+            const newTranscript = payload.new as Transcript;
             console.log('New transcript:', newTranscript);
             
             // Show notification to user
@@ -171,7 +173,7 @@ export const useTranscriptRealtimeSubscriptions = (
               typeof payload.new === 'object' && 
               'id' in payload.new) {
             
-            const updatedTranscript = payload.new as CallTranscript;
+            const updatedTranscript = payload.new as Transcript;
             console.log('Updated transcript:', updatedTranscript);
             
             // Dispatch event for updated transcript

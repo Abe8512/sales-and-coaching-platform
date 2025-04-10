@@ -1,0 +1,940 @@
+{
+  "supabaseAudit": {
+    "version": "1.0.0",
+    "timestamp": "2024-03-21",
+    "clientConfiguration": {
+      "url": "https://yfufpcxkerovnijhodrr.supabase.co",
+      "config": {
+        "auth": {
+          "autoRefreshToken": true,
+          "persistSession": true
+        },
+        "global": {
+          "features": [
+            "Custom fetch implementation",
+            "Request caching",
+            "Race condition prevention",
+            "Offline queue support",
+            "Connection monitoring"
+          ]
+        }
+      },
+      "caching": {
+        "namespaces": ["supabase"],
+        "ttl": {
+          "frequentlyAccessedTables": 2000,
+          "standardTables": 5000
+        }
+      }
+    },
+    "databaseSchema": {
+      "tables": {
+        "call_transcripts": {
+          "columns": [
+            {"name": "call_score", "type": "number", "nullable": true},
+            {"name": "created_at", "type": "string", "nullable": true},
+            {"name": "duration", "type": "number", "nullable": true},
+            {"name": "filename", "type": "string", "nullable": true},
+            {"name": "id", "type": "string", "nullable": false},
+            {"name": "keywords", "type": "string[]", "nullable": true},
+            {"name": "sentiment", "type": "string", "nullable": true},
+            {"name": "text", "type": "string", "nullable": false},
+            {"name": "transcript_segments", "type": "Json", "nullable": true},
+            {"name": "user_id", "type": "string", "nullable": true}
+          ],
+          "relationships": [],
+          "indexes": [
+            {"name": "idx_call_transcripts_created_at", "columns": ["created_at"]},
+            {"name": "idx_call_transcripts_user_id", "columns": ["user_id"]},
+            {"name": "idx_call_transcripts_sentiment", "columns": ["sentiment"]}
+          ]
+        },
+        "calls": {
+          "columns": [
+            {"name": "created_at", "type": "string", "nullable": true},
+            {"name": "duration", "type": "number", "nullable": false},
+            {"name": "id", "type": "string", "nullable": false},
+            {"name": "key_phrases", "type": "string[]", "nullable": true},
+            {"name": "sentiment_agent", "type": "number", "nullable": false},
+            {"name": "sentiment_customer", "type": "number", "nullable": false},
+            {"name": "talk_ratio_agent", "type": "number", "nullable": false},
+            {"name": "talk_ratio_customer", "type": "number", "nullable": false},
+            {"name": "user_id", "type": "string", "nullable": true},
+            {"name": "speaking_speed", "type": "number", "nullable": true},
+            {"name": "filler_word_count", "type": "number", "nullable": true},
+            {"name": "objection_count", "type": "number", "nullable": true},
+            {"name": "customer_engagement", "type": "number", "nullable": true}
+          ],
+          "relationships": []
+        },
+        "keyword_trends": {
+          "columns": [
+            {"name": "category", "type": "string", "nullable": false},
+            {"name": "count", "type": "number", "nullable": true},
+            {"name": "id", "type": "string", "nullable": false},
+            {"name": "keyword", "type": "string", "nullable": false},
+            {"name": "last_used", "type": "string", "nullable": true}
+          ],
+          "relationships": []
+        },
+        "sentiment_trends": {
+          "columns": [
+            {"name": "confidence", "type": "number", "nullable": false},
+            {"name": "id", "type": "string", "nullable": false},
+            {"name": "recorded_at", "type": "string", "nullable": true},
+            {"name": "sentiment_label", "type": "string", "nullable": false},
+            {"name": "user_id", "type": "string", "nullable": true}
+          ],
+          "relationships": []
+        },
+        "call_metrics_summary": {
+          "columns": [
+            {"name": "id", "type": "text", "nullable": false, "primary_key": true},
+            {"name": "total_calls", "type": "integer", "nullable": true},
+            {"name": "avg_sentiment", "type": "float", "nullable": true},
+            {"name": "agent_talk_ratio", "type": "float", "nullable": true},
+            {"name": "customer_talk_ratio", "type": "float", "nullable": true},
+            {"name": "top_keywords", "type": "text[]", "nullable": true},
+            {"name": "performance_score", "type": "float", "nullable": true},
+            {"name": "conversion_rate", "type": "float", "nullable": true},
+            {"name": "avg_call_duration", "type": "float", "nullable": true},
+            {"name": "successful_calls", "type": "integer", "nullable": true},
+            {"name": "unsuccessful_calls", "type": "integer", "nullable": true},
+            {"name": "time_period", "type": "text", "nullable": true},
+            {"name": "updated_at", "type": "timestamp with time zone", "nullable": true, "default": "now()"}
+          ]
+        },
+        "rep_metrics_summary": {
+          "columns": [
+            {"name": "rep_id", "type": "text", "nullable": false},
+            {"name": "rep_name", "type": "text", "nullable": true},
+            {"name": "call_volume", "type": "integer", "nullable": true},
+            {"name": "success_rate", "type": "float", "nullable": true},
+            {"name": "sentiment_score", "type": "float", "nullable": true},
+            {"name": "top_keywords", "type": "text[]", "nullable": true},
+            {"name": "insights", "type": "text[]", "nullable": true},
+            {"name": "time_period", "type": "text", "nullable": false},
+            {"name": "updated_at", "type": "timestamp with time zone", "nullable": true, "default": "now()"}
+          ],
+          "primary_key": ["rep_id", "time_period"]
+        }
+      },
+      "views": {
+        "analytics_unified_data": {
+          "type": "view",
+          "description": "Unified view combining call transcripts with user and team data",
+          "base_tables": ["call_transcripts", "users", "teams"]
+        },
+        "analytics_metrics_summary": {
+          "type": "view",
+          "description": "Aggregated metrics by date, user, and team",
+          "base_tables": ["analytics_unified_data"]
+        },
+        "team_performance_view": {
+          "type": "view",
+          "description": "Team-level performance metrics",
+          "base_tables": ["analytics_unified_data"]
+        },
+        "rep_performance_view": {
+          "type": "view",
+          "description": "Individual rep performance metrics",
+          "base_tables": ["analytics_unified_data"]
+        },
+        "call_activity_view": {
+          "type": "view",
+          "description": "Recent call activity with detailed metrics",
+          "base_tables": ["analytics_unified_data"]
+        },
+        "dashboard_metrics": {
+          "type": "materialized_view",
+          "description": "Pre-calculated dashboard metrics for performance",
+          "base_tables": ["analytics_unified_data"],
+          "refresh": "manual",
+          "indexes": [
+            {"name": "idx_dashboard_metrics_date", "columns": ["date"], "unique": true}
+          ]
+        }
+      },
+      "functions": {
+        "get_keyword_analytics": {
+          "type": "function",
+          "language": "plpgsql",
+          "description": "Get keyword analytics with optional date range and rep filters",
+          "parameters": [
+            {"name": "start_date", "type": "timestamp with time zone", "optional": true},
+            {"name": "end_date", "type": "timestamp with time zone", "optional": true},
+            {"name": "rep_ids", "type": "text[]", "optional": true}
+          ],
+          "returns": "TABLE(keyword text, count integer, category text)"
+        },
+        "get_sentiment_trends": {
+          "type": "function",
+          "language": "plpgsql",
+          "description": "Get sentiment trends over time with optional filters",
+          "parameters": [
+            {"name": "start_date", "type": "timestamp with time zone", "optional": true},
+            {"name": "end_date", "type": "timestamp with time zone", "optional": true},
+            {"name": "rep_ids", "type": "text[]", "optional": true}
+          ],
+          "returns": "TABLE(date text, sentiment text, count integer)"
+        },
+        "sync_metrics_data": {
+          "type": "function",
+          "language": "plpgsql",
+          "description": "Synchronize metrics data across different time periods",
+          "parameters": [],
+          "returns": "void",
+          "triggers": [
+            {
+              "name": "auto_sync_metrics",
+              "event": "AFTER INSERT OR UPDATE",
+              "table": "call_transcripts",
+              "timing": "FOR EACH STATEMENT"
+            }
+          ]
+        },
+        "get_trending_keywords": {
+          "type": "function",
+          "language": "plpgsql",
+          "description": "Get trending keywords with change detection",
+          "parameters": [
+            {"name": "lookback_days", "type": "integer", "optional": true}
+          ],
+          "returns": "TABLE(keyword text, trend_score float, change_percentage float)"
+        },
+        "detect_call_anomalies": {
+          "type": "function",
+          "language": "plpgsql",
+          "description": "Detect anomalies in call patterns",
+          "parameters": [
+            {"name": "threshold", "type": "float", "optional": true}
+          ],
+          "returns": "TABLE(anomaly_type text, severity float, details jsonb)"
+        },
+        "upsert_call_metrics_summary": {
+          "type": "function",
+          "language": "plpgsql",
+          "description": "Upsert call metrics summary data",
+          "parameters": [
+            {"name": "metrics_data", "type": "jsonb"}
+          ],
+          "returns": "void"
+        },
+        "batch_upsert_rep_metrics": {
+          "type": "function",
+          "language": "plpgsql",
+          "description": "Batch upsert rep metrics data",
+          "parameters": [
+            {"name": "metrics_array", "type": "jsonb[]"}
+          ],
+          "returns": "void"
+        }
+      }
+    },
+    "hooks": {
+      "useAnalyticsTeamMetrics": {
+        "file": "src/services/AnalyticsHubService.ts",
+        "dependencies": ["useState", "useEffect", "useCallback"],
+        "features": [
+          "Automatic data fetching",
+          "Real-time updates subscription",
+          "Error handling",
+          "Loading state management",
+          "Manual refresh capability"
+        ],
+        "caching": "Uses AnalyticsHubService cache"
+      },
+      "useAnalyticsRepMetrics": {
+        "file": "src/services/AnalyticsHubService.ts",
+        "dependencies": ["useState", "useEffect", "useCallback"],
+        "features": [
+          "Automatic data fetching",
+          "Real-time updates subscription",
+          "Error handling",
+          "Loading state management",
+          "Manual refresh capability"
+        ],
+        "caching": "Uses AnalyticsHubService cache"
+      },
+      "useAnalyticsKeywordData": {
+        "file": "src/services/AnalyticsHubService.ts",
+        "dependencies": ["useState", "useEffect", "useCallback"],
+        "features": [
+          "Automatic data fetching",
+          "Real-time updates subscription",
+          "Error handling",
+          "Loading state management",
+          "Manual refresh capability"
+        ],
+        "caching": "Uses AnalyticsHubService cache"
+      },
+      "useAnalyticsSentimentData": {
+        "file": "src/services/AnalyticsHubService.ts",
+        "dependencies": ["useState", "useEffect", "useCallback"],
+        "features": [
+          "Automatic data fetching",
+          "Real-time updates subscription",
+          "Error handling",
+          "Loading state management",
+          "Manual refresh capability"
+        ],
+        "caching": "Uses AnalyticsHubService cache"
+      },
+      "useAnalyticsTranscripts": {
+        "file": "src/services/AnalyticsHubService.ts",
+        "dependencies": ["useState", "useEffect", "useCallback"],
+        "features": [
+          "Automatic data fetching",
+          "Real-time updates subscription",
+          "Error handling",
+          "Loading state management",
+          "Manual refresh capability"
+        ],
+        "caching": "Uses AnalyticsHubService cache"
+      },
+      "useKeywordTrends": {
+        "file": "src/hooks/useKeywordTrends.ts",
+        "dependencies": ["useState", "useEffect", "useSharedFilters"],
+        "description": "Legacy hook for keyword trends that delegates to SharedDataService",
+        "deprecated": true,
+        "features": [
+          "Data transformation",
+          "Filtering",
+          "Data grouping"
+        ]
+      },
+      "useRealTimeTeamMetrics": {
+        "file": "src/services/RealTimeMetricsService.ts",
+        "dependencies": ["useState", "useEffect", "supabase"],
+        "features": [
+          "Real-time subscription to team metrics",
+          "Automatic data refresh",
+          "Error handling"
+        ]
+      },
+      "useCallTranscripts": {
+        "file": "src/services/CallTranscriptService.ts",
+        "dependencies": ["useState", "useEffect", "supabase"],
+        "features": [
+          "Transcript fetching",
+          "Filtering by date and user",
+          "Error handling"
+        ]
+      }
+    },
+    "services": {
+      "AnalyticsHubService": {
+        "file": "src/services/AnalyticsHubService.ts",
+        "type": "singleton",
+        "features": [
+          "Centralized data management",
+          "Caching with TTL",
+          "Real-time subscriptions",
+          "Error handling",
+          "Offline support",
+          "Connection monitoring"
+        ],
+        "methods": {
+          "getTeamMetrics": {
+            "table": "call_metrics_summary",
+            "caching": true,
+            "realtime": true
+          },
+          "getRepMetrics": {
+            "table": "rep_metrics_summary",
+            "caching": true,
+            "realtime": true
+          },
+          "getKeywordData": {
+            "rpc": "get_keyword_analytics",
+            "caching": true
+          },
+          "getSentimentData": {
+            "rpc": "get_sentiment_trends",
+            "caching": true
+          },
+          "getTranscripts": {
+            "table": "call_transcripts",
+            "caching": true,
+            "realtime": true
+          }
+        }
+      },
+      "WhisperService": {
+        "file": "src/services/WhisperService.ts",
+        "features": [
+          "Audio transcription",
+          "Sentiment analysis",
+          "Data persistence",
+          "Real-time updates"
+        ],
+        "tables": ["call_transcripts", "calls"]
+      },
+      "DatabaseService": {
+        "file": "src/services/DatabaseService.ts",
+        "features": [
+          "Data persistence",
+          "Schema management",
+          "Data synchronization"
+        ],
+        "tables": [
+          "call_transcripts",
+          "calls",
+          "keyword_trends",
+          "sentiment_trends"
+        ]
+      }
+    },
+    "components": {
+      "Dashboard": {
+        "PerformanceMetrics": {
+          "file": "src/components/Dashboard/PerformanceMetrics.tsx",
+          "hooks": [
+            "useRealTimeTeamMetrics",
+            "useSentimentTrends",
+            "useSharedFilters"
+          ],
+          "description": "Displays team performance metrics with real-time updates",
+          "dataAccess": "Indirect via hooks",
+          "dependencies": [
+            "recharts",
+            "SharedFilterContext"
+          ]
+        },
+        "SalesMetricsDisplay": {
+          "file": "src/components/Dashboard/SalesMetricsDisplay.tsx",
+          "hooks": [
+            "useCallTranscripts",
+            "useSharedFilters"
+          ],
+          "description": "Displays detailed sales metrics and call statistics",
+          "dataAccess": "Indirect via hooks",
+          "dependencies": [
+            "recharts",
+            "SharedFilterContext",
+            "ThemeContext"
+          ]
+        },
+        "CallAnalysisSection": {
+          "file": "src/components/Dashboard/CallAnalysisSection.tsx",
+          "description": "Provides detailed call analysis with transcript insights",
+          "dataAccess": "Indirect via hooks"
+        },
+        "AIInsights": {
+          "file": "src/components/Dashboard/AIInsights.tsx",
+          "description": "AI-powered insights from call data",
+          "dataAccess": "Indirect via hooks"
+        },
+        "CallsOverview": {
+          "file": "src/components/Dashboard/CallsOverview.tsx",
+          "description": "Overview of recent calls and activities",
+          "dataAccess": "Indirect via hooks"
+        }
+      },
+      "CallAnalysis": {
+        "SentimentTrendsChart": {
+          "file": "src/components/CallAnalysis/SentimentTrendsChart.tsx",
+          "description": "Visualizes sentiment trends across calls",
+          "dataAccess": "Indirect via hooks"
+        },
+        "KeywordInsights": {
+          "file": "src/components/CallAnalysis/KeywordInsights.tsx",
+          "description": "Shows insights based on detected keywords in calls",
+          "dataAccess": "Indirect via hooks"
+        },
+        "DateRangeFilter": {
+          "file": "src/components/CallAnalysis/DateRangeFilter.tsx",
+          "description": "Handles date range filtering for all analytics components",
+          "dataAccess": "None, updates SharedFilterContext"
+        }
+      },
+      "Team": {
+        "TeamFilter": {
+          "file": "src/components/Performance/TeamFilter.tsx",
+          "description": "Allows filtering by team or individual rep",
+          "dataAccess": "Indirect via hooks"
+        }
+      }
+    },
+    "pages": {
+      "Analytics": {
+        "file": "src/pages/Analytics.tsx",
+        "description": "Main analytics dashboard page with multiple metrics displays",
+        "hooks": [
+          "useAnalyticsTeamMetrics",
+          "useAnalyticsRepMetrics",
+          "useAnalyticsKeywordData",
+          "useAnalyticsSentimentData",
+          "useSharedFilters"
+        ],
+        "components": [
+          "PerformanceMetrics",
+          "SalesMetricsDisplay",
+          "SentimentTrendsChart",
+          "KeywordInsights",
+          "DateRangeFilter",
+          "TeamFilter"
+        ],
+        "dataAccess": "Indirect via hooks from AnalyticsHubService"
+      },
+      "Performance": {
+        "file": "src/pages/Performance.tsx",
+        "description": "Performance metrics focused on individual reps and teams",
+        "dataAccess": "Indirect via hooks"
+      },
+      "CallActivity": {
+        "file": "src/pages/CallActivity.tsx",
+        "description": "Detailed analysis of call activities and metrics",
+        "dataAccess": "Indirect via hooks"
+      },
+      "Transcripts": {
+        "file": "src/pages/Transcripts.tsx",
+        "description": "Browse and search call transcripts",
+        "dataAccess": "Indirect via hooks"
+      },
+      "Team": {
+        "file": "src/pages/Team.tsx",
+        "description": "Team management and performance tracking",
+        "dataAccess": "Indirect via hooks"
+      }
+    },
+    "contexts": {
+      "SharedFilterContext": {
+        "file": "src/contexts/SharedFilterContext.tsx",
+        "description": "Provides global filtering state for all analytics components",
+        "state": [
+          "dateRange",
+          "repIds",
+          "callTypes",
+          "productLines"
+        ],
+        "methods": [
+          "updateDateRange",
+          "updateRepIds",
+          "updateCallTypes",
+          "updateProductLines",
+          "clearAllFilters"
+        ],
+        "consumers": [
+          "All analytics components",
+          "All dashboard pages",
+          "Filter UI components"
+        ]
+      },
+      "AuthContext": {
+        "file": "src/contexts/AuthContext.tsx",
+        "description": "Handles user authentication and authorization",
+        "supabaseUsage": [
+          "User authentication",
+          "User management",
+          "Team member management"
+        ],
+        "state": [
+          "user",
+          "isLoading",
+          "teamMembers"
+        ],
+        "methods": [
+          "login",
+          "signup",
+          "logout",
+          "getManagedUsers",
+          "addTeamMember",
+          "removeTeamMember",
+          "refreshTeamMembers"
+        ]
+      },
+      "ThemeContext": {
+        "file": "src/contexts/ThemeContext.tsx",
+        "description": "Manages UI theme (dark/light mode)",
+        "supabaseUsage": "None"
+      }
+    },
+    "stateManagement": {
+      "useCallMetricsStore": {
+        "file": "src/store/useCallMetricsStore.ts",
+        "type": "zustand",
+        "description": "Global state for call metrics and recording management",
+        "supabaseUsage": [
+          "Direct table inserts to 'calls' table",
+          "Saves call data with analytics information"
+        ],
+        "state": {
+          "call": [
+            "startTime",
+            "endTime",
+            "duration",
+            "callDuration",
+            "agentTalkTime",
+            "customerTalkTime",
+            "agentInterruptions",
+            "customerInterruptions",
+            "keyPhrases",
+            "sentiment",
+            "sentimentTrend",
+            "transcript",
+            "recordingUrl",
+            "recordingId",
+            "isRecording",
+            "isCallEnded",
+            "callScore",
+            "outcome",
+            "summary",
+            "nextSteps",
+            "feedback",
+            "date",
+            "talkRatio",
+            "isTalkingMap",
+            "coachingAlerts",
+            "keywordsByCategory"
+          ],
+          "meta": [
+            "callHistory",
+            "isLoading",
+            "error"
+          ]
+        },
+        "methods": [
+          "updateKeyPhrases",
+          "dismissAlert",
+          "classifyKeywords",
+          "startRecording",
+          "stopRecording",
+          "resetCallState",
+          "updateCallMetrics",
+          "saveSentimentTrend",
+          "setRecordingUrl",
+          "setRecordingId",
+          "saveCallMetrics"
+        ]
+      },
+      "useBulkUploadStore": {
+        "file": "src/store/useBulkUploadStore.ts",
+        "type": "zustand",
+        "description": "Manages bulk upload of call data",
+        "supabaseUsage": [
+          "Batch uploads to multiple tables",
+          "Handles file processing and data extraction"
+        ]
+      }
+    },
+    "issues": {
+      "typeErrors": [
+        {
+          "file": "src/services/AnalyticsHubService.ts",
+          "issues": [
+            "Missing type definitions for call_metrics_summary table",
+            "Missing type definitions for rep_metrics_summary table",
+            "Type mismatch in transcript_segments casting",
+            "Incorrect error handler method usage"
+          ]
+        },
+        {
+          "file": "src/hooks/useKeywordTrends.ts",
+          "issues": [
+            "Legacy hook with outdated return type",
+            "Deprecated interface still in use across multiple components"
+          ]
+        },
+        {
+          "file": "src/components/Dashboard/PerformanceMetrics.tsx",
+          "issues": [
+            "Using any type for Tooltip props",
+            "Type assertions without proper guards"
+          ]
+        }
+      ],
+      "dataFlow": [
+        {
+          "description": "Multiple services accessing same tables directly",
+          "impact": "Potential data inconsistency",
+          "recommendation": "Centralize data access through AnalyticsHubService"
+        },
+        {
+          "description": "Inconsistent error handling across services",
+          "impact": "Unreliable error reporting",
+          "recommendation": "Standardize error handling through ErrorHandlingService"
+        },
+        {
+          "description": "Missing table relationships",
+          "impact": "Data integrity risks",
+          "recommendation": "Define proper foreign key relationships"
+        },
+        {
+          "description": "Direct Supabase client import in components",
+          "impact": "Tight coupling between UI and data layer",
+          "files": [
+            "src/components/Dashboard/SalesMetricsDisplay.tsx",
+            "src/components/CallActivity/ActivityMonitor.tsx"
+          ],
+          "recommendation": "Use service abstraction layer instead of direct imports"
+        },
+        {
+          "description": "Redundant data fetching in nested components",
+          "impact": "Excessive database queries and performance issues",
+          "files": [
+            "src/pages/Analytics.tsx",
+            "src/components/Dashboard/PerformanceMetrics.tsx"
+          ],
+          "recommendation": "Implement React Context or prop drilling to share data"
+        }
+      ],
+      "performance": [
+        {
+          "description": "Duplicate real-time subscriptions",
+          "impact": "Unnecessary server load",
+          "files": [
+            "src/components/Dashboard/PerformanceMetrics.tsx",
+            "src/pages/Analytics.tsx"
+          ],
+          "recommendation": "Consolidate subscriptions in AnalyticsHubService"
+        },
+        {
+          "description": "Inefficient caching strategy",
+          "impact": "Excessive memory usage",
+          "recommendation": "Implement LRU cache with size limits"
+        },
+        {
+          "description": "Missing indexes on frequently queried columns",
+          "impact": "Slow query performance",
+          "recommendation": "Add appropriate indexes based on query patterns"
+        },
+        {
+          "description": "Manual materialized view refresh",
+          "impact": "Stale dashboard data",
+          "recommendation": "Implement automatic refresh trigger"
+        },
+        {
+          "description": "Large data transfer from server to client",
+          "impact": "Slow page loads and excessive bandwidth usage",
+          "files": [
+            "src/services/AnalyticsHubService.ts",
+            "src/pages/Transcripts.tsx"
+          ],
+          "recommendation": "Implement pagination and limited data transfer"
+        },
+        {
+          "description": "Recomputing derived data on every render",
+          "impact": "UI jank and performance issues",
+          "files": [
+            "src/components/Dashboard/SalesMetricsDisplay.tsx",
+            "src/components/Dashboard/PerformanceMetrics.tsx"
+          ],
+          "recommendation": "Use memoization and optimize render cycles"
+        }
+      ],
+      "security": [
+        {
+          "description": "Direct table access from multiple services",
+          "impact": "Potential security vulnerabilities",
+          "recommendation": "Implement row-level security policies"
+        },
+        {
+          "description": "Missing input validation in RPC functions",
+          "impact": "SQL injection risk",
+          "recommendation": "Add input validation and sanitization"
+        },
+        {
+          "description": "Hard-coded credentials and configuration",
+          "impact": "Security breach risk",
+          "files": [
+            "src/contexts/AuthContext.tsx"
+          ],
+          "recommendation": "Use environment variables and secure storage"
+        },
+        {
+          "description": "Lack of proper authentication checks",
+          "impact": "Unauthorized data access",
+          "files": [
+            "src/store/useCallMetricsStore.ts",
+            "src/services/SharedDataService.ts"
+          ],
+          "recommendation": "Implement consistent auth checks before data access"
+        }
+      ],
+      "architecture": [
+        {
+          "description": "Multiple components with duplicated data fetching logic",
+          "impact": "Code duplication and maintainability issues",
+          "recommendation": "Refactor to use shared service layer"
+        },
+        {
+          "description": "Inconsistent component hierarchy and data flow",
+          "impact": "Difficult to understand and maintain",
+          "recommendation": "Standardize component structure and data flow patterns"
+        },
+        {
+          "description": "Mixed responsibilities in services",
+          "impact": "Difficult to test and maintain",
+          "files": [
+            "src/services/AnalyticsHubService.ts",
+            "src/services/SharedDataService.ts"
+          ],
+          "recommendation": "Separate concerns into focused service modules"
+        },
+        {
+          "description": "Lack of abstraction over Supabase client",
+          "impact": "Tight coupling to third-party service",
+          "recommendation": "Create adapter/facade for database access"
+        }
+      ],
+      "ui": [
+        {
+          "description": "Loading states not consistently handled",
+          "impact": "Poor user experience during data fetching",
+          "files": [
+            "src/components/Dashboard/SalesMetricsDisplay.tsx",
+            "src/pages/Analytics.tsx"
+          ],
+          "recommendation": "Implement consistent loading skeleton UI"
+        },
+        {
+          "description": "Error states not consistently displayed",
+          "impact": "Users not informed of errors",
+          "recommendation": "Implement consistent error handling UI"
+        }
+      ]
+    },
+    "recommendations": {
+      "immediate": [
+        "Fix type definitions for missing tables",
+        "Implement proper error handling",
+        "Add foreign key relationships",
+        "Consolidate real-time subscriptions",
+        "Add input validation to RPC functions",
+        "Implement row-level security",
+        "Fix direct Supabase client imports in components",
+        "Secure hard-coded credentials in authentication context"
+      ],
+      "shortTerm": [
+        "Centralize all data access through AnalyticsHubService",
+        "Implement LRU caching",
+        "Add data validation layer",
+        "Improve error reporting",
+        "Add missing indexes",
+        "Automate materialized view refresh",
+        "Implement pagination for large data sets",
+        "Create adapter pattern for Supabase client",
+        "Optimize component rendering with useMemo and useCallback",
+        "Fix redundant data fetching in nested components"
+      ],
+      "longTerm": [
+        "Implement proper database migrations",
+        "Add comprehensive data testing",
+        "Set up monitoring and alerting",
+        "Implement data backup strategy",
+        "Optimize query performance",
+        "Implement data archival strategy",
+        "Refactor component hierarchy for better maintainability",
+        "Implement comprehensive UI component testing",
+        "Create end-to-end test suite for critical user flows",
+        "Set up continuous integration/continuous deployment pipeline"
+      ],
+      "architecture": [
+        {
+          "title": "Centralized Data Access Layer",
+          "description": "Create a dedicated data access layer that abstracts all Supabase operations",
+          "components": [
+            "Database adapter with interface",
+            "Repository pattern for each entity type",
+            "Query builder with type safety"
+          ],
+          "benefits": [
+            "Decoupling from Supabase",
+            "Consistent error handling",
+            "Improved testability"
+          ]
+        },
+        {
+          "title": "Component Data Flow Refactoring",
+          "description": "Standardize how data flows through the component hierarchy",
+          "approach": [
+            "Use React Context for global state",
+            "Implement container/presenter pattern",
+            "Create specialized hooks for each data type"
+          ],
+          "benefits": [
+            "Reduced prop drilling",
+            "Better separation of concerns",
+            "Easier testing"
+          ]
+        },
+        {
+          "title": "Event-Driven Analytics System",
+          "description": "Rebuild the analytics system with an event-driven architecture",
+          "components": [
+            "Event bus for analytics events",
+            "Event handlers for specific analytics operations",
+            "Real-time event processing"
+          ],
+          "benefits": [
+            "Better scalability",
+            "Reduced coupling",
+            "More maintainable system"
+          ]
+        }
+      ],
+      "performance": [
+        {
+          "title": "Optimized Query Performance",
+          "description": "Improve database query performance",
+          "tasks": [
+            "Review and optimize SQL queries",
+            "Add appropriate indexes",
+            "Implement query caching",
+            "Use materialized views for complex aggregations"
+          ]
+        },
+        {
+          "title": "Front-End Performance Optimization",
+          "description": "Optimize React component rendering and data handling",
+          "tasks": [
+            "Implement virtualized lists for large data sets",
+            "Use React.memo for expensive components",
+            "Optimize useEffect dependencies",
+            "Implement skeleton loading states"
+          ]
+        },
+        {
+          "title": "Real-Time Subscription Optimization",
+          "description": "Reduce overhead of real-time updates",
+          "tasks": [
+            "Consolidate subscriptions",
+            "Implement selective updates",
+            "Use debouncing for frequent updates",
+            "Add offline support with local storage"
+          ]
+        }
+      ],
+      "security": [
+        {
+          "title": "Implement Row-Level Security (RLS)",
+          "description": "Secure data access at the database level",
+          "tasks": [
+            "Define RLS policies for all tables",
+            "Implement role-based access control",
+            "Audit and test security policies"
+          ]
+        },
+        {
+          "title": "Authentication Enhancement",
+          "description": "Improve authentication and authorization flow",
+          "tasks": [
+            "Implement proper token management",
+            "Add multi-factor authentication option",
+            "Create granular permission system"
+          ]
+        },
+        {
+          "title": "Secure Configuration Management",
+          "description": "Properly manage sensitive configuration",
+          "tasks": [
+            "Move all credentials to environment variables",
+            "Implement secure secret management",
+            "Encrypt sensitive data in transit and at rest"
+          ]
+        }
+      ]
+    }
+  }
+} 

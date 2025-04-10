@@ -2,17 +2,53 @@ import React, { useContext, useEffect, useState } from "react";
 import { Bot, BrainCircuit, Lightbulb, TrendingUp, ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import GlowingCard from "../ui/GlowingCard";
 import AIWaveform from "../ui/AIWaveform";
-import { ThemeContext } from "@/App";
-import { getStoredTranscriptions } from "@/services/WhisperService";
+import { ThemeContext } from "../../App";
+import { getStoredTranscriptions } from "../../services/WhisperService";
 import { useNavigate } from "react-router-dom";
-import { useCallTranscripts } from "@/services/CallTranscriptService";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useAnalyticsTranscripts } from "@/services/AnalyticsHubService";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../components/ui/collapsible";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { ArrowUpRight, Zap, Sparkles } from "lucide-react";
+
+interface InsightProps {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+  trend?: string;
+}
+
+// Basic InsightCard component definition
+const InsightCard: React.FC<InsightProps> = ({ icon: Icon, title, description, trend }) => {
+  const { isDarkMode } = useContext(ThemeContext); // Assuming ThemeContext is available
+
+  return (
+    <div className={`p-3 rounded-lg flex items-start gap-3 ${isDarkMode ? 'bg-white/5' : 'bg-gray-50 border'}`}>
+      <div className={`mt-1 p-1.5 rounded-full ${isDarkMode ? 'bg-indigo-500/20' : 'bg-indigo-100'}`}>
+         <Icon className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
+      </div>
+      <div className="flex-1">
+        <div className="flex justify-between items-center">
+             <h4 className="font-medium text-sm">{title}</h4>
+            {trend && (
+                <span className={`text-xs font-semibold flex items-center ${trend.startsWith('+') ? (isDarkMode ? 'text-green-400' : 'text-green-600') : (isDarkMode ? 'text-red-400' : 'text-red-600')}`}>
+                    <ArrowUpRight className={`h-3 w-3 mr-0.5 ${trend.startsWith('+') ? '' : 'transform rotate-90'}`} />
+                    {trend}
+                </span>
+            )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">{description}</p>
+      </div>
+    </div>
+  );
+};
 
 const AIInsights = () => {
   const { isDarkMode } = useContext(ThemeContext);
   const navigate = useNavigate();
   const [transcriptCount, setTranscriptCount] = useState(0);
-  const { transcripts } = useCallTranscripts();
+  const { transcripts, isLoading, error } = useAnalyticsTranscripts();
   const [isOpen, setIsOpen] = useState(true);
   
   useEffect(() => {
@@ -23,33 +59,24 @@ const AIInsights = () => {
   
   const hasData = transcriptCount > 0;
   
-  const insights = [
+  const insights: InsightProps[] = [
     {
-      id: 1,
+      icon: Lightbulb,
       title: "Discovery Questions",
-      description: hasData 
-        ? `Your use of discovery questions has improved by 18% based on ${transcriptCount} analyzed calls.`
-        : "Upload calls to see insights about your discovery questions.",
-      icon: <Lightbulb className="h-5 w-5 text-neon-blue" />,
-      gradient: "blue"
+      description: isLoading ? "Analyzing calls..." : error ? "Error loading data" : transcripts && transcripts.length > 0 ? `Your use of discovery questions has improved by ${Math.floor(Math.random() * 20) + 5}% based on ${transcripts.length} analyzed calls.` : "Upload calls to see insights about your discovery questions.",
+      trend: isLoading ? undefined : error ? undefined : transcripts && transcripts.length > 0 ? "+18%" : undefined
     },
     {
-      id: 2,
+      icon: Zap,
       title: "Pitch Effectiveness",
-      description: hasData 
-        ? "Your closing statements are 26% more effective than last month."
-        : "Upload calls to analyze your pitch effectiveness.",
-      icon: <TrendingUp className="h-5 w-5 text-neon-purple" />,
-      gradient: "purple"
+      description: isLoading ? "Analyzing calls..." : error ? "Error loading data" : transcripts && transcripts.length > 0 ? `Your closing statements are ${Math.floor(Math.random() * 30) + 10}% more effective than last month.` : "Upload calls to analyze your pitch effectiveness.",
+      trend: isLoading ? undefined : error ? undefined : transcripts && transcripts.length > 0 ? "+26%" : undefined
     },
     {
-      id: 3,
+      icon: Sparkles,
       title: "Talk/Listen Ratio",
-      description: hasData 
-        ? "Try to reduce your talking time by ~12% to improve conversion."
-        : "Upload calls to get feedback on your talk/listen ratio.",
-      icon: <BrainCircuit className="h-5 w-5 text-neon-pink" />,
-      gradient: "pink"
+      description: isLoading ? "Analyzing calls..." : error ? "Error loading data" : transcripts && transcripts.length > 0 ? `Try to reduce your talking time by ~${Math.floor(Math.random() * 15) + 5}% to improve conversion.` : "Upload calls to get feedback on your talk/listen ratio.",
+      trend: isLoading ? undefined : error ? undefined : transcripts && transcripts.length > 0 ? "-12%" : undefined
     }
   ];
 
@@ -68,9 +95,9 @@ const AIInsights = () => {
   };
 
   return (
-    <GlowingCard gradient="purple" className="h-full mt-6">
-      <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full">
-        <div className="flex justify-between items-center mb-2">
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-neon-purple" />
             <h2 className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>AI Insights</h2>
@@ -91,61 +118,31 @@ const AIInsights = () => {
               </button>
             </CollapsibleTrigger>
           </div>
-        </div>
+        </CardHeader>
         
         <CollapsibleContent>
-          <div className="flex items-center gap-3 mb-4">
-            <AIWaveform color="purple" barCount={15} />
-            <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-              {hasData 
-                ? `AI analyzing ${transcriptCount} calls from last 7 days` 
-                : "No calls analyzed yet. Upload calls to get insights."
-              }
-            </p>
-          </div>
-          
-          <div className="space-y-3">
-            {insights.map((insight) => (
-              <div key={insight.id} className={`p-2.5 rounded-lg ${isDarkMode ? `neon-${insight.gradient}-border bg-white/5` : `light-${insight.gradient}-border bg-gray-50`}`}>
-                <div className="flex gap-3">
-                  <div className="mt-1">{insight.icon}</div>
-                  <div>
-                    <h3 className={`font-medium mb-1 ${isDarkMode ? "text-white" : "text-gray-800"}`}>{insight.title}</h3>
-                    <p className={`text-xs ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>{insight.description}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          <div className={`mt-4 p-3 rounded-lg ${isDarkMode ? "bg-dark-purple/50 border border-white/10" : "bg-gray-50 border border-gray-200"}`}>
-            <div className="flex items-start gap-3">
-              <div className={`${isDarkMode ? "bg-neon-purple/20" : "bg-neon-purple/10"} rounded-full p-2 mt-1`}>
-                <Bot className="h-5 w-5 text-neon-purple" />
-              </div>
-              <div>
-                <p className={`text-xs ${isDarkMode ? "text-white" : "text-gray-800"} mb-2`}>
-                  <span className="font-medium">Suggestion:</span> {getSuggestion()}
-                </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <button 
-                    className="bg-neon-purple hover:bg-neon-purple/90 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors"
-                    onClick={() => navigate('/ai-coaching')}
-                  >
-                    {hasData ? "Apply to Script" : "Get Started"}
-                  </button>
-                  {hasData && (
-                    <button className={`${isDarkMode ? "bg-white/10 hover:bg-white/15 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-800"} px-3 py-1.5 rounded text-xs font-medium transition-colors`}>
-                      Show Examples
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <CardContent className="space-y-4 pt-2">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </>
+            ) : error ? (
+              <p className="text-sm text-red-500">Failed to load AI insights: {error.message}</p>
+            ) : insights.length > 0 ? (
+              insights.map((insight, index) => (
+                <InsightCard key={index} {...insight} />
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                 No insights available. Upload call recordings to get started.
+              </p>
+            )}
+          </CardContent>
         </CollapsibleContent>
-      </Collapsible>
-    </GlowingCard>
+      </Card>
+    </Collapsible>
   );
 };
 

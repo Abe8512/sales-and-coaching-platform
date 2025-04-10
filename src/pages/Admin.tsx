@@ -1,5 +1,5 @@
 import React from 'react';
-import DashboardLayout from '@/components/layout/DashboardLayout';
+// import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
@@ -13,7 +13,6 @@ export default function Admin() {
   const isAdmin = user?.role === 'admin' || user?.email === 'admin@example.com';
   
   return (
-    <DashboardLayout>
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-8">Admin Tools</h1>
         
@@ -41,6 +40,5 @@ export default function Admin() {
           </div>
         )}
       </div>
-    </DashboardLayout>
   );
 } 

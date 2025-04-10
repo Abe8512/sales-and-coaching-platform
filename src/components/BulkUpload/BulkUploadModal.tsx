@@ -15,7 +15,7 @@ import { EventTypeEnum } from "@/services/events/types";
 import { Progress } from "@/components/ui/progress";
 import { errorHandler } from "@/services/ErrorHandlingService";
 import { checkSupabaseConnection } from "@/integrations/supabase/client";
-import { bulkUploadState } from '@/pages/Index';
+import { useBulkUploadStore } from "@/store/useBulkUploadStore";
 // import { useErrorHandler } from "@/hooks/use-error-handler";
 import { Badge } from "@/components/ui/badge";
 import { getStoredTeamMembers, useTeamMembers } from '@/services/TeamService';
@@ -63,17 +63,14 @@ interface BulkUploadModalProps {
 const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
   const { isDarkMode } = useContext(ThemeContext);
   const { toast } = useToast();
-  const { getUseLocalWhisper, setUseLocalWhisper } = useWhisperService();
   const { user, getManagedUsers, refreshTeamMembers } = useAuth();
   const [dragActive, setDragActive] = useState(false);
   const [openAIKeyMissing, setOpenAIKeyMissing] = useState(false);
-  const [useLocalWhisper, setUseLocalWhisperState] = useState(false);
   const [selectedRepId, setSelectedRepId] = useState<string>("");
   const [useCSVProcessor, setUseCSVProcessor] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'offline' | 'checking'>('online');
   const { 
     addFiles, 
-    setAssignedUserId, 
     processQueue, 
     isProcessing,
     files,
@@ -110,9 +107,6 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
       const apiKey = localStorage.getItem("openai_api_key");
       setOpenAIKeyMissing(!apiKey || apiKey.trim() === '');
       
-      // Check local Whisper setting
-      setUseLocalWhisperState(getUseLocalWhisper());
-      
       // Set default rep ID to current user if available
       if (user?.id && !selectedRepId) {
         setSelectedRepId(user.id);
@@ -121,7 +115,7 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
       // Check connection status
       setConnectionStatus(errorHandler.isOffline ? 'offline' : 'online');
     }
-  }, [isOpen, refreshTeamMembers, refreshLocalTeam, user, selectedRepId, getUseLocalWhisper, lastRefresh]);
+  }, [isOpen, refreshTeamMembers, refreshLocalTeam, user, selectedRepId, lastRefresh]);
   
   // Monitor connection status changes
   useEffect(() => {
@@ -211,24 +205,9 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
       processQueue();
     }
   };
-  
-  const toggleLocalWhisper = (checked: boolean) => {
-    setUseLocalWhisperState(checked);
-    setUseLocalWhisper(checked);
-    toast({
-      title: checked ? "Local Whisper Enabled" : "OpenAI API Mode",
-      description: checked 
-        ? "Transcription will run locally in your browser" 
-        : "Transcription will use the OpenAI API",
-    });
-  };
 
   const handleRepChange = (value: string) => {
     setSelectedRepId(value);
-    setAssignedUserId(value);
-    
-    // Update global state for the selected rep
-    bulkUploadState.setSelectedRep(value);
     
     // Find the selected member from either source
     const selectedMember = 
@@ -253,25 +232,35 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
 
   // Update the startUpload function to signal upload start
   const startUpload = useCallback(async () => {
+    console.log('[BulkUploadModal] startUpload called.');
     if (files.length === 0) {
       toast({
         variant: "destructive",
         title: "No files selected",
         description: "Please select at least one file to upload"
       });
+      console.log('[BulkUploadModal] No files, returning.');
       return;
     }
-
-    // Signal that bulk upload is starting
-    bulkUploadState.setUploading(true);
     
-    // Dispatch event for any components that need to respond
-    window.dispatchEvent(new CustomEvent('bulk-upload-started'));
+    // Determine the user ID to assign the calls to
+    // Default to the selected rep in the dropdown, fallback to current user
+    const assignedUserId = selectedRepId || user?.id;
     
-    // Start the upload process
-    setAssignedUserId(selectedRepId);
-    processQueue();
-  }, [files, processQueue, selectedRepId, setAssignedUserId]);
+    if (!assignedUserId) {
+        toast({
+          variant: "destructive",
+          title: "User Assignment Error",
+          description: "Could not determine user to assign calls to. Please select a rep or ensure you are logged in."
+        });
+        console.error('[BulkUploadModal] Cannot start upload - no assignedUserId.');
+        return;
+    }
+    
+    console.log(`[BulkUploadModal] Calling processQueue for ${files.length} files, assigning to user: ${assignedUserId}`);
+    // Pass the assignedUserId to processQueue
+    processQueue(assignedUserId); 
+  }, [files, processQueue, selectedRepId, user]);
 
   // Update the onClose handler to reset upload state if needed
   const handleClose = useCallback(() => {
@@ -281,11 +270,11 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
     );
     
     if (!hasActiveUploads) {
-      bulkUploadState.setUploading(false);
+      processQueue();
     }
     
     onClose();
-  }, [onClose, files]);
+  }, [onClose, files, processQueue]);
 
   // Function to check connection status
   const checkConnectionStatus = async () => {
@@ -429,33 +418,6 @@ const BulkUploadModal = ({ isOpen, onClose }: BulkUploadModalProps) => {
               <p className={`text-xs mt-1 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
                 Call data will be associated with the selected team member
               </p>
-            </div>
-          </div>
-          
-          {/* Whisper Mode Toggle */}
-          <div className="flex items-center space-x-2">
-            <div className="flex items-center space-x-2">
-              <Switch 
-                id="whisper-mode" 
-                checked={useLocalWhisper}
-                onCheckedChange={toggleLocalWhisper}
-              />
-              <Label htmlFor="whisper-mode" className="text-sm flex items-center">
-                {useLocalWhisper ? (
-                  <>
-                    <ToggleRight className="h-4 w-4 mr-1 text-neon-purple" /> 
-                    Using Local Whisper (Browser-based)
-                  </>
-                ) : (
-                  <>
-                    <ToggleLeft className="h-4 w-4 mr-1" /> 
-                    Using OpenAI API
-                    {openAIKeyMissing && (
-                      <span className="ml-2 text-xs text-red-500">(API Key Required)</span>
-                    )}
-                  </>
-                )}
-              </Label>
             </div>
           </div>
           

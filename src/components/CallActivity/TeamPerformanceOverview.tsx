@@ -1,56 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
+import { Badge } from "../../components/ui/badge";
 import { Phone, Activity, Clock, AlertCircle, TrendingUp } from "lucide-react";
-import ContentLoader from "@/components/ui/ContentLoader";
-import { useSharedTeamMetrics, TeamMetricsData, useKeywordTrends } from '@/services/SharedDataService';
-import ExpandableChart from '@/components/ui/ExpandableChart';
-import { useSharedFilters } from "@/contexts/SharedFilterContext";
-import { useStableLoadingState } from '@/hooks/useStableLoadingState';
+import ContentLoader from "../../components/ui/ContentLoader";
+import { useSharedTeamMetrics, TeamMetricsData, useKeywordTrends } from '../../services/SharedDataService';
+import ExpandableChart from '../../components/ui/ExpandableChart';
+import { useSharedFilters } from "../../contexts/SharedFilterContext";
+import { useStableLoadingState } from '../../hooks/useStableLoadingState';
+import { DailyMetrics } from '../../services/repositories/AnalyticsRepository';
+import { Skeleton } from "../../components/ui/skeleton";
 
 export interface TeamPerformanceOverviewProps {
-  dateRange?: {
-    from: Date;
-    to: Date;
-  };
-  // Support for legacy props
-  teamMetrics?: TeamMetricsData;
+  teamMetrics?: DailyMetrics | null;
   teamMetricsLoading?: boolean;
-  callsLength?: number;
 }
 
 export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = ({ 
-  dateRange,
-  teamMetrics: externalTeamMetrics,
-  teamMetricsLoading: externalLoading,
-  callsLength
+  teamMetrics,
+  teamMetricsLoading 
 }) => {
-  // Use shared filters context if dateRange isn't explicitly provided
-  const { filters } = useSharedFilters();
-  const finalDateRange = dateRange || filters.dateRange;
-  
-  // Use real data from the SharedDataService or external props
-  const { 
-    metrics: internalTeamMetrics, 
-    isLoading: internalLoading 
-  } = useSharedTeamMetrics({
-    dateRange: finalDateRange
-  });
-  
-  // Also fetch keyword trends data to ensure consistency across components
-  const { keywordData, isLoading: keywordsLoading } = useKeywordTrends({
-    dateRange: finalDateRange
-  });
-  
-  // Use external metrics if provided, otherwise use internal metrics
-  const teamMetrics = externalTeamMetrics || internalTeamMetrics;
-  const rawLoading = externalLoading !== undefined ? externalLoading : internalLoading || keywordsLoading;
-  
-  // Get all keywords from keyword data for display
-  const topKeywords = keywordData?.slice(0, 10).map(item => item.keyword) || [];
-  
-  // Use the stable loading state hook for consistent loading behavior
+  // Remove internal data fetching hooks (useSharedTeamMetrics, useKeywordTrends)
+  // const { filters } = useSharedFilters();
+  // const { metrics: internalTeamMetrics, isLoading: internalLoading } = useSharedTeamMetrics(...);
+  // const { keywordData, isLoading: keywordsLoading } = useKeywordTrends(...);
+
+  // Directly use the props
+  const rawLoading = teamMetricsLoading;
   const isStableLoading = useStableLoadingState(rawLoading, 800);
+  
+  // Extract keywords directly from teamMetrics if available, otherwise default
+  // Note: DailyMetrics doesn't have keywords, this needs adjustment or removal
+  const topKeywords: string[] = []; // Placeholder - keywords need different source
+
+  // Helper to safely access possibly nested talk ratio
+  const getTalkRatioString = (metrics: DailyMetrics | null | undefined): string => {
+    if (!metrics || metrics.avg_talk_ratio_agent == null || metrics.avg_talk_ratio_customer == null) {
+        return '0:0';
+    }
+    return `${Math.round(metrics.avg_talk_ratio_agent * 100)}:${Math.round(metrics.avg_talk_ratio_customer * 100)}`;
+  };
   
   return (
     <Card className="mb-6">
@@ -69,7 +57,7 @@ export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = (
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Total Calls</p>
                     <h3 className="text-2xl font-bold mt-1">
-                      {teamMetrics?.totalCalls || 0}
+                      {teamMetrics?.total_calls ?? 0}
                     </h3>
                   </div>
                   <Phone className="h-8 w-8 text-neon-purple opacity-80" />
@@ -83,7 +71,7 @@ export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = (
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Avg Sentiment</p>
                     <h3 className="text-2xl font-bold mt-1">
-                      {Math.round((teamMetrics?.avgSentiment || 0) * 100)}%
+                      {teamMetrics?.avg_sentiment != null ? `${Math.round(teamMetrics.avg_sentiment * 100)}%` : 'N/A'}
                     </h3>
                   </div>
                   <Activity className="h-8 w-8 text-green-500 opacity-80" />
@@ -97,7 +85,7 @@ export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = (
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Performance</p>
                     <h3 className="text-2xl font-bold mt-1">
-                      {Math.round(teamMetrics?.performanceScore || 0)}%
+                      {teamMetrics?.performance_score != null ? `${Math.round(teamMetrics.performance_score)}%` : 'N/A'}
                     </h3>
                   </div>
                   <Clock className="h-8 w-8 text-neon-blue opacity-80" />
@@ -111,9 +99,7 @@ export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = (
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Talk Ratio</p>
                     <h3 className="text-2xl font-bold mt-1">
-                      {teamMetrics?.avgTalkRatio 
-                        ? `${Math.round(teamMetrics.avgTalkRatio.agent)}:${Math.round(teamMetrics.avgTalkRatio.customer)}`
-                        : '0:0'}
+                      {getTalkRatioString(teamMetrics)}
                     </h3>
                   </div>
                   <TrendingUp className="h-8 w-8 text-amber-500 opacity-80" />
@@ -122,23 +108,25 @@ export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = (
             </Card>
           </div>
           
-          {/* Keywords Section */}
+          {/* Keywords Section - Needs a different data source */}
           <Card className="mt-6">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Top Keywords & Topics</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {topKeywords && topKeywords.length > 0 ? (
-                  topKeywords.map((keyword, idx) => (
-                    <Badge key={idx} variant="outline" className="text-xs">
-                      {keyword}
-                    </Badge>
-                  ))
-                ) : (
-                  <p className="text-center text-muted-foreground py-4">No keywords recorded</p>
-                )}
-              </div>
+               {isStableLoading ? <Skeleton className="h-6 w-full"/> : (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {topKeywords.length > 0 ? (
+                      topKeywords.map((keyword, idx) => (
+                        <Badge key={idx} variant="outline" className="text-xs">
+                          {keyword}
+                        </Badge>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Keywords data unavailable.</p>
+                    )}
+                  </div>
+               )}
             </CardContent>
           </Card>
         </ContentLoader>
@@ -147,5 +135,4 @@ export const TeamPerformanceOverview: React.FC<TeamPerformanceOverviewProps> = (
   );
 };
 
-// Also export as default for compatibility with default imports
 export default TeamPerformanceOverview;

@@ -1,7 +1,35 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Add explicit CSS to fix sidebar display */
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Force sidebar to be visible at all times on desktop */
+@media (min-width: 768px) {
+  .sidebar-fixed {
+    display: block !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: 16rem !important;
+    z-index: 50 !important;
+  }
+  
+  /* Add margin to main content to account for sidebar */
+  .main-content-with-sidebar {
+    margin-left: 16rem !important;
+  }
+}
 
 @layer base {
   :root {

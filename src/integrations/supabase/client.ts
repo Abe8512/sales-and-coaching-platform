@@ -9,15 +9,151 @@ import { cacheService } from '@/services/CacheService';
 import { FREQUENTLY_ACCESSED_TABLES, getTableCacheTTL, TableName } from '@/constants/tables';
 import { useEventsStore } from '@/services/events';
 
-// Get environment variables with fallbacks
+// Define ENV Vars at the top level
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://yfufpcxkerovnijhodrr.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdWZwY3hrZXJvdm5pamhvZHJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNjI3ODYsImV4cCI6MjA1NzgzODc4Nn0.1x7WAfVIvlm-KPy2q4eFylaVtdc5_ZJmlis5AMJ-Izc";
 
 // Check that environment variables are set in non-development environments
 if (import.meta.env.PROD && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {
   console.error('Supabase environment variables are not set in production mode!');
-  // In production, we'll log an error but still use the fallback values
 }
+
+// --- Ensure Singleton Client Instance ---
+let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
+
+const createSupabaseClient = () => {
+  if (supabaseInstance) {
+      return supabaseInstance;
+  }
+  
+  console.log("[Supabase Client] Creating new singleton instance...");
+
+  supabaseInstance = createClient<Database>(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+      },
+      global: {
+        fetch: async (...args: [RequestInfo | URL, RequestInit?]): Promise<Response> => {
+          const [url, options] = args;
+          const cacheKey = `${options?.method || 'GET'}-${url.toString()}`;
+          const isReadOperation = !options?.method || options?.method === 'GET';
+          const isWriteOperation = options?.method === 'POST' || options?.method === 'PUT' || options?.method === 'PATCH';
+          
+          if (errorHandler.isOffline && !url.toString().includes('connection-check')) {
+            return Promise.reject(new Error('You are currently offline - operation queued'));
+          }
+
+          const isFrequentlyAccessedTable = FREQUENTLY_ACCESSED_TABLES.some(table => url.toString().includes(table));
+          const ttl = isFrequentlyAccessedTable ? FREQUENT_TABLE_TTL : STANDARD_TABLE_TTL;
+
+          if (isReadOperation) {
+            const cachedData = cacheService.get<Record<string, unknown>>(cacheKey, { namespace: SUPABASE_CACHE_NAMESPACE, ttl });
+            if (cachedData) {
+              return new Response(JSON.stringify(cachedData), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            }
+            if (pendingRequests.has(cacheKey)) {
+               try {
+                  const responseData = await pendingRequests.get(cacheKey);
+                  return new Response(JSON.stringify(responseData), { status: 200, headers: { 'Content-Type': 'application/json' } });
+               } catch (error) {
+                   console.warn(`Error waiting for in-progress request: ${error instanceof Error ? error.message : String(error)}`);
+               }
+            }
+            const requestPromise = (async () => {
+              try {
+                const response = await fetch(url, options);
+                
+                if (response.ok) {
+                  const responseData = await response.json();
+                  
+                  cacheService.set(
+                    cacheKey, 
+                    responseData, 
+                    { namespace: SUPABASE_CACHE_NAMESPACE, ttl }
+                  );
+                  
+                  return responseData;
+                } else {
+                  throw new Error(`Request failed with status ${response.status}`);
+                }
+              } catch (error) {
+                pendingRequests.delete(cacheKey);
+                throw error;
+              }
+            })();
+            pendingRequests.set(cacheKey, requestPromise);
+            setTimeout(() => { pendingRequests.delete(cacheKey); }, ttl + 1000);
+            try {
+               const responseData = await requestPromise;
+               return new Response(JSON.stringify(responseData), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            } catch (error) {
+               pendingRequests.delete(cacheKey);
+               throw error;
+            }
+          } else if (isWriteOperation) {
+            const tableMatch = FREQUENTLY_ACCESSED_TABLES.find(table => 
+              url.toString().includes(table)
+            );
+            if (tableMatch) {
+              const tablePattern = new RegExp(`GET.*${tableMatch}`);
+              const cacheKeys = Array.from(cacheService['caches'].get(SUPABASE_CACHE_NAMESPACE)?.keys() || []);
+              
+              for (const key of cacheKeys) {
+                if (tablePattern.test(key)) {
+                  cacheService.delete(key, { namespace: SUPABASE_CACHE_NAMESPACE });
+                }
+              }
+              
+              for (const [key, _] of pendingRequests.entries()) {
+                if (tablePattern.test(key)) {
+                  pendingRequests.delete(key);
+                }
+              }
+            }
+          }
+
+          let attempt = 1;
+          while (attempt <= MAX_RETRY_ATTEMPTS) {
+             try {
+                const response = await fetch(url, options);
+                return response;
+             } catch (error) {
+                if (attempt === MAX_RETRY_ATTEMPTS || errorHandler.isOffline) throw error;
+                const backoffMs = Math.pow(2, attempt) * 100;
+                await new Promise(resolve => setTimeout(resolve, backoffMs));
+                attempt++;
+             }
+          }
+          throw new Error('Unexpected end of fetch function');
+        },
+      },
+    }
+  );
+  
+  // --- Attach Listener to the Singleton Instance --- 
+  supabaseInstance.auth.onAuthStateChange((event, session) => {
+    console.log('[Singleton Client] Auth state changed:', event);
+    
+    if (event === 'SIGNED_IN') {
+      console.log('[Singleton Client] User signed in');
+      connectionAttempts = 0;
+      checkSupabaseConnection();
+    } else if (event === 'SIGNED_OUT') {
+      console.log('[Singleton Client] User signed out');
+      updateConnectionStatus(false);
+    }
+  });
+  
+  return supabaseInstance;
+}
+// --- End Singleton Client Instance ---
+
+// Export the single instance directly
+export const supabase = createSupabaseClient();
 
 // Store connection status
 let isSupabaseConnected = false;
@@ -58,197 +194,6 @@ const pendingRequests = new Map<string, Promise<any>>();
 const debouncedLog = debounce((message: string) => {
   console.log(message);
 }, 1000, { leading: true, trailing: false });
-
-// Create a supabase client with auto-refresh and retries
-export const supabase = createClient<Database>(
-  SUPABASE_URL,
-  SUPABASE_PUBLISHABLE_KEY,
-  {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-    },
-    global: {
-      fetch: async (...args: [RequestInfo | URL, RequestInit?]): Promise<Response> => {
-        const [url, options] = args;
-        
-        // Create a cache key based on the request
-        const cacheKey = `${options?.method || 'GET'}-${url.toString()}`;
-        const requestId = uuidv4();
-        const isReadOperation = !options?.method || options?.method === 'GET';
-        const isWriteOperation = options?.method === 'POST' || options?.method === 'PUT' || options?.method === 'PATCH';
-        
-        // Check if we're offline before making the request
-        if (errorHandler.isOffline && !url.toString().includes('connection-check')) {
-          console.log(`Offline: Skipping request to ${url}`);
-          return Promise.reject(new Error('You are currently offline - operation queued'));
-        }
-        
-        // Determine if this request is for a frequently accessed table
-        const isFrequentlyAccessedTable = FREQUENTLY_ACCESSED_TABLES.some(table => 
-          url.toString().includes(table)
-        );
-        
-        // Set appropriate TTL
-        const ttl = isFrequentlyAccessedTable ? FREQUENT_TABLE_TTL : STANDARD_TABLE_TTL;
-        
-        // For read operations, check cache first
-        if (isReadOperation) {
-          // Check if we have a cached response
-          const cachedData = cacheService.get<Record<string, unknown>>(
-            cacheKey, 
-            { namespace: SUPABASE_CACHE_NAMESPACE, ttl }
-          );
-          
-          if (cachedData) {
-            console.log(`Using cached response for ${url}`);
-            return new Response(
-              JSON.stringify(cachedData),
-              { status: 200, headers: { 'Content-Type': 'application/json' } }
-            );
-          }
-          
-          // Check if there's already a request in progress - use lock to prevent race conditions
-          if (pendingRequests.has(cacheKey)) {
-            console.log(`Merging duplicate request for ${url} - using lock to prevent race condition`);
-            
-            try {
-              // Wait for the in-progress request to complete and return its result
-              const responseData = await pendingRequests.get(cacheKey);
-              
-              // Return a new response with the data
-              return new Response(
-                JSON.stringify(responseData),
-                { status: 200, headers: { 'Content-Type': 'application/json' } }
-              );
-            } catch (error) {
-              // If waiting for the in-progress request fails, continue with a new request
-              console.warn(`Error waiting for in-progress request: ${error instanceof Error ? error.message : String(error)}`);
-              // Fall through to make a new request
-            }
-          }
-          
-          // Create a lock for this request
-          const requestPromise = (async () => {
-            try {
-              // Use the native fetch function
-              const response = await fetch(url, options);
-              
-              // For successful operations, parse and return the data
-              if (response.ok) {
-                const responseData = await response.json();
-                
-                // Cache the result
-                cacheService.set(
-                  cacheKey, 
-                  responseData, 
-                  { namespace: SUPABASE_CACHE_NAMESPACE, ttl }
-                );
-                
-                return responseData;
-              } else {
-                throw new Error(`Request failed with status ${response.status}`);
-              }
-            } catch (error) {
-              // Remove this request from pending map
-              pendingRequests.delete(cacheKey);
-              throw error;
-            }
-          })();
-          
-          // Store the promise for other requests to use
-          pendingRequests.set(cacheKey, requestPromise);
-          
-          // Set a timeout to remove the lock to prevent memory leaks
-          setTimeout(() => {
-            pendingRequests.delete(cacheKey);
-          }, ttl + 1000); // Use TTL plus buffer time
-          
-          try {
-            // Wait for the request to complete
-            const responseData = await requestPromise;
-            
-            // Return a new response with the data
-            return new Response(
-              JSON.stringify(responseData),
-              { status: 200, headers: { 'Content-Type': 'application/json' } }
-            );
-          } catch (error) {
-            // Remove this request from pending map
-            pendingRequests.delete(cacheKey);
-            throw error;
-          }
-        } else if (isWriteOperation) {
-          // For write operations, clear any cached read results for this table
-          // This ensures that subsequent reads will fetch fresh data
-          const tableMatch = FREQUENTLY_ACCESSED_TABLES.find(table => 
-            url.toString().includes(table)
-          );
-          if (tableMatch) {
-            // Clear cached entries for this table
-            const tablePattern = new RegExp(`GET.*${tableMatch}`);
-            const cacheKeys = Array.from(cacheService['caches'].get(SUPABASE_CACHE_NAMESPACE)?.keys() || []);
-            
-            for (const key of cacheKeys) {
-              if (tablePattern.test(key)) {
-                cacheService.delete(key, { namespace: SUPABASE_CACHE_NAMESPACE });
-              }
-            }
-            
-            // Also clear any pending requests to avoid race conditions
-            for (const [key, _] of pendingRequests.entries()) {
-              if (tablePattern.test(key)) {
-                pendingRequests.delete(key);
-              }
-            }
-          }
-        }
-        
-        // Add our own retry logic to handle network failures
-        let attempt = 1;
-        
-        while (attempt <= MAX_RETRY_ATTEMPTS) {
-          try {
-            // Use the native fetch function
-            const response = await fetch(url, options);
-            
-            // Return the response
-            return response;
-          } catch (error) {
-            // If this is the last attempt, or if we're offline, fail
-            if (attempt === MAX_RETRY_ATTEMPTS || errorHandler.isOffline) {
-              console.error(`Supabase fetch attempt ${attempt} failed:`, error);
-              throw error;
-            }
-            
-            // Exponential backoff for retries
-            const backoffMs = Math.pow(2, attempt) * 100;
-            console.log(`Fetch attempt ${attempt} failed, retrying in ${backoffMs}ms...`);
-            await new Promise(resolve => setTimeout(resolve, backoffMs));
-            attempt++;
-          }
-        }
-        
-        // This code should never be reached due to the throw in the catch block
-        throw new Error('Unexpected end of fetch function');
-      },
-    },
-  }
-);
-
-// Register auth state change listener
-supabase.auth.onAuthStateChange((event, session) => {
-  console.log('Auth state changed:', event);
-  
-  if (event === 'SIGNED_IN') {
-    console.log('User signed in');
-    connectionAttempts = 0;
-    checkSupabaseConnection();
-  } else if (event === 'SIGNED_OUT') {
-    console.log('User signed out');
-    updateConnectionStatus(false);
-  }
-});
 
 // Process offline queue when back online
 const processOfflineQueue = async () => {
@@ -460,7 +405,6 @@ export const checkSupabaseConnection = async (): Promise<boolean> => {
       headers: {
         'Content-Type': 'application/json',
         'apikey': SUPABASE_PUBLISHABLE_KEY,
-        // Add required headers for Supabase
         'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`
       }
     });

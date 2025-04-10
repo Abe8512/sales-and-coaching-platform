@@ -1,80 +1,41 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import ContentLoader from '@/components/ui/ContentLoader';
-import { useSharedRepMetrics } from '@/services/SharedDataService';
 import { useStableLoadingState } from '@/hooks/useStableLoadingState';
-import { RepMetricsData } from '@/services/SharedDataService';
+import { RepPerformanceData } from '@/services/repositories/AnalyticsRepository';
 import { animationUtils } from '@/utils/animationUtils';
 
 export interface RepPerformanceCardsProps {
-  dateRange?: {
-    from: Date;
-    to: Date;
-  };
-  selectedRepIds?: string[];
-  // Support for legacy props
-  repMetrics?: RepMetricsData[];
+  repMetrics?: RepPerformanceData[] | null;
   repMetricsLoading?: boolean;
 }
 
 const RepPerformanceCards: React.FC<RepPerformanceCardsProps> = ({ 
-  dateRange,
-  selectedRepIds,
-  repMetrics: externalRepMetrics,
-  repMetricsLoading: externalLoading
+  repMetrics,
+  repMetricsLoading
 }) => {
-  // Fetch real rep metrics from SharedDataService
-  const { 
-    metrics: internalRepMetrics, 
-    isLoading: internalLoading 
-  } = useSharedRepMetrics({
-    dateRange,
-    repIds: selectedRepIds
-  });
-  
-  // Use external metrics if provided, otherwise use internal metrics
-  const repMetrics = externalRepMetrics as RepMetricsData[] || internalRepMetrics;
-  const rawLoading = externalLoading !== undefined ? externalLoading : internalLoading;
-  
-  // Store stable metrics to prevent UI jitter during updates
-  const [stableMetrics, setStableMetrics] = useState<RepMetricsData[]>([]);
-  
-  // Use standardized loading state hook
+  const rawLoading = repMetricsLoading;
   const isStableLoading = useStableLoadingState(rawLoading, 800);
   
-  // Only update metrics with smooth transitions when data changes
+  const displayData = useMemo(() => {
+    if (!repMetrics) return [];
+    return repMetrics.map(rep => ({
+      id: rep.rep_id,
+      name: rep.rep_name ?? 'Unknown Rep',
+      callVolume: rep.total_calls ?? 0,
+      successRate: Math.max(0, Math.min(100, (rep.avg_score ?? 0))),
+      sentimentScore: rep.avg_score ?? 0,
+      insights: []
+    }));
+  }, [repMetrics]);
+
+  const [stableMetrics, setStableMetrics] = useState(displayData);
   useEffect(() => {
-    if (isStableLoading) return;
-    
-    // Initialize with first data load
-    if (stableMetrics.length === 0 && repMetrics.length > 0) {
-      setStableMetrics(repMetrics);
-      return;
-    }
-    
-    // Only update metrics with smooth transitions when data changes
-    if (repMetrics.length > 0) {
-      const smoothedMetrics = repMetrics.map(rep => {
-        // Find existing rep data
-        const existingRep = stableMetrics.find(sr => sr.id === rep.id);
-        
-        if (existingRep) {
-          // Apply smooth transitions to prevent UI jitter
-          return {
-            ...rep,
-            callVolume: animationUtils.smoothTransition(rep.callVolume, existingRep.callVolume, 2),
-            successRate: animationUtils.smoothTransition(rep.successRate, existingRep.successRate, 3),
-            sentiment: animationUtils.smoothTransition(rep.sentiment, existingRep.sentiment, 0.05)
-          };
-        }
-        
-        return rep;
-      });
-      
-      setStableMetrics(smoothedMetrics);
-    }
-  }, [repMetrics, isStableLoading, stableMetrics]);
+     if (!isStableLoading) {
+       setStableMetrics(displayData);
+     }
+  }, [displayData, isStableLoading]);
   
   return (
     <Card className="mb-6">
@@ -100,14 +61,15 @@ const RepPerformanceCards: React.FC<RepPerformanceCardsProps> = ({
                         <span className="font-medium">{Math.round(rep.callVolume)}</span>
                       </div>
                       <Progress 
-                        value={rep.callVolume / 2} 
+                        value={rep.callVolume} 
+                        max={100}
                         className="h-1.5 transition-all duration-500" 
                       />
                     </div>
                     
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Success Rate</span>
+                        <span className="text-sm text-muted-foreground">Avg Score (Success)</span>
                         <span className="font-medium">{Math.round(rep.successRate)}%</span>
                       </div>
                       <Progress 
@@ -118,31 +80,19 @@ const RepPerformanceCards: React.FC<RepPerformanceCardsProps> = ({
                     
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Customer Sentiment</span>
-                        <span className="font-medium">{Math.round(rep.sentiment * 100)}%</span>
+                        <span className="text-sm text-muted-foreground">Avg Score (Sentiment)</span>
+                        <span className="font-medium">{Math.round(rep.sentimentScore)}</span>
                       </div>
                       <Progress 
-                        value={rep.sentiment * 100} 
+                        value={rep.sentimentScore} 
                         className="h-1.5 transition-all duration-500" 
                       />
-                    </div>
-                    
-                    <div>
-                      <h4 className="text-sm font-medium mb-1">AI Insights</h4>
-                      <ul className="text-sm space-y-1">
-                        {rep.insights.map((insight, idx) => (
-                          <li key={idx} className="flex items-start">
-                            <div className="w-1.5 h-1.5 rounded-full bg-neon-purple mt-1.5 mr-2"></div>
-                            {String(insight)}
-                          </li>
-                        ))}
-                      </ul>
                     </div>
                   </CardContent>
                 </Card>
               ))
             ) : (
-              <p>No representative data available</p>
+              <p className="text-muted-foreground text-center col-span-full py-8">No representative data available</p>
             )}
           </div>
         </ContentLoader>

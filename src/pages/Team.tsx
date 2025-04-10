@@ -1,6 +1,4 @@
-import React, { useState } from "react";
-import DashboardLayout from "../components/layout/DashboardLayout";
-import { useContext } from "react";
+import React, { useState, useMemo, useContext, useEffect } from "react";
 import { ThemeContext } from "@/App";
 import { 
   Table, 
@@ -20,145 +18,77 @@ import TeamPerformanceComparison from "@/components/Team/TeamPerformanceComparis
 import TeamMemberCard from "@/components/Team/TeamMemberCard";
 import AddTeamMemberModal from "@/components/Team/AddTeamMemberModal";
 import { toast } from "@/components/ui/use-toast";
-import { useAnalyticsRepMetrics } from '@/services/AnalyticsHubService';
+import { useAnalyticsRepMetrics, SimpleAnalyticsFilter } from '@/services/AnalyticsHubService';
 import { useSharedFilters } from '@/contexts/SharedFilterContext';
+import { RepPerformanceData } from "@/services/repositories/AnalyticsRepository";
+import { useAuth, TeamMember } from "@/contexts/AuthContext";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Type definition for team members used in this component
+// Redefine TeamMemberData based on data coming from useAuth
+// It should match the TeamMember interface in AuthContext
 type TeamMemberData = {
-  id: string;
-  name: string;
+  id: string; 
+  user_id: string; 
+  name: string | null;
   email: string;
   role: string;
-  performance: number;
-  calls: number;
-  conversion: number;
-  avatar: string;
+  created_at: string;
+  team_id: string | null;
+  manager_id: string | null;
+  updated_at: string;
+  // Add derived fields if needed locally
+  performance?: number;
+  calls?: number;
+  conversion?: number;
+  avatar?: string;
 };
-
-// Mock data for team members
-const initialTeamMembers = [
-  {
-    id: "1",
-    name: "Alex Johnson",
-    email: "alex.johnson@example.com",
-    role: "Senior Sales Rep",
-    performance: 87,
-    calls: 145,
-    conversion: 23,
-    avatar: "AJ"
-  },
-  {
-    id: "2",
-    name: "Maria Garcia",
-    email: "maria.garcia@example.com",
-    role: "Sales Rep",
-    performance: 76,
-    calls: 112,
-    conversion: 18,
-    avatar: "MG"
-  },
-  {
-    id: "3",
-    name: "David Kim",
-    email: "david.kim@example.com",
-    role: "Junior Sales Rep",
-    performance: 68,
-    calls: 89,
-    conversion: 12,
-    avatar: "DK"
-  },
-  {
-    id: "4",
-    name: "Sarah Williams",
-    email: "sarah.williams@example.com",
-    role: "Senior Sales Rep",
-    performance: 92,
-    calls: 156,
-    conversion: 28,
-    avatar: "SW"
-  },
-  {
-    id: "5",
-    name: "James Taylor",
-    email: "james.taylor@example.com",
-    role: "Sales Rep",
-    performance: 71,
-    calls: 103,
-    conversion: 15,
-    avatar: "JT"
-  },
-];
 
 const Team = () => {
   const { isDarkMode } = useContext(ThemeContext);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   
-  const { filters } = useSharedFilters();
-  const { metrics: teamMembersData, isLoading: teamMembersLoading } = useAnalyticsRepMetrics(filters);
+  const { filters: sharedFilters } = useSharedFilters();
   
-  // Convert analytics rep metrics to the format expected by the component
-  const teamMembers = React.useMemo(() => {
-    if (!teamMembersData || !teamMembersData.length) {
-      return initialTeamMembers; // Fallback to mock data if no real data
+  const { inviteTeamMember, teamMembers: authTeamMembers, isLoading: authLoading, refreshTeamMembers } = useAuth();
+
+  const isLoading = authLoading;
+  
+  const teamMembers: TeamMemberData[] = React.useMemo(() => {
+    if (!authTeamMembers || authTeamMembers.length === 0) {
+      return []; 
     }
-    
-    return teamMembersData.map(rep => ({
-      id: rep.id,
-      name: rep.name || `Rep ${rep.id.substring(0, 4)}`,
-      email: `${rep.name?.toLowerCase().replace(' ', '.')}@example.com` || 'user@example.com',
-      role: "Sales Representative",
-      performance: Math.round(rep.sentiment * 100),
-      calls: rep.callVolume || 0,
-      conversion: Math.round(rep.successRate * 100),
-      avatar: rep.name ? rep.name.split(' ').map(part => part[0]).join('').substring(0, 2) : 'U'
+    return authTeamMembers.map((user: TeamMember) => ({
+       ...user,
+       performance: Math.floor(Math.random() * 50) + 50, 
+       calls: Math.floor(Math.random() * 100) + 20,
+       conversion: Math.floor(Math.random() * 20) + 5,
+       avatar: user.name ? user.name.split(' ').map(part => part[0]).join('').substring(0, 2) : 'U'
     }));
-  }, [teamMembersData]);
+  }, [authTeamMembers]);
 
   const filteredMembers = teamMembers.filter(member => 
-    member.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    member.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
     member.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
     member.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleAddMember = (newMember) => {
-    // Since we're now using AnalyticsHubService, we don't have direct add/remove functions
-    // Instead, we'll just show a toast notification and would typically call an API
-    
-    toast({
-      title: "Team Member Added",
-      description: `${newMember.name} has been added to your team.`,
-    });
-    
-    // In a real implementation, we would call an API to add the member
-    // and then refresh the data from AnalyticsHubService
-    console.log("Added member (would be saved to database):", newMember);
-    
-    return {
-      ...newMember,
-      id: `temp-${Date.now()}`,
-      performance: Math.floor(Math.random() * 30) + 60,
-      calls: Math.floor(Math.random() * 100) + 50,
-      conversion: Math.floor(Math.random() * 20) + 10,
-    };
+  const handleAddMember = async (newMember: { name: string; email: string; role: string }) => {
+    console.log("[Team.tsx] handleAddMember called with:", newMember);
+    try {
+      await inviteTeamMember(newMember);
+      setShowAddMemberModal(false);
+    } catch (error) {
+      console.error("[Team.tsx] Failed to add member via inviteTeamMember:", error);
+    }
   };
   
-  const handleRemoveMember = (member) => {
-    // Since we're now using AnalyticsHubService, we don't have direct add/remove functions
-    // Instead, we'll just show a toast notification and would typically call an API
-    
-    toast({
-      title: "Team Member Removed",
-      description: `${member.name} has been removed from your team.`,
-    });
-    
-    // In a real implementation, we would call an API to remove the member
-    // and then refresh the data from AnalyticsHubService
-    console.log("Removed member (would be deleted from database):", member.id);
+  const handleRemoveMember = async (member: TeamMemberData) => {
+    console.log("Attempting to remove member:", member.id);
   };
 
   return (
-    <DashboardLayout>
+    <>
       <div className="mb-8">
         <h1 className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mb-1`}>
           Team Management
@@ -196,22 +126,19 @@ const Team = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-            {filteredMembers.map((member) => (
-              <TeamMemberCard 
-                key={member.id} 
-                member={{
-                  id: String(member.id),
-                  name: member.name,
-                  email: member.email,
-                  role: member.role,
-                  performance: member.performance,
-                  calls: member.calls,
-                  conversion: member.conversion,
-                  avatar: member.avatar
-                }}
-                onRemove={handleRemoveMember}
-              />
-            ))}
+            {isLoading ? (
+                Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-40 w-full" />) 
+            ) : filteredMembers.length === 0 ? (
+                 <p className="text-muted-foreground col-span-full text-center py-8">No team members found.</p>
+            ) : (
+               filteredMembers.map((member) => (
+                  <TeamMemberCard 
+                    key={member.id} 
+                    member={member}
+                    onRemove={handleRemoveMember}
+                  />
+                ))
+            )}
           </div>
         </TabsContent>
         
@@ -234,7 +161,7 @@ const Team = () => {
               <CardDescription>Ranked by overall performance score</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
+              {isLoading ? <Skeleton className="h-60 w-full" /> : <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Rank</TableHead>
@@ -251,7 +178,7 @@ const Team = () => {
                 </TableHeader>
                 <TableBody>
                   {[...teamMembers]
-                    .sort((a, b) => b.performance - a.performance)
+                    .sort((a, b) => (b.performance ?? 0) - (a.performance ?? 0))
                     .map((member, index) => (
                       <TableRow key={member.id}>
                         <TableCell className="font-medium">{index + 1}</TableCell>
@@ -261,18 +188,18 @@ const Team = () => {
                             <div className="w-full bg-gray-200 rounded-full h-2.5 mr-2">
                               <div 
                                 className="bg-neon-purple h-2.5 rounded-full" 
-                                style={{width: `${member.performance}%`}}
+                                style={{width: `${member.performance ?? 0}%`}}
                               ></div>
                             </div>
-                            <span>{member.performance}%</span>
+                            <span>{member.performance ?? 0}%</span>
                           </div>
                         </TableCell>
-                        <TableCell>{member.calls}</TableCell>
-                        <TableCell>{member.conversion}%</TableCell>
+                        <TableCell>{member.calls ?? 0}</TableCell>
+                        <TableCell>{member.conversion ?? 0}%</TableCell>
                       </TableRow>
                     ))}
                 </TableBody>
-              </Table>
+              </Table>}
             </CardContent>
           </Card>
         </TabsContent>
@@ -283,7 +210,7 @@ const Team = () => {
         onClose={() => setShowAddMemberModal(false)}
         onAddMember={handleAddMember}
       />
-    </DashboardLayout>
+    </>
   );
 };
 

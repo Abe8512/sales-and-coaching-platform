@@ -1,4 +1,3 @@
-
 import React, { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,6 +7,7 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  // REMOVE DEVELOPMENT BYPASS - Restore original logic
   const { isAuthenticated, isLoading } = useAuth();
   
   // While checking authentication status, show a loading screen
@@ -24,6 +24,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   
   // If not authenticated, redirect to login
   if (!isAuthenticated) {
+    console.log("[ProtectedRoute] User not authenticated, redirecting to /login"); // Add log
     return <Navigate to="/login" replace />;
   }
   

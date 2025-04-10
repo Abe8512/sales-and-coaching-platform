@@ -2,27 +2,28 @@ import { useState, createContext, useEffect } from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './App.css';
-import { Toaster } from '@/components/ui/sonner';
-import { toast } from 'sonner';
-import Index from './pages/Index';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import NotFound from './pages/NotFound';
-import Transcripts from './pages/Transcripts';
-import AICoaching from './pages/AICoaching';
-import Team from './pages/Team';
-import Settings from './pages/Settings';
-import CallComparison from './pages/CallComparison';
-import CallActivity from './pages/CallActivity';
-import Performance from './pages/Performance';
-import Admin from './pages/Admin';
-import Analytics from './pages/Analytics';
+import { Toaster } from '@/components/ui/toaster';
+import { useToast } from "@/hooks/use-toast";
+import IndexPage from './pages/Index';
+import LoginPage from './pages/Login';
+import SignupPage from './pages/Signup';
+import NotFoundPage from './pages/NotFound';
+import TranscriptsPage from './pages/Transcripts';
+import AICoachingPage from './pages/AICoaching';
+import TeamPage from './pages/Team';
+import SettingsPage from './pages/Settings';
+import CallComparisonPage from './pages/CallComparison';
+import CallActivityPage from './pages/CallActivity';
+import PerformancePage from './pages/Performance';
+import AdminPage from './pages/Admin';
+import AnalyticsPage from './pages/Analytics';
+import MetricsPage from './pages/metrics';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
 import { SharedFilterProvider } from './contexts/SharedFilterContext';
 import { useEventsStore } from './services/events';
-import { ensureDatabaseSchema } from './services/SqlUtilService';
 import { syncAllMetricsData } from './services/DataSyncService';
+import DashboardLayout from './components/layout/DashboardLayout';
 
 // Create Theme Context
 export const ThemeContext = createContext({
@@ -43,6 +44,7 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(
     window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
   );
+  const { toast } = useToast();
 
   useEffect(() => {
     if (isDarkMode) {
@@ -56,44 +58,40 @@ function App() {
     setIsDarkMode(!isDarkMode);
   };
 
-  // Add connection status change event listeners
   useEffect(() => {
     const { addEventListener } = useEventsStore.getState();
     
-    // Listen for connection restored event
     const unsubscribeRestored = addEventListener('connection-restored', () => {
-      toast.success('Connection restored', {
-        description: 'Your connection to the server has been restored. All features are now available.',
-        duration: 4000,
-      });
+      toast({ 
+          title: 'Connection restored', 
+          description: 'Your connection to the server has been restored. All features are now available.',
+      }); 
     });
     
-    // Listen for connection lost event
     const unsubscribeLost = addEventListener('connection-lost', () => {
-      toast.error('Connection lost', {
-        description: 'Connection to the server lost. Some features may be limited. Data will be saved locally.',
-        duration: 5000,
-      });
+      toast({ 
+          title: 'Connection lost', 
+          description: 'Connection to the server lost. Some features may be limited. Data will be saved locally.',
+          variant: "destructive"
+      }); 
     });
     
-    // Listen for unstable connection event
-    const unsubscribeUnstable = addEventListener('connection-unstable', (event) => {
+    const unsubscribeUnstable = addEventListener('connection-unstable', (event: any) => {
       const { retryCount, backoffTime } = event.data || {};
       const nextRetryIn = backoffTime ? Math.round(backoffTime / 1000) : 30;
-      
-      toast.warning('Unstable connection', {
-        description: `Connection is unstable. Retry attempt ${retryCount || 1} will occur in ${nextRetryIn}s. Data is being saved locally.`,
-        duration: 6000,
+      toast({ 
+          title: 'Unstable connection', 
+          description: `Connection is unstable. Retry attempt ${retryCount || 1} will occur in ${nextRetryIn}s. Data is being saved locally.`,
+          variant: "default"
       });
     });
     
-    // Cleanup function
     return () => {
       unsubscribeRestored();
       unsubscribeLost();
       unsubscribeUnstable();
     };
-  }, []);
+  }, [toast]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -102,59 +100,20 @@ function App() {
           <SharedFilterProvider>
             <Router>
               <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/signup" element={<Signup />} />
-                <Route path="/" element={
-                  <ProtectedRoute>
-                    <Index />
-                  </ProtectedRoute>
-                } />
-                <Route path="/transcripts" element={
-                  <ProtectedRoute>
-                    <Transcripts />
-                  </ProtectedRoute>
-                } />
-                <Route path="/ai-coaching" element={
-                  <ProtectedRoute>
-                    <AICoaching />
-                  </ProtectedRoute>
-                } />
-                <Route path="/team" element={
-                  <ProtectedRoute>
-                    <Team />
-                  </ProtectedRoute>
-                } />
-                <Route path="/settings" element={
-                  <ProtectedRoute>
-                    <Settings />
-                  </ProtectedRoute>
-                } />
-                <Route path="/call-comparison" element={
-                  <ProtectedRoute>
-                    <CallComparison />
-                  </ProtectedRoute>
-                } />
-                <Route path="/call-activity" element={
-                  <ProtectedRoute>
-                    <CallActivity />
-                  </ProtectedRoute>
-                } />
-                <Route path="/performance" element={
-                  <ProtectedRoute>
-                    <Performance />
-                  </ProtectedRoute>
-                } />
-                <Route path="/analytics" element={
-                  <ProtectedRoute>
-                    <Analytics />
-                  </ProtectedRoute>
-                } />
-                <Route path="/admin" element={
-                  <ProtectedRoute>
-                    <Admin />
-                  </ProtectedRoute>
-                } />
-                <Route path="*" element={<NotFound />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<SignupPage />} />
+                <Route path="/" element={<ProtectedRoute><DashboardLayout><IndexPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/transcripts" element={<ProtectedRoute><DashboardLayout><TranscriptsPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/ai-coaching" element={<ProtectedRoute><DashboardLayout><AICoachingPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/team" element={<ProtectedRoute><DashboardLayout><TeamPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><DashboardLayout><SettingsPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/call-comparison" element={<ProtectedRoute><DashboardLayout><CallComparisonPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/call-activity" element={<ProtectedRoute><DashboardLayout><CallActivityPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/performance" element={<ProtectedRoute><DashboardLayout><PerformancePage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/analytics" element={<ProtectedRoute><DashboardLayout><AnalyticsPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/admin" element={<ProtectedRoute><DashboardLayout><AdminPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="/metrics" element={<ProtectedRoute><DashboardLayout><MetricsPage /></DashboardLayout></ProtectedRoute>} />
+                <Route path="*" element={<NotFoundPage />} />
               </Routes>
               <Toaster />
             </Router>

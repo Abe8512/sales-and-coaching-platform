@@ -1,4 +1,3 @@
-
 import React, { useContext, useState, useMemo } from "react";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
@@ -11,7 +10,7 @@ interface DashboardLayoutProps {
 
 const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const { isDarkMode } = useContext(ThemeContext);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   
   // Optimize classes with useMemo to prevent recalculation on every render
   const layoutClasses = useMemo(() => 
@@ -21,7 +20,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   
   const mainClasses = useMemo(() => 
     cn(
-      "flex-1 p-6 pt-16 overflow-y-auto transition-colors duration-200 hardware-accelerated",
+      "main-content-with-sidebar flex-1 p-6 pt-16 overflow-y-auto transition-colors duration-200 hardware-accelerated",
       isDarkMode ? 'bg-dark-purple' : 'bg-gray-50'
     ),
     [isDarkMode]
@@ -30,6 +29,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   return (
     <div className={layoutClasses}>
       <Sidebar isDarkMode={isDarkMode} />
+      
       <div className="flex flex-col flex-1">
         <TopBar setSidebarOpen={setSidebarOpen} />
         <main className={mainClasses}>

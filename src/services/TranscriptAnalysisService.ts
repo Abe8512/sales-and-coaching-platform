@@ -155,7 +155,7 @@ export class TranscriptAnalysisService {
   }
   
   // Calculate comprehensive call metrics
-  public calculateCallMetrics(text: string, segments: any[], duration: number) {
+  public calculateCallMetrics(text: string, segments: any[], words: any[] = [], duration: number) {
     // Check cache first for this specific combination
     const cacheKey = `metrics-${text.substring(0, 100)}-${duration}`;
     if (this.cachedMetrics.has(cacheKey)) {
@@ -174,15 +174,15 @@ export class TranscriptAnalysisService {
     
     processedSegments.forEach(segment => {
       const segmentDuration = segment.end - segment.start;
-      const words = segment.text.split(/\s+/).filter((w: string) => w.length > 0);
-      totalWords += words.length;
+      const segmentWords = segment.text.split(/\s+/).filter((w: string) => w.length > 0);
+      totalWords += segmentWords.length;
       
       if (segment.speaker === "Agent") {
         agentTalkTime += segmentDuration;
-        agentWords += words.length;
+        agentWords += segmentWords.length;
       } else {
         customerTalkTime += segmentDuration;
-        customerWords += words.length;
+        customerWords += segmentWords.length;
       }
     });
     
@@ -233,6 +233,32 @@ export class TranscriptAnalysisService {
     // Cap to 0-100 range
     customerEngagement = Math.max(0, Math.min(100, customerEngagement));
     
+    // Enhanced metrics using word-level data when available
+    let interruptions = { count: 0, instances: [] };
+    let pauseAnalysis = { count: 0, avgDuration: 0, longPauses: [] };
+    let wordEmphasis = { words: [], count: 0 };
+    
+    // If word-level timestamps are available, calculate enhanced metrics
+    if (words && words.length > 0) {
+      interruptions = this.detectInterruptions(processedSegments, words);
+      pauseAnalysis = this.analyzePauses(words);
+      wordEmphasis = this.detectEmphasisWords(words);
+      
+      // Improve speaking speed calculation with word-level data
+      if (words.length > 0) {
+        const wordDurations = this.calculateWordDurations(words);
+        
+        // Update speaking speed with more accurate data
+        speakingSpeed.overall = wordDurations.wordsPerMinute;
+        
+        // If we have speaker information in the words
+        if (words[0].speaker) {
+          speakingSpeed.agent = wordDurations.agentWordsPerMinute || speakingSpeed.agent;
+          speakingSpeed.customer = wordDurations.customerWordsPerMinute || speakingSpeed.customer;
+        }
+      }
+    }
+    
     // Create final metrics object
     const metrics = {
       duration: finalDuration,
@@ -249,7 +275,11 @@ export class TranscriptAnalysisService {
         instances: objections.instances
       },
       sentiment,
-      customerEngagement
+      customerEngagement,
+      // Add enhanced metrics when available
+      interruptions,
+      pauses: pauseAnalysis,
+      emphasis: wordEmphasis
     };
     
     // Cache results
@@ -327,6 +357,256 @@ export class TranscriptAnalysisService {
     return {
       count: totalCount,
       instances
+    };
+  }
+  
+  // Detect interruptions between speakers using word-level timestamps
+  private detectInterruptions(segments: any[], words: any[]): { count: number, instances: any[] } {
+    if (!words || words.length < 2 || !segments || segments.length < 2) {
+      return { count: 0, instances: [] };
+    }
+    
+    const interruptions = [];
+    let interruptionCount = 0;
+    
+    // Function to find which segment a word belongs to based on its timestamp
+    const findSpeakerForWord = (word: any) => {
+      for (const segment of segments) {
+        if (word.start >= segment.start && word.end <= segment.end) {
+          return segment.speaker || null;
+        }
+      }
+      return null;
+    };
+    
+    // If words already have speaker information, use that instead
+    const haveWordSpeakers = words.some(w => w.speaker);
+    
+    // Analyze adjacent words to detect speaker changes
+    for (let i = 1; i < words.length; i++) {
+      const prevWord = words[i-1];
+      const currentWord = words[i];
+      
+      // Get speakers for these words
+      const prevSpeaker = haveWordSpeakers ? prevWord.speaker : findSpeakerForWord(prevWord);
+      const currentSpeaker = haveWordSpeakers ? currentWord.speaker : findSpeakerForWord(currentWord);
+      
+      // Skip if we can't determine speakers
+      if (!prevSpeaker || !currentSpeaker) continue;
+      
+      // Check if speakers are different
+      if (prevSpeaker !== currentSpeaker) {
+        // Check if there's minimal gap between words (potential interruption)
+        const timeBetween = currentWord.start - prevWord.end;
+        
+        // If the gap is very small (less than 300ms), it might be an interruption
+        if (timeBetween < 0.3) {
+          interruptionCount++;
+          interruptions.push({
+            time: prevWord.end,
+            interruptedSpeaker: prevSpeaker,
+            interruptingSpeaker: currentSpeaker,
+            interruptedWord: prevWord.word,
+            interruptingWord: currentWord.word
+          });
+        }
+      }
+    }
+    
+    return {
+      count: interruptionCount,
+      instances: interruptions
+    };
+  }
+  
+  // Analyze pauses between words
+  private analyzePauses(words: any[]): { count: number, avgDuration: number, longPauses: any[] } {
+    if (!words || words.length < 2) {
+      return { count: 0, avgDuration: 0, longPauses: [] };
+    }
+    
+    const pauseThreshold = 0.5; // Pauses longer than 500ms
+    const longPauseThreshold = 2.0; // Long pauses (2+ seconds)
+    
+    const pauses = [];
+    let totalPauseDuration = 0;
+    let pauseCount = 0;
+    
+    // Analyze gaps between words
+    for (let i = 1; i < words.length; i++) {
+      const prevWord = words[i-1];
+      const currentWord = words[i];
+      
+      // Check if these words have the same speaker
+      const sameSpeaker = !prevWord.speaker || !currentWord.speaker || 
+                          prevWord.speaker === currentWord.speaker;
+      
+      // Only count pauses from the same speaker
+      if (sameSpeaker) {
+        const pauseDuration = currentWord.start - prevWord.end;
+        
+        if (pauseDuration >= pauseThreshold) {
+          pauseCount++;
+          totalPauseDuration += pauseDuration;
+          
+          if (pauseDuration >= longPauseThreshold) {
+            pauses.push({
+              start: prevWord.end,
+              end: currentWord.start,
+              duration: pauseDuration,
+              prevWord: prevWord.word,
+              nextWord: currentWord.word,
+              speaker: prevWord.speaker || 'unknown'
+            });
+          }
+        }
+      }
+    }
+    
+    return {
+      count: pauseCount,
+      avgDuration: pauseCount > 0 ? totalPauseDuration / pauseCount : 0,
+      longPauses: pauses
+    };
+  }
+  
+  // Detect emphasized words based on context and timing
+  private detectEmphasisWords(words: any[]): { words: string[], count: number } {
+    if (!words || words.length < 3) {
+      return { words: [], count: 0 };
+    }
+    
+    const emphasisWords = [];
+    
+    // Calculate the average word duration
+    let totalDuration = 0;
+    words.forEach(word => {
+      totalDuration += (word.end - word.start);
+    });
+    const avgWordDuration = totalDuration / words.length;
+    
+    // Words that are significantly longer might be emphasized
+    const durationThreshold = avgWordDuration * 1.5;
+    
+    // Words that might indicate emphasis
+    const emphasisIndicators = [
+      'very', 'really', 'extremely', 'absolutely', 'definitely',
+      'crucial', 'critical', 'essential', 'important', 'significant',
+      'must', 'need', 'should', 'highly', 'strongly'
+    ];
+    
+    // Check for words that are emphasized by duration or context
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const wordDuration = word.end - word.start;
+      const wordText = word.word.toLowerCase();
+      
+      // Skip very short words (likely not emphasized)
+      if (wordText.length < 3) continue;
+      
+      // Check if this word is significantly longer than average
+      const isLongerDuration = wordDuration > durationThreshold;
+      
+      // Check if it follows an emphasis indicator
+      let followsIndicator = false;
+      if (i > 0) {
+        const prevWord = words[i-1].word.toLowerCase();
+        followsIndicator = emphasisIndicators.includes(prevWord);
+      }
+      
+      // Check if it's in all caps (might indicate emphasis in transcript)
+      const isAllCaps = word.word === word.word.toUpperCase() && word.word.length > 1;
+      
+      // If any emphasis condition is met, add to the list
+      if (isLongerDuration || followsIndicator || isAllCaps) {
+        emphasisWords.push(word.word);
+      }
+    }
+    
+    // Remove duplicates
+    const uniqueEmphasisWords = [...new Set(emphasisWords)];
+    
+    return {
+      words: uniqueEmphasisWords,
+      count: uniqueEmphasisWords.length
+    };
+  }
+  
+  // Calculate word durations and speaking rate from word-level timestamps
+  private calculateWordDurations(words: any[]) {
+    if (!words || words.length === 0) {
+      return { 
+        wordsPerMinute: 0,
+        agentWordsPerMinute: 0,
+        customerWordsPerMinute: 0
+      };
+    }
+    
+    let totalWords = words.length;
+    let agentWords = 0;
+    let customerWords = 0;
+    
+    // Calculate total duration from first to last word
+    const firstWordStart = words[0].start;
+    const lastWordEnd = words[words.length - 1].end;
+    const totalDuration = (lastWordEnd - firstWordStart) / 60; // Convert to minutes
+    
+    // If we have speaker information
+    if (words[0].speaker) {
+      let agentTalkTime = 0;
+      let customerTalkTime = 0;
+      let currentSpeaker = words[0].speaker;
+      let speakerStartTime = words[0].start;
+      
+      // Count words by speaker
+      words.forEach(word => {
+        if (word.speaker === 'Agent') {
+          agentWords++;
+        } else if (word.speaker === 'Customer') {
+          customerWords++;
+        }
+        
+        // Detect speaker changes to calculate talk time
+        if (word.speaker !== currentSpeaker) {
+          const speakerEndTime = word.start;
+          const duration = speakerEndTime - speakerStartTime;
+          
+          if (currentSpeaker === 'Agent') {
+            agentTalkTime += duration;
+          } else if (currentSpeaker === 'Customer') {
+            customerTalkTime += duration;
+          }
+          
+          // Reset for next speaker
+          currentSpeaker = word.speaker;
+          speakerStartTime = word.start;
+        }
+      });
+      
+      // Add final speaker segment
+      const duration = lastWordEnd - speakerStartTime;
+      if (currentSpeaker === 'Agent') {
+        agentTalkTime += duration;
+      } else if (currentSpeaker === 'Customer') {
+        customerTalkTime += duration;
+      }
+      
+      // Convert to minutes
+      agentTalkTime /= 60;
+      customerTalkTime /= 60;
+      
+      return {
+        wordsPerMinute: totalDuration > 0 ? totalWords / totalDuration : 0,
+        agentWordsPerMinute: agentTalkTime > 0 ? agentWords / agentTalkTime : 0,
+        customerWordsPerMinute: customerTalkTime > 0 ? customerWords / customerTalkTime : 0
+      };
+    }
+    
+    // If no speaker information, just calculate overall rate
+    return {
+      wordsPerMinute: totalDuration > 0 ? totalWords / totalDuration : 0,
+      agentWordsPerMinute: 0,
+      customerWordsPerMinute: 0
     };
   }
   

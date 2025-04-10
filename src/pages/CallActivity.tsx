@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import DashboardLayout from "../components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCallMetricsStore } from "@/store/useCallMetricsStore";
-import { useAnalyticsTeamMetrics, useAnalyticsRepMetrics, useAnalyticsTranscripts } from "@/services/AnalyticsHubService";
-import DateRangeFilter from "@/components/CallAnalysis/DateRangeFilter";
+import { useAnalyticsDailyMetrics, useAnalyticsRepMetrics, useAnalyticsTranscripts } from "@/services/AnalyticsHubService";
+import DateRangeFilter from "../components/CallAnalysis/DateRangeFilter";
 import TeamFilterWrapper from "@/components/Performance/TeamFilterWrapper";
 import CoachingAlerts from "@/components/CallAnalysis/CoachingAlerts";
 import KeywordInsights from "@/components/CallAnalysis/KeywordInsights";
@@ -12,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEventListener } from '@/services/events';
-import { EventType } from '@/services/events/types';
 import { toast } from "sonner";
 import TeamPerformanceOverview from "@/components/CallActivity/TeamPerformanceOverview";
 import RepPerformanceCards from "@/components/CallActivity/RepPerformanceCards";
@@ -20,8 +18,15 @@ import RecentCallsTable from "@/components/CallActivity/RecentCallsTable";
 import CallOutcomeStats from "@/components/CallActivity/CallOutcomeStats";
 import { getMetrics, getCallDistributionData } from "@/services/CallTranscriptMetricsService";
 import { useEventsStore } from '@/services/events';
-import { useEventListener as useEventListenerHook } from '@/hooks/useEventListener';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Transcript, TranscriptFilter } from "@/services/repositories/TranscriptsRepository";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Activity, AlertCircle } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { format } from 'date-fns';
+import { Badge } from "@/components/ui/badge";
 
 // Define local Call interface instead of importing from types
 interface Call {
@@ -41,28 +46,43 @@ const CallActivity = () => {
   const { isRecording } = useCallMetricsStore();
   
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  const [filters, setFilters] = useState<TranscriptFilter>({});
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-  const [filters, setFilters] = useState({
-    teamMembers: [] as string[],
-    productLines: [] as string[],
-    callTypes: [] as string[],
-  });
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   
   // Use AnalyticsHubService hooks
-  const { metrics: teamMetrics, isLoading: teamMetricsLoading, refreshMetrics: refreshTeamMetrics } = useAnalyticsTeamMetrics({
-    dateRange,
-    repIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
+  const {
+    metrics: dailyMetrics, 
+    isLoading: dailyMetricsLoading, 
+    error: dailyMetricsError, 
+    refreshMetrics: refreshDailyMetrics 
+  } = useAnalyticsDailyMetrics({ 
+      dateRange: { 
+          from: dateRange?.from?.toISOString().split('T')[0], 
+          to: dateRange?.to?.toISOString().split('T')[0] 
+      }
   });
   
-  const { metrics: repMetrics, isLoading: repMetricsLoading } = useAnalyticsRepMetrics({
-    dateRange,
-    repIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
+  const { 
+    metrics: repMetrics, 
+    isLoading: repMetricsLoading, 
+    error: repMetricsError,
+    refreshMetrics: refreshRepMetrics
+  } = useAnalyticsRepMetrics({ 
+      dateRange: { 
+          from: dateRange?.from?.toISOString().split('T')[0], 
+          to: dateRange?.to?.toISOString().split('T')[0] 
+      }
   });
-  
-  const { transcripts, isLoading: transcriptsLoading, refreshTranscripts, error: transcriptsError } = useAnalyticsTranscripts({
-    dateRange,
-    repIds: filters.teamMembers.length > 0 ? filters.teamMembers : undefined
+
+  const { 
+    transcripts, 
+    isLoading: transcriptsLoading, 
+    error: transcriptsError, 
+    refreshTranscripts
+  } = useAnalyticsTranscripts({
+      ...filters,
+      startDate: dateRange?.from?.toISOString().split('T')[0],
+      endDate: dateRange?.to?.toISOString().split('T')[0]
   });
   
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -111,18 +131,18 @@ const CallActivity = () => {
     }
   }, [transcripts]);
   
-  const refreshData = useCallback(() => {
-    refreshTeamMetrics();
+  const handleRefreshAll = useCallback(() => {
+    refreshDailyMetrics();
+    refreshRepMetrics();
     refreshTranscripts();
-    setRefreshTrigger(prev => prev + 1);
-  }, [refreshTeamMetrics, refreshTranscripts]);
+  }, [refreshDailyMetrics, refreshRepMetrics, refreshTranscripts]);
   
   useEventListener('bulk-upload-completed', (data) => {
     console.log('Bulk upload completed event received', data);
     toast.success(`${data?.count || 'Multiple'} files processed`, {
       description: "Refreshing call data..."
     });
-    refreshData();
+    handleRefreshAll();
   });
   
   useEventListener('recording-completed', (data) => {
@@ -130,33 +150,30 @@ const CallActivity = () => {
     toast.success('New recording added', {
       description: "Refreshing call data..."
     });
-    refreshData();
+    handleRefreshAll();
   });
   
   useEffect(() => {
-    refreshData();
-    // this ensures the effect runs when any of the dependencies of refreshData change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUser, filters, dateRange, refreshTeamMetrics, refreshTranscripts]);
+    handleRefreshAll();
+  }, [selectedUser, filters, refreshDailyMetrics, refreshTranscripts]);
   
   useEffect(() => {
-    if (transcriptsError) {
-      setFetchError(transcriptsError instanceof Error ? transcriptsError.message : String(transcriptsError));
-      toast.error("Failed to load call data", {
-        description: transcriptsError instanceof Error ? transcriptsError.message : String(transcriptsError),
-      });
+    const combinedError = dailyMetricsError || repMetricsError || transcriptsError;
+    if (combinedError) {
+      const errorMsg = combinedError instanceof Error ? combinedError.message : String(combinedError);
+      setFetchError(errorMsg);
     } else {
       setFetchError(null);
     }
-  }, [transcriptsError]);
+  }, [dailyMetricsError, repMetricsError, transcriptsError]);
   
   const handleRetry = useCallback(() => {
     setFetchError(null);
-    refreshData();
-  }, [refreshData]);
+    handleRefreshAll();
+  }, [handleRefreshAll]);
   
-  const handleFilterChange = (newFilters) => {
-    setFilters(newFilters);
+  const handleFilterChange = (newFilters: Partial<Omit<TranscriptFilter, 'startDate' | 'endDate'>>) => {
+    setFilters(prev => ({...prev, ...newFilters}));
   };
 
   // Convert outcome stats to the format expected by CallOutcomeStats
@@ -180,8 +197,29 @@ const CallActivity = () => {
   // Memoize the formatted distribution data
   const formattedDistributionData = useMemo(() => getFormattedDistributionData(), [getFormattedDistributionData]);
 
+  // Combine loading states
+  const isLoading = dailyMetricsLoading || repMetricsLoading || transcriptsLoading;
+
+  // Use the existing 'calls' state which is derived from transcripts
+  const callsToDisplay = calls;
+
+  // Helper to format duration
+  const formatDuration = (seconds: number): string => {
+    if (isNaN(seconds) || seconds < 0) return "0:00";
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
+  // Helper for sentiment badge variant
+  const getSentimentVariant = (sentiment: number): "default" | "destructive" | "outline" | "secondary" => {
+    if (sentiment > 0.7) return "secondary"; // Use secondary for positive (like green)
+    if (sentiment < 0.4) return "destructive"; // Use destructive for negative (like red)
+    return "outline"; // Use outline for neutral
+  };
+
   return (
-    <DashboardLayout>
+    <>
       <div className="mb-4">
         <h1 className="text-3xl font-bold mb-2">Call Activity</h1>
         <p className="text-muted-foreground">
@@ -217,7 +255,7 @@ const CallActivity = () => {
       
       <div className="mb-6 space-y-4">
         <div className="flex flex-wrap gap-4 items-center justify-between">
-          <DateRangeFilter dateRange={dateRange} setDateRange={setDateRange} />
+          <DateRangePicker date={dateRange} setDate={setDateRange} />
           
           <div className="flex gap-2">
             <Button 
@@ -236,14 +274,14 @@ const CallActivity = () => {
       </div>
       
       <TeamPerformanceOverview 
-        teamMetrics={teamMetrics} 
-        teamMetricsLoading={teamMetricsLoading || transcriptsLoading}
+        teamMetrics={dailyMetrics as any} 
+        teamMetricsLoading={dailyMetricsLoading || transcriptsLoading}
         callsLength={calls.length}
       />
       
       {(isAdmin || isManager) && (
         <RepPerformanceCards 
-          repMetrics={repMetrics} 
+          repMetrics={repMetrics as any} 
           repMetricsLoading={repMetricsLoading} 
         />
       )}
@@ -256,12 +294,47 @@ const CallActivity = () => {
         </TabsList>
         
         <TabsContent value="calls" className="mt-6">
-          <RecentCallsTable 
-            calls={calls} 
-            isAdmin={isAdmin} 
-            isManager={isManager}
-            loading={transcriptsLoading}
-          />
+          <Card>
+            <CardHeader><CardTitle>Calls List</CardTitle></CardHeader>
+            <CardContent>
+              {transcriptsLoading ? (
+                 <Skeleton className="h-[200px] w-full" />
+              ) : callsToDisplay.length > 0 ? (
+                 <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>User</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Duration</TableHead>
+                        <TableHead>Sentiment</TableHead>
+                        <TableHead>Outcome</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {callsToDisplay.map((call) => (
+                        <TableRow key={call.id}>
+                          <TableCell>{format(new Date(call.date), 'Pp')}</TableCell>
+                          <TableCell>{call.userName}</TableCell>
+                          <TableCell>{call.customerName}</TableCell>
+                          <TableCell>{formatDuration(call.duration)}</TableCell>
+                          <TableCell>
+                             <Badge variant={getSentimentVariant(call.sentiment)}>
+                                {call.sentiment > 0.7 ? 'Positive' : call.sentiment < 0.4 ? 'Negative' : 'Neutral'}
+                             </Badge>
+                          </TableCell>
+                          <TableCell>{call.outcome}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                 </Table>
+              ) : (
+                 <p className="text-muted-foreground text-center py-8">
+                    No call data available for the selected period.
+                 </p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
         
         <TabsContent value="analytics" className="mt-6">
@@ -290,7 +363,7 @@ const CallActivity = () => {
       </Tabs>
       
       <CoachingAlerts />
-    </DashboardLayout>
+    </>
   );
 };
 

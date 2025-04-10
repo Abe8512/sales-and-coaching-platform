@@ -1,6 +1,4 @@
-
 import React, { useState } from "react";
-import DashboardLayout from "../components/layout/DashboardLayout";
 import { useContext } from "react";
 import { ThemeContext } from "@/App";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +22,7 @@ const CallComparison = () => {
   ];
 
   return (
-    <DashboardLayout>
+    <>
       <div className="mb-8">
         <h1 className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} mb-1`}>
           Call Comparison
@@ -113,7 +111,7 @@ const CallComparison = () => {
           </Card>
         </TabsContent>
       </Tabs>
-    </DashboardLayout>
+    </>
   );
 };
 

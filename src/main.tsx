@@ -1,53 +1,60 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App.tsx';
+import App from './App';
 import './index.css';
-import { startMetricsSyncScheduler } from './services/DataSyncService';
-import { ensureDatabaseSchema } from './services/SqlUtilService';
-import { checkSupabaseConnection } from './integrations/supabase/client';
-import { errorHandler } from './services/ErrorHandlingService';
+import { AuthProvider } from './contexts/AuthContext';
+import { SharedFilterProvider } from './contexts/SharedFilterContext';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from '@/components/ui/sonner';
 
-// Attempt to set up database schema but continue with app rendering regardless
-ensureDatabaseSchema().then(() => {
-  console.log('Database schema initialization attempt complete');
+// Remove SqlUtilService import and related logic
+// import { SqlUtilService } from './services/SqlUtilService';
+// import { DataSyncService } from './services/DataSyncService';
 
-  // Perform an immediate connection check
-  // Force connection status to online initially
-  errorHandler.setOffline(false);
+const queryClient = new QueryClient();
 
-  // Try to check connection immediately
-  setTimeout(() => {
-    console.log('Performing initial connection check');
-    checkSupabaseConnection().then(connected => {
-      console.log(`Initial connection check result: ${connected ? 'online' : 'offline'}`);
-      errorHandler.setOffline(!connected);
-    }).catch(error => {
-      console.error('Initial connection check failed:', error);
-      errorHandler.setOffline(true);
-    });
-  }, 1000);
-}).catch(error => {
-  // Just log the error, don't prevent app from loading
-  console.error('Error during database schema initialization:', error);
-});
+// Remove the async IIFE related to schema initialization
+/*
+(async () => {
+  try {
+    console.log('Database schema initialization attempt complete');
+    await SqlUtilService.ensureDatabaseSchema(); // Remove this call
+    console.log('Database schema setup event:', { success: true, message: 'Database schema setup complete' });
+  } catch (error) {
+    console.error('Error during initial database setup:', error);
+    console.log('Database schema setup event:', { success: false, message: 'Database schema setup failed', error });
+  }
 
-// Listen for database setup events
-window.addEventListener('database-schema-setup-complete', (event: Event) => {
-  const customEvent = event as CustomEvent;
-  console.log('Database schema setup event:', customEvent.detail);
-});
+  // Run initial metrics sync after ensuring schema
+  try {
+    await DataSyncService.syncAllMetrics(); // Keep initial sync if needed, but doesn't depend on SqlUtilService now
+    console.log('Initial metrics sync attempt finished.');
+  } catch (error) {
+    console.error('Error during initial metrics sync:', error);
+  }
+})();
+*/
 
-// Initialize the data sync scheduler to keep metrics in sync
-// This will synchronize data between primary tables and summary tables every 5 minutes
-const cleanupDataSync = startMetricsSyncScheduler();
-
-// Add event listener to clean up on window unload
-window.addEventListener('beforeunload', () => {
-  cleanupDataSync();
-});
-
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+// Simplify rendering
+ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <SharedFilterProvider>
+          <App />
+          <Toaster />
+        </SharedFilterProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  </React.StrictMode>
 );
+
+// Optional: Keep initial connection check if desired, or remove if AppLayout handles it
+/*
+async function checkInitialConnection() {
+  console.log('Performing initial connection check');
+  const connected = await ConnectionService.checkConnection(true); 
+  console.log('Initial connection check result:', connected ? 'online' : 'offline');
+}
+checkInitialConnection();
+*/

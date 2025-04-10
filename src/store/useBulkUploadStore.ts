@@ -24,12 +24,12 @@ export interface UploadHistoryRecord {
   filename: string;
   created_at: string;
   user_id: string;
-  duration: number;
-  call_score: number;
-  sentiment: string;
+  duration: number | null; // Allow null
+  call_score: number | null; // Allow null
+  sentiment: string | null; // Allow null
   text: string;
-  keywords: string[];
-  transcript_segments: Json;
+  keywords: string[] | null; // Allow null
+  transcript_segments: Json | null; // Allow null
 }
 
 interface BulkUploadStore {
@@ -59,11 +59,12 @@ export const useBulkUploadStore = create<BulkUploadStore>((set, get) => ({
   userId: undefined,
   
   addFiles: (files: File[], userId?: string) => {
-    console.log(`Adding ${files.length} files to queue with userId: ${userId || 'undefined'}`);
+    const timestamp = Date.now(); // Consistent timestamp for this batch
+    console.log(`[${timestamp}] Adding ${files.length} files to queue with userId: ${userId || 'undefined'}`);
     
     set(state => {
-      const newFiles = Array.from(files).map(file => ({
-        id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      const newFiles = Array.from(files).map((file, index) => ({
+        id: `file-${timestamp}-${index}-${Math.random().toString(36).substr(2, 5)}`, // Improved ID
         file,
         status: 'queued' as UploadStatus,
         progress: 0,
@@ -71,17 +72,23 @@ export const useBulkUploadStore = create<BulkUploadStore>((set, get) => ({
         userId: userId || state.userId || 'unknown',
         transcriptId: null,
         error: null,
-        result: null
+        result: null,
+        lastUpdated: 0 // Initialize lastUpdated
       }));
       
-      console.log(`Created ${newFiles.length} new file objects with status queued`);
-      console.log(`First file userId: ${newFiles[0]?.userId}`);
+      // Log details of the files being added
+      console.log(`[${timestamp}] Created file objects:`, newFiles.map(f => ({id: f.id, name: f.file.name, status: f.status, userId: f.userId })));
+      
+      const updatedFiles = [...state.files, ...newFiles];
+      console.log(`[${timestamp}] New files state length: ${updatedFiles.length}`);
       
       return { 
-        files: [...state.files, ...newFiles],
+        files: updatedFiles,
         userId: userId || state.userId
       };
     });
+    // Log state *after* update (Zustand updates might be async)
+    setTimeout(() => console.log(`[${timestamp}] Store state AFTER addFiles:`, get().files.map(f=>f.status)), 0); 
   },
   
   updateFileStatus: (id, status, progress, result, error, transcriptId) => {
@@ -149,8 +156,8 @@ export const useBulkUploadStore = create<BulkUploadStore>((set, get) => ({
   },
   
   setProcessing: (isProcessing) => {
+    console.log(`[Store] Setting isProcessing from ${get().isProcessing} to: ${isProcessing}`);
     set({ isProcessing });
-    console.log(`Set processing state to: ${isProcessing}`);
   },
   
   resetStore: () => {
@@ -166,39 +173,47 @@ export const useBulkUploadStore = create<BulkUploadStore>((set, get) => ({
   loadUploadHistory: async () => {
     try {
       console.log('Loading upload history from Supabase...');
+      // Correctly formatted select string
+      const selectColumns = 
+        'id, filename, created_at, user_id, duration, call_score, sentiment, text, keywords, transcript_segments';
+      
       const { data, error } = await supabase
         .from('call_transcripts')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select(selectColumns) // Pass the correct string
+        .order('created_at', { ascending: false })
+        .limit(100);
         
       if (!error && data) {
-        console.log(`Loaded ${data.length} items from upload history`);
+        console.log(`Loaded ${data.length} items for upload history`);
         set({ 
-          uploadHistory: data,
+          uploadHistory: (data as UploadHistoryRecord[]),
           hasLoadedHistory: true
         });
       } else {
         console.error('Error loading upload history:', error);
+        set({ hasLoadedHistory: true });
       }
     } catch (error) {
       console.error('Exception loading upload history:', error);
+      set({ hasLoadedHistory: true });
     }
   },
   
   acquireProcessingLock: () => {
     const { processingLock } = get();
+    console.log(`[Store] Attempting acquire lock. Current lock state: ${processingLock}`);
     if (processingLock) {
-      console.log('Processing lock already acquired, cannot process files');
+      console.warn('[Store] Processing lock already acquired, cannot process files');
       return false;
     }
     
-    console.log('Acquiring processing lock');
+    console.log('[Store] Acquiring processing lock');
     set({ processingLock: true });
     return true;
   },
   
   releaseProcessingLock: () => {
-    console.log('Releasing processing lock');
+    console.log('[Store] Releasing processing lock');
     set({ processingLock: false });
   }
 }));

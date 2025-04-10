@@ -1,17 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
-import { useContext } from 'react';
-import { ThemeContext } from "@/App";
-import { useCallTranscripts, CallTranscript } from '@/services/CallTranscriptService';
-import { useSharedFilters } from '@/contexts/SharedFilterContext';
 import ContentLoader from '@/components/ui/ContentLoader';
 import { ArrowUpRight, Mic, UserIcon, Clock, Volume2, MessageSquare, AlertTriangle } from 'lucide-react';
 import { BarChart, Bar, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ThemeContext } from "@/App";
+import { Transcript } from '@/services/repositories/TranscriptsRepository';
 
 // Extended transcript type with additional metrics
-interface ExtendedCallTranscript extends CallTranscript {
+interface ExtendedCallTranscript extends Transcript {
   talk_ratio_agent?: number;
   talk_ratio_customer?: number;
   speaking_speed?: number;
@@ -20,11 +19,59 @@ interface ExtendedCallTranscript extends CallTranscript {
   customer_engagement?: number;
 }
 
-interface SalesMetricsDisplayProps {
-  isLoading?: boolean;
-  selectedRepId?: string;
+interface MetricCardProps {
+  title: string;
+  value: string | number;
+  description: string;
 }
 
+interface SalesMetricsProps {
+  metrics?: {
+      avgCallScore?: number;
+      conversionRate?: number;
+      positiveSentimentPercent?: number;
+      avgDurationMinutes?: number;
+  } | null;
+  isLoading?: boolean;
+}
+
+const MetricCard: React.FC<MetricCardProps> = ({ title, value, description }) => (
+    <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+            <div className="text-2xl font-bold">{value}</div>
+            <p className="text-xs text-muted-foreground">{description}</p>
+        </CardContent>
+      </Card>
+    );
+
+const SalesMetricsDisplay: React.FC<SalesMetricsProps> = ({ metrics, isLoading }) => {
+    const { isDarkMode } = useContext(ThemeContext);
+
+    if (isLoading) {
+    return (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <Skeleton className="h-24" />
+                <Skeleton className="h-24" />
+                <Skeleton className="h-24" />
+                <Skeleton className="h-24" />
+            </div>
+        );
+    }
+
+    return (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <MetricCard title="Avg Call Score" value={metrics?.avgCallScore?.toFixed(0) ?? 'N/A'} description="Overall call quality" />
+            <MetricCard title="Conversion Rate" value={`${metrics?.conversionRate?.toFixed(1) ?? 'N/A'}%`} description="Based on outcomes" />
+            <MetricCard title="Positive Sentiment" value={`${metrics?.positiveSentimentPercent?.toFixed(1) ?? 'N/A'}%`} description="Calls with positive sentiment" />
+            <MetricCard title="Avg Duration" value={`${metrics?.avgDurationMinutes?.toFixed(1) ?? 'N/A'} min`} description="Average length of calls" />
+    </div>
+  );
+};
+
+export default SalesMetricsDisplay; 
 type MetricCardProps = {
   title: string;
   value: number | string;
@@ -421,6 +468,18 @@ const SalesMetricsDisplay: React.FC<SalesMetricsDisplayProps> = ({
     );
   };
   
+  // Placeholder rendering while component logic is refactored
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Skeleton className="h-24" />
+        <Skeleton className="h-24" />
+        <Skeleton className="h-24" />
+        <Skeleton className="h-24" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h2 className={`text-xl font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>

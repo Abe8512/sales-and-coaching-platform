@@ -64,64 +64,115 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const { data: { session: sessionBeforeQuery } } = await supabase.auth.getSession();
       console.log('[AuthContext] Session user ID before query:', sessionBeforeQuery?.user?.id);
 
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Profile fetch timed out')), TIMEOUT_DURATION)
-      );
+      // First check if the user exists in auth.users
+      const { data: authUser, error: authUserError } = await supabase.auth.getUser();
+      console.log('[AuthContext] Auth user check result:', { authUser, authUserError });
 
-      // Real profile fetch
-      const profilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
-      
-      // Race between the real profile fetch and the timeout
-      const { data: profile, error } = await Promise.race([profilePromise, timeoutPromise]) as {
-        data: any,
-        error: Error | null
-      };
-
-      console.log('[AuthContext] Profile fetch result:', { profile, error });
-
-      if (error) {
-        throw error;
+      if (authUserError) {
+        console.error('[AuthContext] Error fetching auth user:', authUserError);
+        throw authUserError;
       }
 
-      if (!profile) {
-        throw new Error('No profile found');
+      if (!authUser || !authUser.user) {
+        console.error('[AuthContext] No auth user found');
+        throw new Error('No authenticated user found');
+      }
+
+      // Try to get profile from the database
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      console.log('[AuthContext] Profile fetch result:', { profile, profileError });
+
+      let userProfile = profile;
+
+      // If profile doesn't exist, create one
+      if (profileError || !profile) {
+        console.log('[AuthContext] Profile not found, attempting to create one');
+        
+        const meta = authUser.user.user_metadata || {};
+        const email = authUser.user.email || '';
+        const userDisplayName = meta.display_name || meta.first_name || email.split('@')[0] || 'User';
+        
+        // Create a new profile
+        const { data: createdProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            display_name: userDisplayName,
+            role: 'rep'
+          })
+          .select('*')
+          .single();
+        
+        console.log('[AuthContext] Profile creation result:', { createdProfile, createError });
+        
+        if (createError) {
+          console.error('[AuthContext] Error creating profile:', createError);
+          throw createError;
+        }
+        
+        if (!createdProfile) {
+          throw new Error('Failed to create profile');
+        }
+        
+        // Use the newly created profile
+        userProfile = createdProfile;
+        
+        // Update the email field for the profile if it exists in the table
+        try {
+          await supabase
+            .from('profiles')
+            .update({ email: email })
+            .eq('id', userId);
+        } catch (updateError) {
+          console.log('[AuthContext] Could not update email, might not exist in table:', updateError);
+        }
       }
 
       // Map the role from the database to the expected application roles
       // If the role is 'user', map it to 'rep'
       let mappedRole: 'admin' | 'manager' | 'rep' = 'rep'; // Default to 'rep'
       
-      if (profile.role === 'admin') {
+      if (userProfile.role === 'admin') {
         mappedRole = 'admin';
-      } else if (profile.role === 'manager') {
+      } else if (userProfile.role === 'manager') {
         mappedRole = 'manager';
       }
 
-      // Fetch team memberships
-      const { data: teamMemberships, error: teamError } = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('user_id', userId);
+      // Get team memberships if the team_members table exists
+      let teams: string[] = [];
+      try {
+        const { data: teamMemberships, error: teamError } = await supabase
+          .from('team_members')
+          .select('team_id')
+          .eq('user_id', userId);
 
-      if (teamError) {
+        if (!teamError && teamMemberships) {
+          teams = teamMemberships.map(tm => tm.team_id);
+        }
+      } catch (teamError) {
         console.error('[AuthContext] Error fetching team memberships:', teamError);
       }
 
       // Map to User object
       profileData = {
-        id: profile.id,
-        email: profile.email,
-        first_name: profile.first_name,
-        last_name: profile.last_name,
-        display_name: profile.display_name,
-        avatar_url: profile.avatar_url,
+        id: userProfile.id,
+        email: authUser.user.email || '',
+        first_name: userProfile.first_name || null,
+        last_name: userProfile.last_name || null,
+        display_name: userProfile.display_name || userProfile.first_name || authUser.user.email?.split('@')[0] || 'User',
+        avatar_url: userProfile.avatar_url || null,
         role: mappedRole,
-        teams: teamMemberships ? teamMemberships.map((tm: TeamMember) => tm.team_id) : [],
+        teams: teams,
       };
 
       console.log('[AuthContext] Mapped profile data:', profileData);
     } catch (error) {
-      console.error('[AuthContext] Error fetching profile:', error);
+      console.error('[AuthContext] Error processing profile:', error);
       profileError = error as Error;
 
       // Fall back to getting metadata from Supabase user
@@ -144,17 +195,39 @@ export function AuthProvider({ children }: AuthProviderProps) {
             mappedRole = 'manager';
           }
 
+          const email = supabaseUser.email || '';
+          const userDisplayName = meta.display_name || meta.first_name || email.split('@')[0] || 'User';
+
           profileData = {
             id: supabaseUser.id,
-            email: supabaseUser.email || '',
+            email: email,
             first_name: meta.first_name || null,
             last_name: meta.last_name || null,
-            display_name: meta.display_name || meta.first_name || supabaseUser.email?.split('@')[0] || 'User',
+            display_name: userDisplayName,
             avatar_url: meta.avatar_url || null,
             role: mappedRole,
             teams: [],
           };
           console.log('[AuthContext] Created profile from metadata:', profileData);
+          
+          // Try to create the profile in the database
+          try {
+            const { error: insertError } = await supabase
+              .from('profiles')
+              .insert({
+                id: supabaseUser.id,
+                display_name: userDisplayName,
+                role: 'rep'
+              });
+              
+            if (insertError) {
+              console.error('[AuthContext] Error creating profile from fallback:', insertError);
+            } else {
+              console.log('[AuthContext] Successfully created profile from fallback');
+            }
+          } catch (createError) {
+            console.error('[AuthContext] Error creating profile from fallback:', createError);
+          }
         }
       } catch (fallbackError) {
         console.error('[AuthContext] Fallback error:', fallbackError);
@@ -163,6 +236,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (profileData) {
         console.log('[AuthContext] Setting user to:', profileData);
         setUser(profileData);
+        console.log('[AuthContext] User set successfully');
       } else {
         console.error('[AuthContext] Failed to get profile data:', profileError);
         setUser(null);
@@ -174,6 +248,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         });
       }
       setIsAuthLoading(false);
+      console.log('[AuthContext] Auth loading set to false');
     }
   }, [toast]);
 
